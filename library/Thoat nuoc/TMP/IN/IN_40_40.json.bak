@@ -1,0 +1,338 @@
+{
+  "schema": "NEVIS_LIBRARY_JSON_V2",
+  "version": 2,
+  "name": "IN_40_40",
+  "source_txt": "IN_40_40.json",
+  "independent_json": true,
+  "material": "",
+  "type": "IN",
+  "size": "40x40",
+  "name_rule": {
+    "source": "filename_prefix",
+    "raw_prefix": "IN",
+    "detected_type": "IN",
+    "expected_port_count": 2,
+    "main_ports": [
+      "P1",
+      "P2"
+    ],
+    "branch_port": null,
+    "expected_main_angle_deg": null,
+    "expected_branch_angles_deg": [],
+    "expected_two_port_angles_deg": [
+      180
+    ],
+    "flow_model_hint": "directional",
+    "description": "2 cửa thẳng hàng 180°"
+  },
+  "port_count": 3,
+  "port_count_source": "manual",
+  "manual_override": true,
+  "center": [
+    0.0,
+    0.0
+  ],
+  "center_source": "lt49_common_endpoint",
+  "center_is_fitting_insert_point": true,
+  "center_definition": "intersection/common point of lt49 pipe centerlines",
+  "flow": {
+    "model": "directional",
+    "port": "P2",
+    "default_direction": [
+      0,
+      -1
+    ],
+    "default_direction_name": "downward",
+    "note": "collector is used for S/集合管; each port direction is still defined by lt49; directional defaults to the downward port."
+  },
+  "ports": [
+    {
+      "id": "P1",
+      "role": "main_1",
+      "center": [
+        -0.0,
+        23.499970602
+      ],
+      "direction": [
+        0.0,
+        1.0
+      ],
+      "angle_deg": 90.0,
+      "centerline": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          23.499970602
+        ]
+      ],
+      "cut_point": [
+        -0.0,
+        23.499970602
+      ],
+      "source": "lt49",
+      "confidence": 1.0
+    },
+    {
+      "id": "P2",
+      "role": "main_2",
+      "center": [
+        0.0,
+        -23.499970602
+      ],
+      "direction": [
+        0.0,
+        -1.0
+      ],
+      "angle_deg": 270.0,
+      "centerline": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -23.499970602
+        ]
+      ],
+      "cut_point": [
+        0.0,
+        -23.499970602
+      ],
+      "source": "lt49",
+      "confidence": 1.0
+    },
+    {
+      "id": "P3",
+      "role": "branch",
+      "center": [
+        23.499970602,
+        23.499970602
+      ],
+      "direction": [
+        0.7071067811865476,
+        0.7071067811865476
+      ],
+      "angle_deg": 45.0,
+      "centerline": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          23.499970602,
+          23.499970602
+        ]
+      ],
+      "cut_point": [
+        23.499970602,
+        23.499970602
+      ],
+      "source": "lt49",
+      "confidence": 1.0
+    }
+  ],
+  "geometry": {
+    "raw_lines": [
+      "hq",
+      "hk 0",
+      "hs 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20",
+      "hcw 2 2.5 3 4 5 6 7 8 9 10",
+      "hch 2 2.5 3 4 5 6 7 8 9 10",
+      "hcd 0 0 0.5 0.5 0.5 1 1 1 1 1",
+      "hcc      1      1      2      2      3      3      4      4      5      5",
+      "hn -44.3016547802753 -84.7201579412437 43.993089855683 89.8626325889466",
+      "lg0",
+      "ly0",
+      "lc2",
+      "lt5",
+      "cn3",
+      "cn\"$<ＭＳ ゴシック>",
+      "#",
+      "ly1",
+      "lt1",
+      " -33.749936373 23.499970602 -33.749936373 -23.499970602",
+      " -33.749936373 -23.499970602 33.749936373 -23.499970602",
+      " 33.749936373 23.499970602 33.749936373 -23.499970602",
+      " -33.749936373 23.499970602 33.749936373 23.499970602",
+      "lt4",
+      " -23.899876657 1.499975786 23.899876657 1.499975786",
+      " -23.899876657 -1.499975786 23.899876657 -1.499975786",
+      "ly0",
+      "lt5",
+      " -23.4999706017922 -7.105427357601e-14 23.4999706017925 -7.105427357601e-14",
+      "ly3",
+      "pn1",
+      "pt -23.4999706017922 -7.105427357601e-14",
+      "pt 23.4999706017925 -7.105427357601e-14",
+      "lt49",
+      " 0 0 0 23.499970602",
+      " 0 0 0 -23.499970602",
+      " 0 0 23.499970602 23.499970602"
+    ],
+    "entities": {
+      "centerlines": [
+        {
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 0.0,
+          "y2": 23.499970602,
+          "lt": "49",
+          "lc": "2",
+          "ly": "3",
+          "raw": " 0 0 0 23.499970602",
+          "index": 32
+        },
+        {
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 0.0,
+          "y2": -23.499970602,
+          "lt": "49",
+          "lc": "2",
+          "ly": "3",
+          "raw": " 0 0 0 -23.499970602",
+          "index": 33
+        },
+        {
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 23.499970602,
+          "y2": 23.499970602,
+          "lt": "49",
+          "lc": "2",
+          "ly": "3",
+          "raw": " 0 0 23.499970602 23.499970602",
+          "index": 34
+        }
+      ],
+      "outlines": [
+        {
+          "x1": -33.749936373,
+          "y1": 23.499970602,
+          "x2": -33.749936373,
+          "y2": -23.499970602,
+          "lt": "1",
+          "lc": "2",
+          "ly": "1",
+          "raw": " -33.749936373 23.499970602 -33.749936373 -23.499970602",
+          "index": 17
+        },
+        {
+          "x1": -33.749936373,
+          "y1": -23.499970602,
+          "x2": 33.749936373,
+          "y2": -23.499970602,
+          "lt": "1",
+          "lc": "2",
+          "ly": "1",
+          "raw": " -33.749936373 -23.499970602 33.749936373 -23.499970602",
+          "index": 18
+        },
+        {
+          "x1": 33.749936373,
+          "y1": 23.499970602,
+          "x2": 33.749936373,
+          "y2": -23.499970602,
+          "lt": "1",
+          "lc": "2",
+          "ly": "1",
+          "raw": " 33.749936373 23.499970602 33.749936373 -23.499970602",
+          "index": 19
+        },
+        {
+          "x1": -33.749936373,
+          "y1": 23.499970602,
+          "x2": 33.749936373,
+          "y2": 23.499970602,
+          "lt": "1",
+          "lc": "2",
+          "ly": "1",
+          "raw": " -33.749936373 23.499970602 33.749936373 23.499970602",
+          "index": 20
+        },
+        {
+          "x1": -23.899876657,
+          "y1": 1.499975786,
+          "x2": 23.899876657,
+          "y2": 1.499975786,
+          "lt": "4",
+          "lc": "2",
+          "ly": "1",
+          "raw": " -23.899876657 1.499975786 23.899876657 1.499975786",
+          "index": 22
+        },
+        {
+          "x1": -23.899876657,
+          "y1": -1.499975786,
+          "x2": 23.899876657,
+          "y2": -1.499975786,
+          "lt": "4",
+          "lc": "2",
+          "ly": "1",
+          "raw": " -23.899876657 -1.499975786 23.899876657 -1.499975786",
+          "index": 23
+        }
+      ],
+      "circles": []
+    },
+    "line_type_rule": {
+      "lt49": "centerline",
+      "others": "geometry_outline_or_auxiliary",
+      "note": "Only lt49 is treated as pipe centerline; every other line type is drawable geometry."
+    }
+  },
+  "port_convention": {
+    "rule": "P1-P2 main, P3 branch",
+    "main_ports": [
+      "P1",
+      "P2"
+    ],
+    "branch_port": "P3",
+    "description": "For 3-port fittings such as T/DT/Y: P1 and P2 are the straight main route; P3 is the branch, usually 45/90/135 degrees from the main route."
+  },
+  "filename_rule_note": "Tên file tạo quy tắc kỳ vọng; lt49/port thực tế dùng để kiểm chứng. Nếu không khớp, QA sẽ tô cảnh báo.",
+  "auto_detect": {
+    "center_confidence": 1.0,
+    "port_count_confidence": 1.0,
+    "need_review": false
+  },
+  "three_port_shape": "Nhánh 45°",
+  "expected_branch_angle_rule": "Nhánh 45°",
+  "centerline_generated": true,
+  "centerline_generated_mode": "folder_batch",
+  "port_convention_status": {
+    "rule": "P1-P2 main, P3 branch",
+    "ok": true,
+    "main_opposite_error_deg": 0.0,
+    "branch_angle_to_main_deg": 45.0,
+    "branch_angle_error_deg": 0.0,
+    "note": "P1-P2 must be collinear/opposite; P3 must be branch at about 45/90/135 deg"
+  },
+  "name_rule_status": {
+    "ok": false,
+    "rule": {
+      "source": "filename_prefix",
+      "raw_prefix": "IN",
+      "detected_type": "IN",
+      "expected_port_count": 2,
+      "main_ports": [
+        "P1",
+        "P2"
+      ],
+      "branch_port": null,
+      "expected_main_angle_deg": null,
+      "expected_branch_angles_deg": [],
+      "expected_two_port_angles_deg": [
+        180
+      ],
+      "flow_model_hint": "directional",
+      "description": "2 cửa thẳng hàng 180°"
+    },
+    "warnings": [
+      "Tên file dự kiến 2 cửa nhưng JSON đang là 3 cửa"
+    ]
+  }
+}

@@ -1,0 +1,471 @@
+{
+  "version": 6,
+  "name_rule": "{group}_{main}_{branch}_{note}",
+  "strict_folder_master": true,
+  "library_root": "E:\\Neis2.01 Thoat nuoc\\library",
+  "systems": [
+    {
+      "code": "Thoat nuoc",
+      "name_vi": "Thoat nuoc",
+      "name_jp": "Thoat nuoc",
+      "folder": "Thoat nuoc",
+      "materials": [
+        "DV",
+        "HTVP",
+        "TMP",
+        "他の",
+        "耐火VP",
+        "脚部",
+        "集合管"
+      ],
+      "default_main_size": "",
+      "default_branch_rule": "down"
+    },
+    {
+      "code": "配管",
+      "name_vi": "配管",
+      "name_jp": "配管",
+      "folder": "配管",
+      "materials": [
+        "TMP",
+        "VP",
+        "耐火VP"
+      ],
+      "default_main_size": "",
+      "default_branch_rule": "down"
+    }
+  ],
+  "materials": [
+    {
+      "code": "DV",
+      "name_vi": "DV",
+      "name_jp": "DV",
+      "folder": "DV",
+      "family": "DV",
+      "sizes": [
+        "30",
+        "40",
+        "45",
+        "50",
+        "65",
+        "75",
+        "100",
+        "125",
+        "150",
+        "200",
+        "250",
+        "300",
+        "350",
+        "400"
+      ],
+      "groups": [
+        "45°",
+        "CO",
+        "DL",
+        "DL Down",
+        "DL UP",
+        "DT",
+        "IN",
+        "LL",
+        "LL Down",
+        "LL Up",
+        "LT",
+        "Y",
+        "Y_CO",
+        "他の",
+        "Dl Down",
+        "DL Up"
+      ],
+      "start_groups": [
+        "集合管",
+        "DL Down",
+        "LL Down"
+      ],
+      "end_groups": [
+        "DL Up",
+        "LL Up"
+      ]
+    },
+    {
+      "code": "HTVP",
+      "name_vi": "HTVP",
+      "name_jp": "HTVP",
+      "folder": "HTVP",
+      "family": "HTVP",
+      "sizes": [],
+      "groups": [
+        "Dl Down",
+        "DL Up",
+        "他の",
+        "Y_CO",
+        "Y",
+        "LT",
+        "LL Up",
+        "LL Down",
+        "LL",
+        "IN",
+        "DT",
+        "DL UP",
+        "DL Down",
+        "DL",
+        "CO",
+        "45°"
+      ],
+      "start_groups": [],
+      "end_groups": []
+    },
+    {
+      "code": "TMP",
+      "name_vi": "TMP",
+      "name_jp": "TMP",
+      "folder": "TMP",
+      "family": "TMP",
+      "sizes": [
+        "20",
+        "25",
+        "40",
+        "45",
+        "50",
+        "65",
+        "75",
+        "100",
+        "125",
+        "150",
+        "200"
+      ],
+      "groups": [
+        "45°",
+        "DL",
+        "Dl Down",
+        "DL Up",
+        "DT",
+        "IN",
+        "LL",
+        "LL Down",
+        "LL Up",
+        "LT",
+        "Y",
+        "Y_CO",
+        "他の",
+        "DL Down",
+        "DL UP"
+      ],
+      "start_groups": [
+        "集合管",
+        "LL Down",
+        "DL Down"
+      ],
+      "end_groups": [
+        "DL Up",
+        "LL Up"
+      ]
+    },
+    {
+      "code": "他の",
+      "name_vi": "他の",
+      "name_jp": "他の",
+      "folder": "他の",
+      "family": "他の",
+      "sizes": [
+        "50"
+      ],
+      "groups": [],
+      "start_groups": [],
+      "end_groups": []
+    },
+    {
+      "code": "耐火VP",
+      "name_vi": "耐火VP",
+      "name_jp": "耐火VP",
+      "folder": "耐火VP",
+      "family": "耐火VP",
+      "sizes": [
+        "20",
+        "25",
+        "30",
+        "40",
+        "45",
+        "50",
+        "65",
+        "75",
+        "100",
+        "125",
+        "150",
+        "200",
+        "250",
+        "300",
+        "350",
+        "400"
+      ],
+      "groups": [
+        "45°",
+        "CO",
+        "DL",
+        "DT",
+        "IN",
+        "LL",
+        "LT",
+        "Y",
+        "他の",
+        "Dl Down",
+        "DL Up",
+        "LL Up",
+        "LL Down",
+        "DL UP",
+        "DL Down"
+      ],
+      "start_groups": [
+        "集合管",
+        "DL Down",
+        "LL Down"
+      ],
+      "end_groups": [
+        "DL Up",
+        "LL Up"
+      ]
+    },
+    {
+      "code": "脚部",
+      "name_vi": "脚部",
+      "name_jp": "脚部",
+      "folder": "脚部",
+      "family": "脚部",
+      "sizes": [],
+      "groups": [],
+      "start_groups": [],
+      "end_groups": []
+    },
+    {
+      "code": "集合管",
+      "name_vi": "集合管",
+      "name_jp": "集合管",
+      "folder": "集合管",
+      "family": "集合管",
+      "sizes": [
+        "50",
+        "65",
+        "75"
+      ],
+      "groups": [],
+      "start_groups": [],
+      "end_groups": []
+    },
+    {
+      "code": "VP",
+      "name_vi": "VP",
+      "name_jp": "VP",
+      "folder": "VP",
+      "family": "VP",
+      "sizes": [
+        "20",
+        "25",
+        "30",
+        "40",
+        "50",
+        "65",
+        "75",
+        "100",
+        "125",
+        "150",
+        "200"
+      ],
+      "groups": [],
+      "start_groups": [],
+      "end_groups": []
+    }
+  ],
+  "fitting_groups": [
+    {
+      "code": "45°",
+      "name_vi": "45°",
+      "name_jp": "45°",
+      "ports": 2,
+      "folder": "45°",
+      "patterns": [
+        "45°_{main}_{branch}.json",
+        "45°_{main}_{branch}_{note}.json",
+        "45°_{main}.json"
+      ]
+    },
+    {
+      "code": "CO",
+      "name_vi": "CO",
+      "name_jp": "CO",
+      "ports": 2,
+      "folder": "CO",
+      "patterns": [
+        "CO_{main}_{branch}.json",
+        "CO_{main}_{branch}_{note}.json",
+        "CO_{main}.json"
+      ]
+    },
+    {
+      "code": "DL",
+      "name_vi": "DL",
+      "name_jp": "DL",
+      "ports": 2,
+      "folder": "DL",
+      "patterns": [
+        "DL_{main}_{branch}.json",
+        "DL_{main}_{branch}_{note}.json",
+        "DL_{main}.json"
+      ]
+    },
+    {
+      "code": "DL Down",
+      "name_vi": "DL Down",
+      "name_jp": "DL Down",
+      "ports": 2,
+      "folder": "DL Down",
+      "patterns": [
+        "DL Down_{main}_{branch}.json",
+        "DL Down_{main}_{branch}_{note}.json",
+        "DL Down_{main}.json"
+      ]
+    },
+    {
+      "code": "DL UP",
+      "name_vi": "DL UP",
+      "name_jp": "DL UP",
+      "ports": 2,
+      "folder": "DL UP",
+      "patterns": [
+        "DL UP_{main}_{branch}.json",
+        "DL UP_{main}_{branch}_{note}.json",
+        "DL UP_{main}.json"
+      ]
+    },
+    {
+      "code": "DT",
+      "name_vi": "DT",
+      "name_jp": "DT",
+      "ports": 3,
+      "folder": "DT",
+      "patterns": [
+        "DT_{main}_{branch}.json",
+        "DT_{main}_{branch}_{note}.json",
+        "DT_{main}.json"
+      ]
+    },
+    {
+      "code": "IN",
+      "name_vi": "IN",
+      "name_jp": "IN",
+      "ports": 2,
+      "folder": "IN",
+      "patterns": [
+        "IN_{main}_{branch}.json",
+        "IN_{main}_{branch}_{note}.json",
+        "IN_{main}.json"
+      ]
+    },
+    {
+      "code": "LL",
+      "name_vi": "LL",
+      "name_jp": "LL",
+      "ports": 2,
+      "folder": "LL",
+      "patterns": [
+        "LL_{main}_{branch}.json",
+        "LL_{main}_{branch}_{note}.json",
+        "LL_{main}.json"
+      ]
+    },
+    {
+      "code": "LL Down",
+      "name_vi": "LL Down",
+      "name_jp": "LL Down",
+      "ports": 2,
+      "folder": "LL Down",
+      "patterns": [
+        "LL Down_{main}_{branch}.json",
+        "LL Down_{main}_{branch}_{note}.json",
+        "LL Down_{main}.json"
+      ]
+    },
+    {
+      "code": "LL Up",
+      "name_vi": "LL Up",
+      "name_jp": "LL Up",
+      "ports": 2,
+      "folder": "LL Up",
+      "patterns": [
+        "LL Up_{main}_{branch}.json",
+        "LL Up_{main}_{branch}_{note}.json",
+        "LL Up_{main}.json"
+      ]
+    },
+    {
+      "code": "LT",
+      "name_vi": "LT",
+      "name_jp": "LT",
+      "ports": 3,
+      "folder": "LT",
+      "patterns": [
+        "LT_{main}_{branch}.json",
+        "LT_{main}_{branch}_{note}.json",
+        "LT_{main}.json"
+      ]
+    },
+    {
+      "code": "Y",
+      "name_vi": "Y",
+      "name_jp": "Y",
+      "ports": 3,
+      "folder": "Y",
+      "patterns": [
+        "Y_{main}_{branch}.json",
+        "Y_{main}_{branch}_{note}.json",
+        "Y_{main}.json"
+      ]
+    },
+    {
+      "code": "Y_CO",
+      "name_vi": "Y_CO",
+      "name_jp": "Y_CO",
+      "ports": 2,
+      "folder": "Y_CO",
+      "patterns": [
+        "Y_CO_{main}_{branch}.json",
+        "Y_CO_{main}_{branch}_{note}.json",
+        "Y_CO_{main}.json"
+      ]
+    },
+    {
+      "code": "他の",
+      "name_vi": "他の",
+      "name_jp": "他の",
+      "ports": 2,
+      "folder": "他の",
+      "patterns": [
+        "他の_{main}_{branch}.json",
+        "他の_{main}_{branch}_{note}.json",
+        "他の_{main}.json"
+      ]
+    },
+    {
+      "code": "Dl Down",
+      "name_vi": "Dl Down",
+      "name_jp": "Dl Down",
+      "ports": 2,
+      "folder": "Dl Down",
+      "patterns": [
+        "Dl Down_{main}_{branch}.json",
+        "Dl Down_{main}_{branch}_{note}.json",
+        "Dl Down_{main}.json"
+      ]
+    },
+    {
+      "code": "DL Up",
+      "name_vi": "DL Up",
+      "name_jp": "DL Up",
+      "ports": 2,
+      "folder": "DL Up",
+      "patterns": [
+        "DL Up_{main}_{branch}.json",
+        "DL Up_{main}_{branch}_{note}.json",
+        "DL Up_{main}.json"
+      ]
+    }
+  ]
+}

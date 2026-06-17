@@ -1,0 +1,200 @@
+{
+  "schema": "NEVIS_LIBRARY_LEARNING_INDEX_V1",
+  "description": "Stage 3 index: groups normalized JSON/TXT samples by material + geometry template for future interpolation/generation.",
+  "group_count": 1,
+  "sample_count": 7,
+  "groups": {
+    "|ELBOW_90|LL": [
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\LL\\LL_40_40.json",
+        "name": "LL_40_40",
+        "material": "",
+        "type": "LL",
+        "size": "40x40",
+        "size_tokens": [
+          40,
+          40
+        ],
+        "port_count": 2,
+        "shape_signature": "251d7a5e023a40cb",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -27.0,
+          "ymin": -154.432,
+          "xmax": 155.763,
+          "ymax": 28.501,
+          "w": 182.763,
+          "h": 182.933
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          270.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\LL\\LL_50_50.json",
+        "name": "LL_50_50",
+        "material": "",
+        "type": "LL",
+        "size": "50x50",
+        "size_tokens": [
+          50,
+          50
+        ],
+        "port_count": 2,
+        "shape_signature": "251d7a5e023a40cb",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -33.5,
+          "ymin": -213.099,
+          "xmax": 214.953,
+          "ymax": 35.346,
+          "w": 248.453,
+          "h": 248.445
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          270.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\LL\\LL_65_65.json",
+        "name": "LL_65_65",
+        "material": "",
+        "type": "LL",
+        "size": "65x65",
+        "size_tokens": [
+          65,
+          65
+        ],
+        "port_count": 2,
+        "shape_signature": "251d7a5e023a40cb",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -41.5,
+          "ymin": -261.41,
+          "xmax": 263.68,
+          "ymax": 44.037,
+          "w": 305.18,
+          "h": 305.446
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          270.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\LL\\LL_75_75.json",
+        "name": "LL_75_75",
+        "material": "",
+        "type": "LL",
+        "size": "75x75",
+        "size_tokens": [
+          75,
+          75
+        ],
+        "port_count": 2,
+        "shape_signature": "251d7a5e023a40cb",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -48.5,
+          "ymin": -286.631,
+          "xmax": 289.831,
+          "ymax": 51.341,
+          "w": 338.331,
+          "h": 337.972
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          270.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\LL\\LL_100_100.json",
+        "name": "LL_100_100",
+        "material": "",
+        "type": "LL",
+        "size": "100x100",
+        "size_tokens": [
+          100,
+          100
+        ],
+        "port_count": 2,
+        "shape_signature": "251d7a5e023a40cb",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -62.0,
+          "ymin": -366.531,
+          "xmax": 369.531,
+          "ymax": 65.611,
+          "w": 431.531,
+          "h": 432.143
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          270.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\LL\\LL_125_125.json",
+        "name": "LL_125_125",
+        "material": "",
+        "type": "LL",
+        "size": "125x125",
+        "size_tokens": [
+          125,
+          125
+        ],
+        "port_count": 2,
+        "shape_signature": "251d7a5e023a40cb",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -75.5,
+          "ymin": -456.183,
+          "xmax": 460.088,
+          "ymax": 79.658,
+          "w": 535.588,
+          "h": 535.842
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          270.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\LL\\LL_150_150.json",
+        "name": "LL_150_150",
+        "material": "",
+        "type": "LL",
+        "size": "150x150",
+        "size_tokens": [
+          150,
+          150
+        ],
+        "port_count": 2,
+        "shape_signature": "251d7a5e023a40cb",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -93.283,
+          "ymin": -503.743,
+          "xmax": 508.037,
+          "ymax": 96.436,
+          "w": 601.32,
+          "h": 600.179
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          270.0
+        ]
+      }
+    ]
+  },
+  "errors": []
+}

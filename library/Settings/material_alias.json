@@ -1,0 +1,7 @@
+{
+  "schema": "NEVIS_MATERIAL_ALIAS_V1",
+  "description": "User edited material item display names from the BOM table. Key = material|size|canonical_name.",
+  "item_name_alias": {
+    "DV|50|DV_50_ゴムフレキL200": "ゴムフレキL200"
+  }
+}

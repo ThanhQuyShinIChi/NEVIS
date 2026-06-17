@@ -1,0 +1,263 @@
+{
+  "schema": "NEVIS_LIBRARY_LEARNING_INDEX_V2",
+  "description": "Portable learning index. Files are relative to Library/. Geometry aliases let HTVP/TaikaVP/耐火VP inherit DV geometry without copying JSON/TXT.",
+  "library_root_rule": "Index is portable: resolve relative_file against the current NEVIS/Library folder on each PC.",
+  "library_root_name": "Library",
+  "material_geometry_aliases": {
+    "HTVP": "DV",
+    "TAIKAVP": "DV",
+    "耐火VP": "DV",
+    "耐火DV": "DV"
+  },
+  "group_count": 1,
+  "sample_count": 8,
+  "alias_group_count": 0,
+  "skipped_count": 0,
+  "skipped_files": [],
+  "groups": {
+    "D|ELBOW_90_TERMINAL|DL": [
+      {
+        "library_id": "D_DL_30X30",
+        "file": "Thoat nuoc/DV/DL Down/DL_30_30_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_30_30_D.json",
+        "name": "DL_30_30_D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "30x30",
+        "size_tokens": [
+          30,
+          30
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -25.475,
+          "ymin": -40.0,
+          "xmax": 25.475,
+          "ymax": 18.89,
+          "w": 50.95,
+          "h": 58.891
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      },
+      {
+        "library_id": "D_DL_40X40",
+        "file": "Thoat nuoc/DV/DL Down/DL_40_40_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_40_40_D.json",
+        "name": "DL_40_40_D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "40x40",
+        "size_tokens": [
+          40,
+          40
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -30.001,
+          "ymin": -49.0,
+          "xmax": 30.001,
+          "ymax": 24.001,
+          "w": 60.001,
+          "h": 73.001
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      },
+      {
+        "library_id": "D_DL_50X50",
+        "file": "Thoat nuoc/DV/DL Down/DL_50_50_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_50_50_D.json",
+        "name": "DL_50_50_D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "50x50",
+        "size_tokens": [
+          50,
+          50
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -37.0,
+          "ymin": -58.0,
+          "xmax": 37.0,
+          "ymax": 30.0,
+          "w": 74.0,
+          "h": 88.0
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      },
+      {
+        "library_id": "D_DL_65X65",
+        "file": "Thoat nuoc/DV/DL Down/DL_65_65_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_65_65_D.json",
+        "name": "DL_65_65_D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "65x65",
+        "size_tokens": [
+          65,
+          65
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -41.499,
+          "ymin": -76.75,
+          "xmax": 42.001,
+          "ymax": 37.971,
+          "w": 83.5,
+          "h": 114.722
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      },
+      {
+        "library_id": "D_DL_75X75",
+        "file": "Thoat nuoc/DV/DL Down/DL_75_75_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_75_75_D.json",
+        "name": "DL_75_75_D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "75x75",
+        "size_tokens": [
+          75,
+          75
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -52.501,
+          "ymin": -88.001,
+          "xmax": 52.501,
+          "ymax": 44.502,
+          "w": 105.003,
+          "h": 132.503
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      },
+      {
+        "library_id": "D_DL_100X100",
+        "file": "Thoat nuoc/DV/DL Down/DL_100_100_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_100_100_D.json",
+        "name": "DL_100_100__D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "100x100",
+        "size_tokens": [
+          100,
+          100
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -66.999,
+          "ymin": -111.999,
+          "xmax": 66.999,
+          "ymax": 57.0,
+          "w": 133.998,
+          "h": 168.999
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      },
+      {
+        "library_id": "D_DL_125X125",
+        "file": "Thoat nuoc/DV/DL Down/DL_125_125_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_125_125_D.json",
+        "name": "DL_125_125_D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "125x125",
+        "size_tokens": [
+          125,
+          125
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -81.001,
+          "ymin": -140.002,
+          "xmax": 81.001,
+          "ymax": 70.001,
+          "w": 162.002,
+          "h": 210.003
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      },
+      {
+        "library_id": "D_DL_150X150",
+        "file": "Thoat nuoc/DV/DL Down/DL_150_150_D.json",
+        "relative_file": "Thoat nuoc/DV/DL Down/DL_150_150_D.json",
+        "name": "DL_150_150_D",
+        "material": "D",
+        "geometry_base_material": "D",
+        "inherits_geometry": false,
+        "type": "DL",
+        "size": "150x150",
+        "size_tokens": [
+          150,
+          150
+        ],
+        "port_count": 1,
+        "shape_signature": "791ef41e0a15470a",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -95.5,
+          "ymin": -167.999,
+          "xmax": 95.5,
+          "ymax": 82.503,
+          "w": 191.0,
+          "h": 250.502
+        },
+        "relative_port_angles_deg": [
+          0.0
+        ]
+      }
+    ]
+  },
+  "alias_groups": {},
+  "errors": []
+}

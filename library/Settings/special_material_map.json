@@ -1,0 +1,160 @@
+{
+  "schema": "NEVIS_SPECIAL_MATERIAL_MAP_V1",
+  "description": "Key = special library relative path or file stem. Rows = material/size/item/unit/qty/note counted for one placed special library.",
+  "definitions": {
+    "library/特/DV_50_45°+ 45°.json": {
+      "path": "library/特/DV_50_45°+ 45°.json",
+      "name": "45°+ 45°",
+      "rows": [
+        {
+          "mat": "DV",
+          "size": "50",
+          "name": "45°エルボ",
+          "unit": "個",
+          "qty": 2,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/DV_50_50_ソケット.json": {
+      "path": "library/特/DV_50_50_ソケット.json",
+      "name": "50_ソケット",
+      "rows": [
+        {
+          "mat": "DV",
+          "size": "50",
+          "name": "50_ソケット",
+          "unit": "個",
+          "qty": 1,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/DV_50_DL+DL.json": {
+      "path": "library/特/DV_50_DL+DL.json",
+      "name": "DL+DL",
+      "rows": [
+        {
+          "mat": "DV",
+          "size": "50",
+          "name": "DL継手",
+          "unit": "個",
+          "qty": 2,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/DV_50_ゴムエルボ.json": {
+      "path": "library/特/DV_50_ゴムエルボ.json",
+      "name": "ゴムエルボ",
+      "rows": [
+        {
+          "mat": "DV",
+          "size": "50",
+          "name": "ゴムエルボ",
+          "unit": "個",
+          "qty": 1,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/DV_50_トラップ.json": {
+      "path": "library/特/DV_50_トラップ.json",
+      "name": "トラップ",
+      "rows": [
+        {
+          "mat": "DV",
+          "size": "50",
+          "name": "トラップ",
+          "unit": "個",
+          "qty": 1,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/DV_50_フレキL200.json": {
+      "path": "library/特/DV_50_フレキL200.json",
+      "name": "フレキL200",
+      "rows": [
+        {
+          "mat": "DV",
+          "size": "50",
+          "name": "フレキL200",
+          "unit": "個",
+          "qty": 1,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/TMP_50_45°+ 45°.json": {
+      "path": "library/特/TMP_50_45°+ 45°.json",
+      "name": "45°+ 45°",
+      "rows": [
+        {
+          "mat": "TMP",
+          "size": "50",
+          "name": "45°エルボ",
+          "unit": "個",
+          "qty": 2,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/TMP_50_50_ソケット.json": {
+      "path": "library/特/TMP_50_50_ソケット.json",
+      "name": "50_ソケット",
+      "rows": [
+        {
+          "mat": "TMP",
+          "size": "50",
+          "name": "50_ソケット",
+          "unit": "個",
+          "qty": 1,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/TMP_50_DL+DL.json": {
+      "path": "library/特/TMP_50_DL+DL.json",
+      "name": "DL+DL",
+      "rows": [
+        {
+          "mat": "TMP",
+          "size": "50",
+          "name": "DL継手",
+          "unit": "個",
+          "qty": 2,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/TMP_50_ゴムエルボ.json": {
+      "path": "library/特/TMP_50_ゴムエルボ.json",
+      "name": "ゴムエルボ",
+      "rows": [
+        {
+          "mat": "TMP",
+          "size": "50",
+          "name": "ゴムエルボ",
+          "unit": "個",
+          "qty": 1,
+          "note": "特"
+        }
+      ]
+    },
+    "library/特/TMP_50_フレキL200.json": {
+      "path": "library/特/TMP_50_フレキL200.json",
+      "name": "フレキL200",
+      "rows": [
+        {
+          "mat": "TMP",
+          "size": "50",
+          "name": "フレキL200",
+          "unit": "個",
+          "qty": 1,
+          "note": "特"
+        }
+      ]
+    }
+  }
+}

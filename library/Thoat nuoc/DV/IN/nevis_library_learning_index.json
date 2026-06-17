@@ -1,0 +1,713 @@
+{
+  "schema": "NEVIS_LIBRARY_LEARNING_INDEX_V1",
+  "description": "Stage 3 index: groups normalized JSON/TXT samples by material + geometry template for future interpolation/generation.",
+  "group_count": 1,
+  "sample_count": 26,
+  "groups": {
+    "|REDUCER_STRAIGHT|IN": [
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_30_30.json",
+        "name": "IN_30_30",
+        "material": "",
+        "type": "IN",
+        "size": "30x30",
+        "size_tokens": [
+          30,
+          30
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -22.23,
+          "ymin": -19.584,
+          "xmax": 22.23,
+          "ymax": 19.546,
+          "w": 44.46,
+          "h": 39.13
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_40_30.json",
+        "name": "IN_40_30",
+        "material": "",
+        "type": "IN",
+        "size": "40x30",
+        "size_tokens": [
+          40,
+          30
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -27.0,
+          "ymin": -31.068,
+          "xmax": 27.0,
+          "ymax": 28.932,
+          "w": 54.0,
+          "h": 60.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_40_40.json",
+        "name": "IN_40_40",
+        "material": "",
+        "type": "IN",
+        "size": "40x40",
+        "size_tokens": [
+          40,
+          40
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -27.0,
+          "ymin": -23.5,
+          "xmax": 27.0,
+          "ymax": 23.5,
+          "w": 54.0,
+          "h": 47.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_50_30.json",
+        "name": "IN_50_30",
+        "material": "",
+        "type": "IN",
+        "size": "50x30",
+        "size_tokens": [
+          50,
+          30
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -33.5,
+          "ymin": -32.33,
+          "xmax": 33.5,
+          "ymax": 30.67,
+          "w": 67.0,
+          "h": 63.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_50_40.json",
+        "name": "IN_50_40",
+        "material": "",
+        "type": "IN",
+        "size": "50x40",
+        "size_tokens": [
+          50,
+          40
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -33.518,
+          "ymin": -32.054,
+          "xmax": 33.482,
+          "ymax": 34.946,
+          "w": 67.0,
+          "h": 67.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_50_50.json",
+        "name": "IN_50_50",
+        "material": "",
+        "type": "IN",
+        "size": "50x50",
+        "size_tokens": [
+          50,
+          50
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -33.5,
+          "ymin": -26.391,
+          "xmax": 33.5,
+          "ymax": 26.609,
+          "w": 67.0,
+          "h": 53.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_65_40.json",
+        "name": "IN_65_40",
+        "material": "",
+        "type": "IN",
+        "size": "65x40",
+        "size_tokens": [
+          65,
+          40
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -41.5,
+          "ymin": -42.399,
+          "xmax": 41.5,
+          "ymax": 34.601,
+          "w": 83.0,
+          "h": 77.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_65_50.json",
+        "name": "IN_65_50",
+        "material": "",
+        "type": "IN",
+        "size": "65x50",
+        "size_tokens": [
+          65,
+          50
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -41.5,
+          "ymin": -42.907,
+          "xmax": 41.5,
+          "ymax": 37.093,
+          "w": 83.0,
+          "h": 80.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_65_65.json",
+        "name": "IN_65_65",
+        "material": "",
+        "type": "IN",
+        "size": "65x65",
+        "size_tokens": [
+          65,
+          65
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -41.5,
+          "ymin": -36.504,
+          "xmax": 41.5,
+          "ymax": 36.496,
+          "w": 83.0,
+          "h": 73.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_75_40.json",
+        "name": "IN_75_40",
+        "material": "",
+        "type": "IN",
+        "size": "75x40",
+        "size_tokens": [
+          75,
+          40
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -49.514,
+          "ymin": -47.951,
+          "xmax": 49.513,
+          "ymax": 38.849,
+          "w": 99.027,
+          "h": 86.8
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_75_50.json",
+        "name": "IN_75_50",
+        "material": "",
+        "type": "IN",
+        "size": "75x50",
+        "size_tokens": [
+          75,
+          50
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -48.498,
+          "ymin": -46.914,
+          "xmax": 48.502,
+          "ymax": 43.086,
+          "w": 97.0,
+          "h": 90.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_75_65.json",
+        "name": "IN_75_65",
+        "material": "",
+        "type": "IN",
+        "size": "75x65",
+        "size_tokens": [
+          75,
+          65
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -49.951,
+          "ymin": -50.76,
+          "xmax": 49.951,
+          "ymax": 49.24,
+          "w": 99.902,
+          "h": 100.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_75_75.json",
+        "name": "IN_75_75",
+        "material": "",
+        "type": "IN",
+        "size": "75x75",
+        "size_tokens": [
+          75,
+          75
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -48.5,
+          "ymin": -42.161,
+          "xmax": 48.5,
+          "ymax": 41.839,
+          "w": 97.0,
+          "h": 84.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_100_40.json",
+        "name": "IN_100_40",
+        "material": "",
+        "type": "IN",
+        "size": "100x40",
+        "size_tokens": [
+          100,
+          40
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -62.0,
+          "ymin": -56.819,
+          "xmax": 62.0,
+          "ymax": 45.181,
+          "w": 124.0,
+          "h": 102.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_100_50.json",
+        "name": "IN_100_50",
+        "material": "",
+        "type": "IN",
+        "size": "100x50",
+        "size_tokens": [
+          100,
+          50
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -62.0,
+          "ymin": -59.367,
+          "xmax": 62.0,
+          "ymax": 50.816,
+          "w": 124.0,
+          "h": 110.184
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_100_65.json",
+        "name": "IN_100_65",
+        "material": "",
+        "type": "IN",
+        "size": "100x65",
+        "size_tokens": [
+          100,
+          65
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -62.0,
+          "ymin": -61.136,
+          "xmax": 62.0,
+          "ymax": 58.864,
+          "w": 124.0,
+          "h": 120.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_100_75.json",
+        "name": "IN_100_75",
+        "material": "",
+        "type": "IN",
+        "size": "100x75",
+        "size_tokens": [
+          100,
+          75
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -62.0,
+          "ymin": -59.933,
+          "xmax": 62.0,
+          "ymax": 60.067,
+          "w": 124.0,
+          "h": 120.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_100_100.json",
+        "name": "IN_100_100",
+        "material": "",
+        "type": "IN",
+        "size": "100x100",
+        "size_tokens": [
+          100,
+          100
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -62.0,
+          "ymin": -52.026,
+          "xmax": 62.0,
+          "ymax": 51.974,
+          "w": 124.0,
+          "h": 104.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_125_65.json",
+        "name": "IN_125_65",
+        "material": "",
+        "type": "IN",
+        "size": "125x65",
+        "size_tokens": [
+          125,
+          65
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -75.5,
+          "ymin": -73.667,
+          "xmax": 75.5,
+          "ymax": 61.333,
+          "w": 151.0,
+          "h": 135.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_125_75.json",
+        "name": "IN_125_75",
+        "material": "",
+        "type": "IN",
+        "size": "125x75",
+        "size_tokens": [
+          125,
+          75
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -75.5,
+          "ymin": -74.613,
+          "xmax": 75.5,
+          "ymax": 65.387,
+          "w": 151.0,
+          "h": 140.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_125_100.json",
+        "name": "IN_125_100",
+        "material": "",
+        "type": "IN",
+        "size": "125x100",
+        "size_tokens": [
+          125,
+          100
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -75.5,
+          "ymin": -77.829,
+          "xmax": 75.5,
+          "ymax": 72.171,
+          "w": 151.0,
+          "h": 150.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_125_125.json",
+        "name": "IN_125_125",
+        "material": "",
+        "type": "IN",
+        "size": "125x125",
+        "size_tokens": [
+          125,
+          125
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -75.5,
+          "ymin": -67.026,
+          "xmax": 75.5,
+          "ymax": 66.974,
+          "w": 151.0,
+          "h": 134.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_150_75.json",
+        "name": "IN_150_75",
+        "material": "",
+        "type": "IN",
+        "size": "150x75",
+        "size_tokens": [
+          150,
+          75
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -89.0,
+          "ymin": -91.188,
+          "xmax": 89.0,
+          "ymax": 68.812,
+          "w": 178.0,
+          "h": 160.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_150_100.json",
+        "name": "IN_150_100",
+        "material": "",
+        "type": "IN",
+        "size": "150x100",
+        "size_tokens": [
+          150,
+          100
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -90.382,
+          "ymin": -87.3,
+          "xmax": 90.382,
+          "ymax": 85.3,
+          "w": 180.765,
+          "h": 172.6
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_150_125.json",
+        "name": "IN_150_125",
+        "material": "",
+        "type": "IN",
+        "size": "150x125",
+        "size_tokens": [
+          150,
+          125
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -89.0,
+          "ymin": -97.391,
+          "xmax": 89.0,
+          "ymax": 87.609,
+          "w": 178.0,
+          "h": 185.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      },
+      {
+        "file": "C:\\Users\\giaip\\Desktop\\Neis2.01 ma nguon\\library\\Thoat nuoc\\DV\\IN\\IN_150_150.json",
+        "name": "IN_150_150",
+        "material": "",
+        "type": "IN",
+        "size": "150x150",
+        "size_tokens": [
+          150,
+          150
+        ],
+        "port_count": 2,
+        "shape_signature": "27311ae4da9d6836",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -89.0,
+          "ymin": -82.026,
+          "xmax": 89.0,
+          "ymax": 81.974,
+          "w": 178.0,
+          "h": 164.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0
+        ]
+      }
+    ]
+  },
+  "errors": []
+}

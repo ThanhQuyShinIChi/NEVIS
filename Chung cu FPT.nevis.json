@@ -1,0 +1,1013 @@
+{
+  "version": 55,
+  "model_schema_version": 1,
+  "lang": "vi",
+  "nodes": {
+    "1": {
+      "x": 347.138511240271,
+      "y": 1450.03399576418,
+      "z": null,
+      "level_id": ""
+    },
+    "2": {
+      "x": 116.908923502448,
+      "y": 1218.82043508327,
+      "z": null,
+      "level_id": ""
+    },
+    "3": {
+      "x": -353.87233544123694,
+      "y": 1218.82043508327,
+      "z": null,
+      "level_id": ""
+    },
+    "4": {
+      "x": -687.9777882152781,
+      "y": 1218.82043508327,
+      "z": null,
+      "level_id": ""
+    },
+    "5": {
+      "x": -997.8702782249229,
+      "y": 1218.82043508327,
+      "z": null,
+      "level_id": ""
+    },
+    "6": {
+      "x": -997.870278224923,
+      "y": 808.794517442161,
+      "z": null,
+      "level_id": ""
+    },
+    "7": {
+      "x": -618.3753145843,
+      "y": 808.794517442161,
+      "z": null,
+      "level_id": ""
+    },
+    "8": {
+      "x": -100.84406275887409,
+      "y": 808.794517442161,
+      "z": null,
+      "level_id": ""
+    },
+    "9": {
+      "x": 275.22701797333195,
+      "y": 808.794517442161,
+      "z": null,
+      "level_id": ""
+    },
+    "10": {
+      "x": 275.227017973332,
+      "y": 580.310290111792,
+      "z": null,
+      "level_id": ""
+    },
+    "11": {
+      "x": 275.227017973332,
+      "y": 38.35076624303451,
+      "z": null,
+      "level_id": ""
+    },
+    "12": {
+      "x": 275.227017973332,
+      "y": -312.732529839894,
+      "z": null,
+      "level_id": ""
+    },
+    "13": {
+      "x": 275.227017973332,
+      "y": -766.8148900408659,
+      "z": null,
+      "level_id": ""
+    },
+    "14": {
+      "x": 275.227017973332,
+      "y": -1039.4003987300398,
+      "z": null,
+      "level_id": ""
+    },
+    "15": {
+      "x": 275.227017973332,
+      "y": -1284.76690632178,
+      "z": null,
+      "level_id": ""
+    },
+    "16": {
+      "x": -33.219923550239216,
+      "y": -621.179471363463,
+      "z": null,
+      "level_id": ""
+    },
+    "17": {
+      "x": 547.138511239102,
+      "y": 120.300027061328,
+      "z": null,
+      "level_id": ""
+    },
+    "18": {
+      "x": 547.138511239102,
+      "y": -83.3763268986616,
+      "z": null,
+      "level_id": ""
+    },
+    "19": {
+      "x": 396.954111115028,
+      "y": -83.3763268986616,
+      "z": null,
+      "level_id": ""
+    },
+    "20": {
+      "x": -183.361488759737,
+      "y": 608.820435209693,
+      "z": null,
+      "level_id": ""
+    },
+    "21": {
+      "x": -33.186560129153094,
+      "y": 458.645506579107,
+      "z": null,
+      "level_id": ""
+    },
+    "22": {
+      "x": 153.562223067614,
+      "y": 458.645507334631,
+      "z": null,
+      "level_id": ""
+    },
+    "23": {
+      "x": -456.86148875973095,
+      "y": -621.179471363463,
+      "z": null,
+      "level_id": ""
+    },
+    "24": {
+      "x": -450.493064367614,
+      "y": 640.912267225477,
+      "z": null,
+      "level_id": ""
+    },
+    "25": {
+      "x": -450.493064367614,
+      "y": 324.224447551881,
+      "z": null,
+      "level_id": ""
+    },
+    "26": {
+      "x": 115.210543884981,
+      "y": 1024.84912408602,
+      "z": null,
+      "level_id": ""
+    },
+    "27": {
+      "x": -687.977788215278,
+      "y": 1680.52192338217,
+      "z": null,
+      "level_id": ""
+    },
+    "28": {
+      "x": -975.822478556685,
+      "y": 1680.52192338217,
+      "z": null,
+      "level_id": ""
+    },
+    "29": {
+      "x": -687.977788215278,
+      "y": 1394.70452519784,
+      "z": null,
+      "level_id": ""
+    },
+    "30": {
+      "x": -350.00929107406,
+      "y": 1732.67302233905,
+      "z": null,
+      "level_id": ""
+    },
+    "31": {
+      "x": -353.872335441237,
+      "y": 1060.50330245031,
+      "z": null,
+      "level_id": ""
+    },
+    "32": {
+      "x": 25.77931020083841,
+      "y": -1534.21461409427,
+      "z": null,
+      "level_id": ""
+    },
+    "33": {
+      "x": 25.779310200838395,
+      "y": -1959.122650353926,
+      "z": null,
+      "level_id": ""
+    },
+    "34": {
+      "x": 472.097423329358,
+      "y": -1959.122650353926,
+      "z": null,
+      "level_id": ""
+    },
+    "35": {
+      "x": 472.097423329358,
+      "y": -2273.78583296362,
+      "z": null,
+      "level_id": ""
+    },
+    "36": {
+      "x": 25.7793102008384,
+      "y": -2143.94783641714,
+      "z": null,
+      "level_id": ""
+    },
+    "37": {
+      "x": 422.149983128222,
+      "y": -1623.25907484343,
+      "z": null,
+      "level_id": ""
+    },
+    "38": {
+      "x": 671.149976574799,
+      "y": -1623.25907484343,
+      "z": null,
+      "level_id": ""
+    },
+    "39": {
+      "x": 671.149976574799,
+      "y": -1435.32335733151,
+      "z": null,
+      "level_id": ""
+    },
+    "40": {
+      "x": 862.5540752144841,
+      "y": -766.814890040866,
+      "z": null,
+      "level_id": ""
+    }
+  },
+  "edges": [
+    {
+      "a": 1,
+      "b": 2,
+      "size": "75",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 2,
+      "b": 3,
+      "size": "75",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 3,
+      "b": 4,
+      "size": "75",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 4,
+      "b": 5,
+      "size": "75",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 5,
+      "b": 6,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 6,
+      "b": 7,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 7,
+      "b": 8,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 8,
+      "b": 9,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 9,
+      "b": 10,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 10,
+      "b": 11,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 11,
+      "b": 12,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 12,
+      "b": 13,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 13,
+      "b": 14,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 14,
+      "b": 15,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 16,
+      "b": 12,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 17,
+      "b": 18,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 18,
+      "b": 19,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 19,
+      "b": 11,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 20,
+      "b": 21,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 21,
+      "b": 22,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 22,
+      "b": 10,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 16,
+      "b": 23,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 7,
+      "b": 24,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 24,
+      "b": 25,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 8,
+      "b": 26,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 27,
+      "b": 28,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 4,
+      "b": 29,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 29,
+      "b": 27,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 29,
+      "b": 30,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 3,
+      "b": 31,
+      "size": "40",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 15,
+      "b": 32,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 33,
+      "b": 34,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 34,
+      "b": 35,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 32,
+      "b": 33,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 33,
+      "b": 36,
+      "size": "65",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 37,
+      "b": 38,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 38,
+      "b": 39,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 39,
+      "b": 14,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    },
+    {
+      "a": 13,
+      "b": 40,
+      "size": "50",
+      "material_override": "",
+      "slope": null,
+      "vertical_type": "unknown",
+      "elevation_mode": "unknown",
+      "system_type": ""
+    }
+  ],
+  "fittings": {
+    "1": {
+      "node_id": 1,
+      "ftype": "DL UP",
+      "size": "75xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "2": {
+      "node_id": 2,
+      "ftype": "45°",
+      "size": "75",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "3": {
+      "node_id": 3,
+      "ftype": "LT",
+      "size": "75x40",
+      "manual": true,
+      "excluded": false,
+      "material_override": ""
+    },
+    "4": {
+      "node_id": 4,
+      "ftype": "LT",
+      "size": "75x65",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "5": {
+      "node_id": 5,
+      "ftype": "集合管",
+      "size": "65x75",
+      "manual": true,
+      "excluded": false,
+      "material_override": ""
+    },
+    "6": {
+      "node_id": 6,
+      "ftype": "LL",
+      "size": "65",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "7": {
+      "node_id": 7,
+      "ftype": "Y",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "8": {
+      "node_id": 8,
+      "ftype": "Y",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "9": {
+      "node_id": 9,
+      "ftype": "LL",
+      "size": "65",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "10": {
+      "node_id": 10,
+      "ftype": "Y",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "11": {
+      "node_id": 11,
+      "ftype": "Y",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "12": {
+      "node_id": 12,
+      "ftype": "Y",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "13": {
+      "node_id": 13,
+      "ftype": "LT",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "14": {
+      "node_id": 14,
+      "ftype": "Y",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "15": {
+      "node_id": 15,
+      "ftype": "45°",
+      "size": "65",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "16": {
+      "node_id": 16,
+      "ftype": "45°",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "17": {
+      "node_id": 17,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "18": {
+      "node_id": 18,
+      "ftype": "LL",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "19": {
+      "node_id": 19,
+      "ftype": "45°",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "20": {
+      "node_id": 20,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "21": {
+      "node_id": 21,
+      "ftype": "45°",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "22": {
+      "node_id": 22,
+      "ftype": "45°",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "23": {
+      "node_id": 23,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "24": {
+      "node_id": 24,
+      "ftype": "45°",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "25": {
+      "node_id": 25,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "26": {
+      "node_id": 26,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "27": {
+      "node_id": 27,
+      "ftype": "LL",
+      "size": "65",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "28": {
+      "node_id": 28,
+      "ftype": "DL UP",
+      "size": "65xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "29": {
+      "node_id": 29,
+      "ftype": "Y",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "30": {
+      "node_id": 30,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "31": {
+      "node_id": 31,
+      "ftype": "DL UP",
+      "size": "40xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "32": {
+      "node_id": 32,
+      "ftype": "45°",
+      "size": "65",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "33": {
+      "node_id": 33,
+      "ftype": "LT",
+      "size": "65x50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "34": {
+      "node_id": 34,
+      "ftype": "LL",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "35": {
+      "node_id": 35,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "36": {
+      "node_id": 36,
+      "ftype": "DL UP",
+      "size": "65xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "37": {
+      "node_id": 37,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "38": {
+      "node_id": 38,
+      "ftype": "LL",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "39": {
+      "node_id": 39,
+      "ftype": "45°",
+      "size": "50",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    },
+    "40": {
+      "node_id": 40,
+      "ftype": "DL UP",
+      "size": "50xU",
+      "manual": false,
+      "excluded": false,
+      "material_override": ""
+    }
+  },
+  "bushings": [],
+  "base_node": 5,
+  "base_nodes": [
+    5
+  ],
+  "selected_node": null,
+  "selected_edge": "13-40",
+  "selected_bushing_id": null,
+  "settings": {
+    "project": "Chung cư FPT",
+    "system": "排水転がし配管",
+    "main_size": "65",
+    "branch_rule": "Giảm 1 bậc",
+    "branch_size": "50",
+    "start_fitting": "集合管",
+    "system_items": [
+      "排水転がし配管"
+    ],
+    "pipe_size_items": [
+      "30",
+      "40",
+      "50",
+      "65",
+      "75",
+      "100",
+      "125",
+      "150",
+      "200",
+      "250",
+      "300",
+      "350",
+      "400"
+    ],
+    "start_fitting_items": [
+      "集合管",
+      "DL Down",
+      "LL Down"
+    ],
+    "terminal_items": [
+      "DL UP",
+      "LL UP"
+    ],
+    "fire_len": "1000",
+    "fire_mat": "耐火VP",
+    "normal_mat": "耐火VP",
+    "support_enabled": true,
+    "support_spacing": 1000.0,
+    "support_kind": "レベル",
+    "support_visible": true,
+    "detail_mode": false
+  },
+  "special_equipments": []
+}

@@ -1,0 +1,490 @@
+{
+  "schema": "NEVIS_LIBRARY_JSON_V2",
+  "version": 2,
+  "name": "LL_40_40_U",
+  "source_txt": "LL_40_40_U.json",
+  "independent_json": true,
+  "material": "U",
+  "type": "LL",
+  "size": "40x40",
+  "name_rule": {
+    "source": "filename_prefix",
+    "raw_prefix": "LL",
+    "detected_type": "LL",
+    "expected_port_count": 2,
+    "main_ports": [
+      "P1",
+      "P2"
+    ],
+    "branch_port": null,
+    "expected_main_angle_deg": null,
+    "expected_branch_angles_deg": [],
+    "expected_two_port_angles_deg": [
+      90
+    ],
+    "flow_model_hint": "directional",
+    "description": "2 cửa vuông góc"
+  },
+  "port_count": 1,
+  "port_count_source": "manual",
+  "manual_override": true,
+  "center": [
+    0.0,
+    0.0
+  ],
+  "center_source": "lt49_common_endpoint",
+  "center_is_fitting_insert_point": true,
+  "center_definition": "intersection/common point of lt49 pipe centerlines",
+  "flow": {
+    "model": "directional",
+    "port": "P1",
+    "default_direction": [
+      0,
+      -1
+    ],
+    "default_direction_name": "downward",
+    "note": "collector is used for S/集合管; each port direction is still defined by lt49; directional defaults to the downward port."
+  },
+  "ports": [
+    {
+      "id": "P1",
+      "role": "single",
+      "center": [
+        0.0,
+        -73.9998553066181
+      ],
+      "direction": [
+        0.0,
+        -1.0
+      ],
+      "angle_deg": 270.0,
+      "centerline": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -73.9998553066181
+        ]
+      ],
+      "cut_point": [
+        0.0,
+        -73.9998553066181
+      ],
+      "source": "lt49",
+      "confidence": 1.0
+    }
+  ],
+  "geometry": {
+    "raw_lines": [
+      "hq",
+      "hk 0",
+      "hs 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20",
+      "hcw 2 2.5 3 4 5 6 7 8 9 10",
+      "hch 2 2.5 3 4 5 6 7 8 9 10",
+      "hcd 0 0 0.5 0.5 0.5 1 1 1 1 1",
+      "hcc      1      1      2      2      3      3      4      4      5      5",
+      "hn -88.6802897080483 -109.034452927048 149.40057024668 71.0267016605611",
+      "lg0",
+      "ly0",
+      "lc2",
+      "lt5",
+      "cn3",
+      "cn\"$<ＭＳ ゴシック>",
+      "#",
+      "lt1",
+      " 0 -73.9998553066181 37.0001026286121 -73.9998553066181",
+      " 37.0001026286121 -73.9998553066181 37.0001026286121 -43.9999896310934",
+      " 0 -43.9999896310934 37.0001026286121 -43.9999896310934",
+      " 33.9999760808172 -40.9998630832979 37.0001026286121 -43.9999896310934",
+      " 0 -40.9998630832979 33.9999760808172 -40.9998630832979",
+      " -37.0000151409604 -73.9998553066181 0 -73.9998553066181",
+      " -37.0000151409604 -73.9998553066181 -37.0000151409604 -43.9999896310934",
+      " -37.0000151409604 -43.9999896310934 0 -43.9999896310934",
+      " -37.0000151409604 -43.9999896310934 -33.9999760808172 -40.9998630832979",
+      " -33.9999760808172 -40.9998630832979 0 -40.9998630832979",
+      " -33.9999760808172 -40.9998630832979 -33.9999760808172 -13.0881526755553",
+      " 33.9999760808172 -40.9998630832979 33.9999760808172 -13.0881526755553",
+      "lt4",
+      " 23.900051632443 -51.9998604910717 24.1500913406432 -73.9998553066181",
+      " 0 -51.9998604910717 23.900051632443 -51.9998604910717",
+      " -24.1499163653398 -73.9998553066181 -23.8998766571399 -51.9998604910717",
+      " -23.8998766571399 -51.9998604910717 0 -51.9998604910717",
+      "lt5",
+      " 0 0 0 -73.9998553066181",
+      "lt1",
+      "ci 0 1.50653736011407 37.000001471015",
+      "ci 0 1.50653736011407 27.0000015906846",
+      "ci 0 1.50653736011407 24.1499983850133",
+      "pn1",
+      "pt 0 -73.9998553066181",
+      "pt 0 0",
+      "lt49",
+      " 0 0 0 -73.999855307"
+    ],
+    "entities": {
+      "centerlines": [
+        {
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 0.0,
+          "y2": -73.999855307,
+          "lt": "49",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 0 0 0 -73.999855307",
+          "index": 43
+        }
+      ],
+      "outlines": [
+        {
+          "x1": 0.0,
+          "y1": -73.9998553066181,
+          "x2": 37.0001026286121,
+          "y2": -73.9998553066181,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 0 -73.9998553066181 37.0001026286121 -73.9998553066181",
+          "index": 16
+        },
+        {
+          "x1": 37.0001026286121,
+          "y1": -73.9998553066181,
+          "x2": 37.0001026286121,
+          "y2": -43.9999896310934,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 37.0001026286121 -73.9998553066181 37.0001026286121 -43.9999896310934",
+          "index": 17
+        },
+        {
+          "x1": 0.0,
+          "y1": -43.9999896310934,
+          "x2": 37.0001026286121,
+          "y2": -43.9999896310934,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 0 -43.9999896310934 37.0001026286121 -43.9999896310934",
+          "index": 18
+        },
+        {
+          "x1": 33.9999760808172,
+          "y1": -40.9998630832979,
+          "x2": 37.0001026286121,
+          "y2": -43.9999896310934,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 33.9999760808172 -40.9998630832979 37.0001026286121 -43.9999896310934",
+          "index": 19
+        },
+        {
+          "x1": 0.0,
+          "y1": -40.9998630832979,
+          "x2": 33.9999760808172,
+          "y2": -40.9998630832979,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 0 -40.9998630832979 33.9999760808172 -40.9998630832979",
+          "index": 20
+        },
+        {
+          "x1": -37.0000151409604,
+          "y1": -73.9998553066181,
+          "x2": 0.0,
+          "y2": -73.9998553066181,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -37.0000151409604 -73.9998553066181 0 -73.9998553066181",
+          "index": 21
+        },
+        {
+          "x1": -37.0000151409604,
+          "y1": -73.9998553066181,
+          "x2": -37.0000151409604,
+          "y2": -43.9999896310934,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -37.0000151409604 -73.9998553066181 -37.0000151409604 -43.9999896310934",
+          "index": 22
+        },
+        {
+          "x1": -37.0000151409604,
+          "y1": -43.9999896310934,
+          "x2": 0.0,
+          "y2": -43.9999896310934,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -37.0000151409604 -43.9999896310934 0 -43.9999896310934",
+          "index": 23
+        },
+        {
+          "x1": -37.0000151409604,
+          "y1": -43.9999896310934,
+          "x2": -33.9999760808172,
+          "y2": -40.9998630832979,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -37.0000151409604 -43.9999896310934 -33.9999760808172 -40.9998630832979",
+          "index": 24
+        },
+        {
+          "x1": -33.9999760808172,
+          "y1": -40.9998630832979,
+          "x2": 0.0,
+          "y2": -40.9998630832979,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -33.9999760808172 -40.9998630832979 0 -40.9998630832979",
+          "index": 25
+        },
+        {
+          "x1": -33.9999760808172,
+          "y1": -40.9998630832979,
+          "x2": -33.9999760808172,
+          "y2": -13.0881526755553,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -33.9999760808172 -40.9998630832979 -33.9999760808172 -13.0881526755553",
+          "index": 26
+        },
+        {
+          "x1": 33.9999760808172,
+          "y1": -40.9998630832979,
+          "x2": 33.9999760808172,
+          "y2": -13.0881526755553,
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 33.9999760808172 -40.9998630832979 33.9999760808172 -13.0881526755553",
+          "index": 27
+        },
+        {
+          "x1": 23.900051632443,
+          "y1": -51.9998604910717,
+          "x2": 24.1500913406432,
+          "y2": -73.9998553066181,
+          "lt": "4",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 23.900051632443 -51.9998604910717 24.1500913406432 -73.9998553066181",
+          "index": 29
+        },
+        {
+          "x1": 0.0,
+          "y1": -51.9998604910717,
+          "x2": 23.900051632443,
+          "y2": -51.9998604910717,
+          "lt": "4",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 0 -51.9998604910717 23.900051632443 -51.9998604910717",
+          "index": 30
+        },
+        {
+          "x1": -24.1499163653398,
+          "y1": -73.9998553066181,
+          "x2": -23.8998766571399,
+          "y2": -51.9998604910717,
+          "lt": "4",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -24.1499163653398 -73.9998553066181 -23.8998766571399 -51.9998604910717",
+          "index": 31
+        },
+        {
+          "x1": -23.8998766571399,
+          "y1": -51.9998604910717,
+          "x2": 0.0,
+          "y2": -51.9998604910717,
+          "lt": "4",
+          "lc": "2",
+          "ly": "0",
+          "raw": " -23.8998766571399 -51.9998604910717 0 -51.9998604910717",
+          "index": 32
+        },
+        {
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 0.0,
+          "y2": -73.9998553066181,
+          "lt": "5",
+          "lc": "2",
+          "ly": "0",
+          "raw": " 0 0 0 -73.9998553066181",
+          "index": 34
+        }
+      ],
+      "circles": [
+        {
+          "cx": 0.0,
+          "cy": 1.50653736011407,
+          "r": 37.000001471015,
+          "rest": "",
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": "ci 0 1.50653736011407 37.000001471015",
+          "index": 36
+        },
+        {
+          "cx": 0.0,
+          "cy": 1.50653736011407,
+          "r": 27.0000015906846,
+          "rest": "",
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": "ci 0 1.50653736011407 27.0000015906846",
+          "index": 37
+        },
+        {
+          "cx": 0.0,
+          "cy": 1.50653736011407,
+          "r": 24.1499983850133,
+          "rest": "",
+          "lt": "1",
+          "lc": "2",
+          "ly": "0",
+          "raw": "ci 0 1.50653736011407 24.1499983850133",
+          "index": 38
+        }
+      ]
+    },
+    "line_type_rule": {
+      "lt49": "centerline",
+      "others": "geometry_outline_or_auxiliary",
+      "note": "Only lt49 is treated as pipe centerline; every other line type is drawable geometry."
+    }
+  },
+  "port_convention": {
+    "rule": "P1-P2 main, P3 branch",
+    "main_ports": [
+      "P1"
+    ],
+    "branch_port": null,
+    "description": "For 3-port fittings such as T/DT/Y: P1 and P2 are the straight main route; P3 is the branch, usually 45/90/135 degrees from the main route."
+  },
+  "filename_rule_note": "Tên file tạo quy tắc kỳ vọng; lt49/port thực tế dùng để kiểm chứng. Nếu không khớp, QA sẽ tô cảnh báo.",
+  "auto_detect": {
+    "center_confidence": 0.75,
+    "port_count_confidence": 0.75,
+    "need_review": true
+  },
+  "centerline_generated": true,
+  "centerline_generated_mode": "folder_batch",
+  "port_convention_status": {
+    "rule": "P1-P2 main, P3 branch",
+    "ok": true,
+    "note": "not_3_port"
+  },
+  "name_rule_status": {
+    "ok": false,
+    "rule": {
+      "source": "filename_prefix",
+      "raw_prefix": "LL",
+      "detected_type": "LL",
+      "expected_port_count": 2,
+      "main_ports": [
+        "P1",
+        "P2"
+      ],
+      "branch_port": null,
+      "expected_main_angle_deg": null,
+      "expected_branch_angles_deg": [],
+      "expected_two_port_angles_deg": [
+        90
+      ],
+      "flow_model_hint": "directional",
+      "description": "2 cửa vuông góc"
+    },
+    "warnings": [
+      "Tên file dự kiến 2 cửa nhưng JSON đang là 1 cửa"
+    ]
+  },
+  "parametric_learning": {
+    "schema": "NEVIS_PARAMETRIC_LEARNING_V1",
+    "stage": {
+      "1_standard_json": true,
+      "2_shape_signature": true,
+      "3_learning_index_ready": true
+    },
+    "geometry_template": "ELBOW_90",
+    "type_key": "LL",
+    "expected_ports": 2,
+    "orientation_variants": [
+      "UP",
+      "DOWN",
+      "LEFT",
+      "RIGHT"
+    ],
+    "placement_rule": "ports_and_topology_are_source_of_truth",
+    "flow_rule": {
+      "model": "directional",
+      "port": "P1",
+      "default_direction": [
+        0,
+        -1
+      ],
+      "default_direction_name": "downward",
+      "note": "collector is used for S/集合管; each port direction is still defined by lt49; directional defaults to the downward port."
+    },
+    "anchor": {
+      "center": [
+        0.0,
+        0.0
+      ],
+      "ports": [
+        {
+          "id": "P1",
+          "role": "single",
+          "center": [
+            0.0,
+            -73.9998553066181
+          ],
+          "direction": [
+            0.0,
+            -1.0
+          ],
+          "angle_deg": 270.0,
+          "cut_point": [
+            0.0,
+            -73.9998553066181
+          ]
+        }
+      ]
+    },
+    "bbox": {
+      "xmin": -37.0,
+      "ymin": -74.0,
+      "xmax": 37.0,
+      "ymax": 38.507,
+      "w": 74.0,
+      "h": 112.506
+    },
+    "size_tokens": [
+      40,
+      40
+    ],
+    "relative_port_angles_deg": [
+      0.0
+    ],
+    "shape_signature": "4fffcdb2cdf10971",
+    "quality": "ready",
+    "can_learn_from_sample": true,
+    "can_generate_missing_size_later": true,
+    "generation_policy": "prefer_exact_library; if_missing_use_same_geometry_template_and_neighbor_sizes_after_manual_approval",
+    "note": "Metadata only. Current geometry is unchanged; future NEVIS can use this to group samples and interpolate/generate missing libraries."
+  }
+}

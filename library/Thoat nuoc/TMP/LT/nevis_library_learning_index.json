@@ -1,0 +1,791 @@
+{
+  "schema": "NEVIS_LIBRARY_LEARNING_INDEX_V2",
+  "description": "Portable learning index. Files are relative to Library/. Geometry aliases let HTVP/TaikaVP/耐火VP inherit DV geometry without copying JSON/TXT.",
+  "library_root_rule": "Index is portable: resolve relative_file against the current NEVIS/Library folder on each PC.",
+  "library_root_name": "Library",
+  "material_geometry_aliases": {
+    "HTVP": "DV",
+    "TAIKAVP": "DV",
+    "耐火VP": "DV",
+    "耐火DV": "DV"
+  },
+  "group_count": 1,
+  "sample_count": 24,
+  "alias_group_count": 0,
+  "skipped_count": 0,
+  "skipped_files": [],
+  "groups": {
+    "|JUNCTION_90|LT": [
+      {
+        "library_id": "LT_40_40",
+        "file": "Thoat nuoc/TMP/LT/LT_40_40.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_40_40.json",
+        "name": "LT_40_40",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "40x40",
+        "size_tokens": [
+          40,
+          40
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -37.0,
+          "ymin": -319.544,
+          "xmax": 424.746,
+          "ymax": 115.419,
+          "w": 461.746,
+          "h": 434.963
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_50_40",
+        "file": "Thoat nuoc/TMP/LT/LT_50_40.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_50_40.json",
+        "name": "LT_50_40",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "50x40",
+        "size_tokens": [
+          50,
+          40
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -42.5,
+          "ymin": -77.0,
+          "xmax": 138.39,
+          "ymax": 50.244,
+          "w": 180.89,
+          "h": 127.244
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_50_50",
+        "file": "Thoat nuoc/TMP/LT/LT_50_50.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_50_50.json",
+        "name": "LT_50_50",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "50x50",
+        "size_tokens": [
+          50,
+          50
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -44.255,
+          "ymin": -231.755,
+          "xmax": 242.605,
+          "ymax": 61.076,
+          "w": 286.86,
+          "h": 292.831
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_65_40",
+        "file": "Thoat nuoc/TMP/LT/LT_65_40.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_65_40.json",
+        "name": "LT_65_40",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "65x40",
+        "size_tokens": [
+          65,
+          40
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -51.5,
+          "ymin": -100.5,
+          "xmax": 136.099,
+          "ymax": 59.0,
+          "w": 187.599,
+          "h": 159.5
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_65_50",
+        "file": "Thoat nuoc/TMP/LT/LT_65_50.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_65_50.json",
+        "name": "LT_65_50",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "65x50",
+        "size_tokens": [
+          65,
+          50
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -51.5,
+          "ymin": -187.246,
+          "xmax": 236.767,
+          "ymax": 73.02,
+          "w": 288.267,
+          "h": 260.266
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_65_65",
+        "file": "Thoat nuoc/TMP/LT/LT_65_65.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_65_65.json",
+        "name": "LT_65_65",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "65x65",
+        "size_tokens": [
+          65,
+          65
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -52.128,
+          "ymin": -518.677,
+          "xmax": 624.834,
+          "ymax": 143.515,
+          "w": 676.963,
+          "h": 662.192
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_75_40",
+        "file": "Thoat nuoc/TMP/LT/LT_75_40.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_75_40.json",
+        "name": "LT_75_40",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "75x40",
+        "size_tokens": [
+          75,
+          40
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -58.5,
+          "ymin": -92.0,
+          "xmax": 148.197,
+          "ymax": 65.0,
+          "w": 206.697,
+          "h": 157.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_75_50",
+        "file": "Thoat nuoc/TMP/LT/LT_75_50.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_75_50.json",
+        "name": "LT_75_50",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "75x50",
+        "size_tokens": [
+          75,
+          50
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -58.5,
+          "ymin": -255.86,
+          "xmax": 256.86,
+          "ymax": 69.0,
+          "w": 315.36,
+          "h": 324.86
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_75_65",
+        "file": "Thoat nuoc/TMP/LT/LT_75_65.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_75_65.json",
+        "name": "LT_75_65",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "75x65",
+        "size_tokens": [
+          75,
+          65
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -58.5,
+          "ymin": -262.088,
+          "xmax": 265.088,
+          "ymax": 72.0,
+          "w": 323.588,
+          "h": 334.088
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_75_75",
+        "file": "Thoat nuoc/TMP/LT/LT_75_75.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_75_75.json",
+        "name": "LT_75_75",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "75x75",
+        "size_tokens": [
+          75,
+          75
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -58.5,
+          "ymin": -980.489,
+          "xmax": 1267.905,
+          "ymax": 340.499,
+          "w": 1326.405,
+          "h": 1320.988
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_100_40",
+        "file": "Thoat nuoc/TMP/LT/LT_100_40.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_100_40.json",
+        "name": "LT_100_40",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "100x40",
+        "size_tokens": [
+          100,
+          40
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -73.0,
+          "ymin": -102.0,
+          "xmax": 184.136,
+          "ymax": 78.0,
+          "w": 257.136,
+          "h": 180.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_100_50",
+        "file": "Thoat nuoc/TMP/LT/LT_100_50.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_100_50.json",
+        "name": "LT_100_50",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "100x50",
+        "size_tokens": [
+          100,
+          50
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -73.0,
+          "ymin": -149.706,
+          "xmax": 282.512,
+          "ymax": 86.684,
+          "w": 355.512,
+          "h": 236.39
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_100_65",
+        "file": "Thoat nuoc/TMP/LT/LT_100_65.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_100_65.json",
+        "name": "LT_100_65",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "100x65",
+        "size_tokens": [
+          100,
+          65
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -73.0,
+          "ymin": -307.275,
+          "xmax": 321.275,
+          "ymax": 86.0,
+          "w": 394.275,
+          "h": 393.275
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_100_75",
+        "file": "Thoat nuoc/TMP/LT/LT_100_75.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_100_75.json",
+        "name": "LT_100_75",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "100x75",
+        "size_tokens": [
+          100,
+          75
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -73.0,
+          "ymin": -326.024,
+          "xmax": 328.024,
+          "ymax": 83.0,
+          "w": 401.024,
+          "h": 409.024
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_100_100",
+        "file": "Thoat nuoc/TMP/LT/LT_100_100.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_100_100.json",
+        "name": "LT_100_100",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "100x100",
+        "size_tokens": [
+          100,
+          100
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -73.0,
+          "ymin": -1263.998,
+          "xmax": 1619.722,
+          "ymax": 427.892,
+          "w": 1692.722,
+          "h": 1691.89
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_125_65",
+        "file": "Thoat nuoc/TMP/LT/LT_125_65.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_125_65.json",
+        "name": "LT_125_65",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "125x65",
+        "size_tokens": [
+          125,
+          65
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -88.5,
+          "ymin": -298.968,
+          "xmax": 438.571,
+          "ymax": 106.109,
+          "w": 527.071,
+          "h": 405.076
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_125_75",
+        "file": "Thoat nuoc/TMP/LT/LT_125_75.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_125_75.json",
+        "name": "LT_125_75",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "125x75",
+        "size_tokens": [
+          125,
+          75
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -88.5,
+          "ymin": -253.604,
+          "xmax": 284.702,
+          "ymax": 107.0,
+          "w": 373.202,
+          "h": 360.604
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_125_100",
+        "file": "Thoat nuoc/TMP/LT/LT_125_100.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_125_100.json",
+        "name": "LT_125_100",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "125x100",
+        "size_tokens": [
+          125,
+          100
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -88.5,
+          "ymin": -356.993,
+          "xmax": 370.127,
+          "ymax": 117.0,
+          "w": 458.627,
+          "h": 473.993
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_125_125",
+        "file": "Thoat nuoc/TMP/LT/LT_125_125.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_125_125.json",
+        "name": "LT_125_125",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "125x125",
+        "size_tokens": [
+          125,
+          125
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -88.5,
+          "ymin": -1538.806,
+          "xmax": 2036.297,
+          "ymax": 568.091,
+          "w": 2124.797,
+          "h": 2106.897
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_150_65",
+        "file": "Thoat nuoc/TMP/LT/LT_150_65.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_150_65.json",
+        "name": "LT_150_65",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "150x65",
+        "size_tokens": [
+          150,
+          65
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -106.0,
+          "ymin": -170.0,
+          "xmax": 212.471,
+          "ymax": 122.0,
+          "w": 318.471,
+          "h": 292.0
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_150_75",
+        "file": "Thoat nuoc/TMP/LT/LT_150_75.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_150_75.json",
+        "name": "LT_150_75",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "150x75",
+        "size_tokens": [
+          150,
+          75
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -106.0,
+          "ymin": -302.937,
+          "xmax": 319.668,
+          "ymax": 125.0,
+          "w": 425.668,
+          "h": 427.937
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_150_100",
+        "file": "Thoat nuoc/TMP/LT/LT_150_100.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_150_100.json",
+        "name": "LT_150_100",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "150x100",
+        "size_tokens": [
+          150,
+          100
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -106.0,
+          "ymin": -372.871,
+          "xmax": 398.931,
+          "ymax": 133.0,
+          "w": 504.931,
+          "h": 505.871
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_150_125",
+        "file": "Thoat nuoc/TMP/LT/LT_150_125.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_150_125.json",
+        "name": "LT_150_125",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "150x125",
+        "size_tokens": [
+          150,
+          125
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -106.0,
+          "ymin": -436.739,
+          "xmax": 453.765,
+          "ymax": 145.0,
+          "w": 559.765,
+          "h": 581.739
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      },
+      {
+        "library_id": "LT_150_150",
+        "file": "Thoat nuoc/TMP/LT/LT_150_150.json",
+        "relative_file": "Thoat nuoc/TMP/LT/LT_150_150.json",
+        "name": "LT_150_150",
+        "material": "",
+        "geometry_base_material": "",
+        "inherits_geometry": false,
+        "type": "LT",
+        "size": "150x150",
+        "size_tokens": [
+          150,
+          150
+        ],
+        "port_count": 3,
+        "shape_signature": "1633ce4ce80440ed",
+        "quality": "ready",
+        "can_generate_missing_size_later": true,
+        "bbox": {
+          "xmin": -179.778,
+          "ymin": -1999.914,
+          "xmax": 2381.881,
+          "ymax": 561.745,
+          "w": 2561.659,
+          "h": 2561.659
+        },
+        "relative_port_angles_deg": [
+          0.0,
+          180.0,
+          270.0
+        ]
+      }
+    ]
+  },
+  "alias_groups": {},
+  "errors": []
+}

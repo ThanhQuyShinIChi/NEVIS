@@ -1,0 +1,27 @@
+**pycache**/
+*.pyc
+
+build/
+dist/
+release/
+
+*.log
+
+nevis_perf_profile.log
+nevis_perf_profile_old.log
+
+nevis_graph_debug.txt
+nevis_json_trim_debug.txt
+nevis_jww_fitting_debug.txt
+nevis_jww_output_debug.txt
+
+nevis_preview_fitting_debug.json
+nevis_preview_fitting_debug.txt
+nevis_preview_orient_debug.json
+nevis_preview_orient_debug.txt
+
+temp.txt
+temp.json
+jwc_temp.txt
+
+New folder/
