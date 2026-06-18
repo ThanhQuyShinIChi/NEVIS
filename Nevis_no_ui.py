@@ -25065,6 +25065,417 @@ _nevis_install_perf_profile_wrappers()
 
 
 # =============================================================================
+# NEVIS 2.03 Pipe Quick Check V1 - read-only UI and checks
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "pipe_check_button": "Kiểm tra ống",
+    "pipe_check_title": "Kết quả kiểm tra ống",
+    "pipe_check_recheck": "Kiểm tra lại",
+    "pipe_check_close": "Đóng",
+    "pipe_check_error_count": "Lỗi: {count}",
+    "pipe_check_warning_count": "Cảnh báo: {count}",
+    "pipe_check_col_severity": "Mức độ",
+    "pipe_check_col_item": "Loại lỗi",
+    "pipe_check_col_target": "Đối tượng",
+    "pipe_check_col_message": "Nội dung",
+    "pipe_check_severity_error": "Lỗi",
+    "pipe_check_severity_warning": "Cảnh báo",
+    "pipe_check_item_library": "Cỡ hoặc vật liệu ống",
+    "pipe_check_item_fitting": "Phụ kiện",
+    "pipe_check_item_bom": "Bảng vật tư",
+    "pipe_check_item_slope": "Định dạng độ dốc",
+    "pipe_check_target_pipe": "Ống {id}",
+    "pipe_check_target_fitting": "Phụ kiện {id}",
+    "pipe_check_target_bom": "Bảng vật tư",
+    "pipe_check_missing_size": "Ống chưa có kích thước.",
+    "pipe_check_material_missing": "Vật liệu {material} không có trong thư viện hiện tại.",
+    "pipe_check_size_missing": "Cỡ {size} của vật liệu {material} không có trong thư viện hiện tại.",
+    "pipe_check_fitting_missing": "Không tìm thấy phụ kiện phù hợp trong thư viện hiện tại.",
+    "pipe_check_bom_mismatch": "Bảng vật tư đang hiển thị có nguy cơ không khớp với bản vẽ hiện tại.",
+    "pipe_check_slope_format": "Độ dốc phải có dạng 1/N.",
+    "pipe_check_empty": "Không phát hiện vấn đề trong dữ liệu ống.",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "pipe_check_button": "配管チェック",
+    "pipe_check_title": "配管チェック結果",
+    "pipe_check_recheck": "再チェック",
+    "pipe_check_close": "閉じる",
+    "pipe_check_error_count": "エラー: {count}",
+    "pipe_check_warning_count": "警告: {count}",
+    "pipe_check_col_severity": "重要度",
+    "pipe_check_col_item": "チェック項目",
+    "pipe_check_col_target": "対象",
+    "pipe_check_col_message": "内容",
+    "pipe_check_severity_error": "エラー",
+    "pipe_check_severity_warning": "警告",
+    "pipe_check_item_library": "管サイズ・材質",
+    "pipe_check_item_fitting": "継手",
+    "pipe_check_item_bom": "数量表",
+    "pipe_check_item_slope": "勾配形式",
+    "pipe_check_target_pipe": "配管 {id}",
+    "pipe_check_target_fitting": "継手 {id}",
+    "pipe_check_target_bom": "数量表",
+    "pipe_check_missing_size": "管サイズが設定されていません。",
+    "pipe_check_material_missing": "材質 {material} は現在のライブラリにありません。",
+    "pipe_check_size_missing": "材質 {material} のサイズ {size} は現在のライブラリにありません。",
+    "pipe_check_fitting_missing": "現在のライブラリに適合する継手がありません。",
+    "pipe_check_bom_mismatch": "表示中の数量表が現在の図面と一致しない可能性があります。",
+    "pipe_check_slope_format": "勾配は1/N形式で入力してください。",
+    "pipe_check_empty": "配管データに問題は見つかりませんでした。",
+})
+
+
+def _nevis_pipe_check_issue(severity: str, check: str, target_kind: str,
+                            target_id: object, message: str,
+                            message_args: Optional[Dict[str, object]] = None) -> Dict[str, object]:
+    return {
+        "severity": severity,
+        "check": check,
+        "target_kind": target_kind,
+        "target_id": target_id,
+        "message": message,
+        "message_args": dict(message_args or {}),
+    }
+
+
+def _nevis_pipe_check_row_signature(rows: object) -> List[Tuple[str, ...]]:
+    signature = []
+    for raw_row in rows or []:
+        row = list(raw_row) + [""] * 6
+        normalized = []
+        for col, value in enumerate(row[:6]):
+            text_value = str(value if value is not None else "").strip()
+            if col == 4:
+                try:
+                    number = float(text_value)
+                    text_value = f"{number:.6f}".rstrip("0").rstrip(".")
+                except Exception:
+                    pass
+            normalized.append(text_value)
+        signature.append(tuple(normalized))
+    return signature
+
+
+def _nevis_pipe_check_visible_bom_rows(table: object) -> List[List[str]]:
+    if table is None:
+        return []
+    rows = []
+    try:
+        for row_index in range(table.rowCount()):
+            rows.append([
+                table.item(row_index, col).text() if table.item(row_index, col) is not None else ""
+                for col in range(min(6, table.columnCount()))
+            ])
+    except Exception:
+        return []
+    return rows
+
+
+def build_pipe_quick_check_issues(main_window: object) -> List[Dict[str, object]]:
+    """Return only checks supported by the current data, without mutating it."""
+    issues: List[Dict[str, object]] = []
+    model = getattr(main_window, "model", None)
+    if model is None:
+        return issues
+
+    library_index = list(getattr(main_window, "library_index", []) or [])
+    for edge in list(getattr(model, "edges", []) or []):
+        edge_id = getattr(edge, "key", edge_key(edge.a, edge.b))
+        size = str(getattr(edge, "size", "") or "").strip().split("x", 1)[0]
+        if not size:
+            issues.append(_nevis_pipe_check_issue(
+                "error", "library", "edge", edge_id, "pipe_check_missing_size"
+            ))
+            continue
+
+        if library_index:
+            try:
+                material = str(main_window.edge_material(edge) or "").strip()
+                sizes = list(main_window.library_pipe_sizes_for_material(material) or [])
+            except Exception:
+                material, sizes = "", []
+            if material and not sizes:
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "library", "edge", edge_id,
+                    "pipe_check_material_missing", {"material": material}
+                ))
+            elif sizes and size not in {str(value).strip() for value in sizes}:
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "library", "edge", edge_id,
+                    "pipe_check_size_missing", {"size": size, "material": material}
+                ))
+
+        # Current Edge stores numeric slope values, not the original input text.
+        # Validate only if a future/project field preserves the actual 1/N string.
+        slope_text = None
+        for attr in ("slope_ratio_text", "slope_text", "slope_1n"):
+            value = getattr(edge, attr, None)
+            if value not in (None, ""):
+                slope_text = str(value).strip()
+                break
+        if slope_text is not None and re.fullmatch(r"1/[1-9]\d*(?:\.\d+)?", slope_text) is None:
+            issues.append(_nevis_pipe_check_issue(
+                "warning", "slope", "edge", edge_id, "pipe_check_slope_format"
+            ))
+
+    if library_index:
+        for node_id, fitting in list(getattr(model, "fittings", {}).items()):
+            if bool(getattr(fitting, "excluded", False)):
+                continue
+            ftype = str(getattr(fitting, "ftype", "") or "").strip()
+            size = str(getattr(fitting, "size", "") or "").strip()
+            if not ftype or not size:
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "fitting", "node", node_id, "pipe_check_fitting_missing"
+                ))
+                continue
+            try:
+                path = main_window.matching_library_path(node_id, ftype, size)
+            except Exception:
+                path = ""
+            if not path:
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "fitting", "node", node_id, "pipe_check_fitting_missing"
+                ))
+
+    try:
+        expected_rows = main_window.build_material_rows("")
+        visible_rows = _nevis_pipe_check_visible_bom_rows(getattr(main_window, "table_mat", None))
+        if _nevis_pipe_check_row_signature(expected_rows) != _nevis_pipe_check_row_signature(visible_rows):
+            issues.append(_nevis_pipe_check_issue(
+                "warning", "bom", "bom", "", "pipe_check_bom_mismatch"
+            ))
+    except Exception:
+        # BOM comparison is optional in V1. An unavailable comparison is not a user error.
+        pass
+
+    return issues
+
+
+def _nevis_pipe_check_build_ui(self):
+    _NEVIS_PIPE_CHECK_PREV_BUILD_UI(self)
+    self._pipe_check_issues = []
+    self._pipe_check_tab_index = -1
+
+    self.btn_pipe_check = QPushButton(self.tr("pipe_check_button"))
+    self.btn_pipe_check.setMinimumHeight(32)
+    self.btn_pipe_check.setCursor(Qt.PointingHandCursor)
+    self.btn_pipe_check.clicked.connect(self.open_pipe_check_panel)
+    right_layout = self.right_panel.layout()
+    if right_layout is not None:
+        right_layout.insertWidget(1, self.btn_pipe_check)
+
+    self.pipe_check_tab = QWidget()
+    root = QVBoxLayout(self.pipe_check_tab)
+    root.setContentsMargins(6, 6, 6, 6)
+    root.setSpacing(7)
+
+    header = QHBoxLayout()
+    self.lbl_pipe_check_title = QLabel(self.tr("pipe_check_title"))
+    self.lbl_pipe_check_title.setStyleSheet("color:#1B4A7E; font-weight:700;")
+    self.btn_pipe_check_recheck = QPushButton(self.tr("pipe_check_recheck"))
+    self.btn_pipe_check_close = QPushButton(self.tr("pipe_check_close"))
+    self.btn_pipe_check_recheck.clicked.connect(self.run_pipe_quick_check)
+    self.btn_pipe_check_close.clicked.connect(self.close_pipe_check_panel)
+    header.addWidget(self.lbl_pipe_check_title)
+    header.addStretch(1)
+    header.addWidget(self.btn_pipe_check_recheck)
+    header.addWidget(self.btn_pipe_check_close)
+    root.addLayout(header)
+
+    summary = QHBoxLayout()
+    self.lbl_pipe_check_errors = QLabel()
+    self.lbl_pipe_check_warnings = QLabel()
+    self.lbl_pipe_check_errors.setStyleSheet("color:#B42318; font-weight:700;")
+    self.lbl_pipe_check_warnings.setStyleSheet("color:#B26A00; font-weight:700;")
+    summary.addWidget(self.lbl_pipe_check_errors)
+    summary.addWidget(self.lbl_pipe_check_warnings)
+    summary.addStretch(1)
+    root.addLayout(summary)
+
+    self.lbl_pipe_check_empty = QLabel(self.tr("pipe_check_empty"))
+    self.lbl_pipe_check_empty.setAlignment(Qt.AlignCenter)
+    self.lbl_pipe_check_empty.setWordWrap(True)
+    self.lbl_pipe_check_empty.setStyleSheet(
+        "color:#237A3B; background:#EAF6ED; border:1px solid #A8D5B3; "
+        "border-radius:6px; padding:14px; font-weight:700;"
+    )
+    root.addWidget(self.lbl_pipe_check_empty)
+
+    self.table_pipe_check = QTableWidget(0, 4)
+    self.table_pipe_check.setEditTriggers(QTableWidget.NoEditTriggers)
+    self.table_pipe_check.setSelectionBehavior(QTableWidget.SelectRows)
+    self.table_pipe_check.setSelectionMode(QAbstractItemView.SingleSelection)
+    self.table_pipe_check.setAlternatingRowColors(True)
+    self.table_pipe_check.setWordWrap(False)
+    self.table_pipe_check.verticalHeader().setVisible(False)
+    self.table_pipe_check.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+    self.table_pipe_check.setColumnWidth(0, 74)
+    self.table_pipe_check.setColumnWidth(1, 128)
+    self.table_pipe_check.setColumnWidth(2, 95)
+    self.table_pipe_check.setColumnWidth(3, 300)
+    self.table_pipe_check.itemSelectionChanged.connect(self.highlight_selected_pipe_check_issue)
+    root.addWidget(self.table_pipe_check, 1)
+
+    self._pipe_check_tab_index = self.tabs.addTab(self.pipe_check_tab, self.tr("pipe_check_button"))
+    self.tabs.currentChanged.connect(self._pipe_check_tab_changed)
+    self.retranslate_pipe_check_ui()
+
+
+def _nevis_pipe_check_translate(self, key: str, args: Optional[Dict[str, object]] = None) -> str:
+    text_value = self.tr(key)
+    try:
+        return text_value.format(**dict(args or {}))
+    except Exception:
+        return text_value
+
+
+def _nevis_pipe_check_render(self):
+    issues = list(getattr(self, "_pipe_check_issues", []) or [])
+    errors = sum(1 for issue in issues if issue.get("severity") == "error")
+    warnings = sum(1 for issue in issues if issue.get("severity") == "warning")
+    self.lbl_pipe_check_errors.setText(self.tr("pipe_check_error_count").format(count=errors))
+    self.lbl_pipe_check_warnings.setText(self.tr("pipe_check_warning_count").format(count=warnings))
+    self.table_pipe_check.setHorizontalHeaderLabels([
+        self.tr("pipe_check_col_severity"), self.tr("pipe_check_col_item"),
+        self.tr("pipe_check_col_target"), self.tr("pipe_check_col_message"),
+    ])
+    self.table_pipe_check.setRowCount(len(issues))
+    check_keys = {
+        "library": "pipe_check_item_library", "fitting": "pipe_check_item_fitting",
+        "bom": "pipe_check_item_bom", "slope": "pipe_check_item_slope",
+    }
+    target_keys = {
+        "edge": "pipe_check_target_pipe", "node": "pipe_check_target_fitting",
+        "bom": "pipe_check_target_bom",
+    }
+    for row_index, issue in enumerate(issues):
+        severity = str(issue.get("severity", "warning"))
+        severity_text = self.tr("pipe_check_severity_error" if severity == "error" else "pipe_check_severity_warning")
+        check_text = self.tr(check_keys.get(str(issue.get("check", "")), "pipe_check_item_library"))
+        target_key = target_keys.get(str(issue.get("target_kind", "")), "pipe_check_target_pipe")
+        target_text = _nevis_pipe_check_translate(self, target_key, {"id": issue.get("target_id", "")})
+        message_text = _nevis_pipe_check_translate(
+            self, str(issue.get("message", "")), issue.get("message_args", {})
+        )
+        for col, value in enumerate((severity_text, check_text, target_text, message_text)):
+            item = QTableWidgetItem(value)
+            item.setToolTip(value)
+            if col == 0:
+                item.setForeground(QBrush(QColor("#B42318" if severity == "error" else "#B26A00")))
+            if col == 0:
+                item.setData(Qt.UserRole, issue)
+            self.table_pipe_check.setItem(row_index, col, item)
+    self.lbl_pipe_check_empty.setVisible(not issues)
+    self.table_pipe_check.setVisible(bool(issues))
+
+
+def _nevis_pipe_check_retranslate_ui(self):
+    if not hasattr(self, "table_pipe_check"):
+        return
+    self.btn_pipe_check.setText(self.tr("pipe_check_button"))
+    self.lbl_pipe_check_title.setText(self.tr("pipe_check_title"))
+    self.btn_pipe_check_recheck.setText(self.tr("pipe_check_recheck"))
+    self.btn_pipe_check_close.setText(self.tr("pipe_check_close"))
+    self.lbl_pipe_check_empty.setText(self.tr("pipe_check_empty"))
+    if getattr(self, "_pipe_check_tab_index", -1) >= 0:
+        self.tabs.setTabText(self._pipe_check_tab_index, self.tr("pipe_check_button"))
+    _nevis_pipe_check_render(self)
+
+
+def _nevis_pipe_check_run(self):
+    self.clear_pipe_check_highlight()
+    self._pipe_check_issues = build_pipe_quick_check_issues(self)
+    _nevis_pipe_check_render(self)
+
+
+def _nevis_pipe_check_open(self):
+    self.set_side_panel_visible("right", True)
+    if getattr(self, "_pipe_check_tab_index", -1) >= 0:
+        self.tabs.setCurrentIndex(self._pipe_check_tab_index)
+    self.run_pipe_quick_check()
+
+
+def _nevis_pipe_check_clear_highlight(self):
+    if getattr(self, "_v82_quick_highlight", None) is None:
+        return
+    self._v82_quick_highlight = None
+    try:
+        self.preview.draw_model()
+    except Exception:
+        pass
+
+
+def _nevis_pipe_check_highlight_selected(self):
+    row = self.table_pipe_check.currentRow()
+    item = self.table_pipe_check.item(row, 0) if row >= 0 else None
+    issue = item.data(Qt.UserRole) if item is not None else None
+    if not isinstance(issue, dict):
+        return
+    kind = str(issue.get("target_kind", ""))
+    target_id = issue.get("target_id", "")
+    if kind not in {"edge", "node"}:
+        self.clear_pipe_check_highlight()
+        return
+    try:
+        _v82_quick_highlight(self, kind, target_id)
+        if kind == "node":
+            node = self.model.nodes.get(int(target_id))
+            if node is None:
+                return
+            x, y = display_point(node.x, node.y)
+            rect = QRectF(x - 120, y - 120, 240, 240)
+        else:
+            edge = next((value for value in self.model.edges if value.key == str(target_id)), None)
+            if edge is None:
+                return
+            node_a, node_b = self.model.nodes[edge.a], self.model.nodes[edge.b]
+            x1, y1 = display_point(node_a.x, node_a.y)
+            x2, y2 = display_point(node_b.x, node_b.y)
+            rect = QRectF(min(x1, x2), min(y1, y2), max(1.0, abs(x2 - x1)), max(1.0, abs(y2 - y1))).adjusted(-100, -100, 100, 100)
+        self.preview.fitInView(rect, Qt.KeepAspectRatio)
+        self.preview.centerOn(rect.center())
+    except Exception:
+        self.clear_pipe_check_highlight()
+
+
+def _nevis_pipe_check_close_panel(self):
+    self.clear_pipe_check_highlight()
+    if hasattr(self, "tabs") and self.tabs.count() > 0:
+        self.tabs.setCurrentIndex(0)
+
+
+def _nevis_pipe_check_tab_changed(self, index: int):
+    if index != getattr(self, "_pipe_check_tab_index", -1):
+        self.clear_pipe_check_highlight()
+
+
+_NEVIS_PIPE_CHECK_PREV_BUILD_UI = MainWindow._build_ui
+MainWindow._build_ui = _nevis_pipe_check_build_ui
+MainWindow.run_pipe_quick_check = _nevis_pipe_check_run
+MainWindow.open_pipe_check_panel = _nevis_pipe_check_open
+MainWindow.close_pipe_check_panel = _nevis_pipe_check_close_panel
+MainWindow.clear_pipe_check_highlight = _nevis_pipe_check_clear_highlight
+MainWindow.highlight_selected_pipe_check_issue = _nevis_pipe_check_highlight_selected
+MainWindow._pipe_check_tab_changed = _nevis_pipe_check_tab_changed
+MainWindow.retranslate_pipe_check_ui = _nevis_pipe_check_retranslate_ui
+
+_NEVIS_PIPE_CHECK_PREV_REFRESH_LANGUAGE = MainWindow.refresh_language_texts
+def _nevis_pipe_check_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_PIPE_CHECK_PREV_REFRESH_LANGUAGE(self, *args, **kwargs)
+    self.retranslate_pipe_check_ui()
+    return result
+MainWindow.refresh_language_texts = _nevis_pipe_check_refresh_language
+
+_NEVIS_PIPE_CHECK_PREV_SET_SIDE_PANEL = MainWindow.set_side_panel_visible
+def _nevis_pipe_check_set_side_panel_visible(self, side: str, visible: bool):
+    if side == "right" and not visible:
+        self.clear_pipe_check_highlight()
+    return _NEVIS_PIPE_CHECK_PREV_SET_SIDE_PANEL(self, side, visible)
+MainWindow.set_side_panel_visible = _nevis_pipe_check_set_side_panel_visible
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
