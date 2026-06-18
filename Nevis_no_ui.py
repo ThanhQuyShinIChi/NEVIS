@@ -27,7 +27,7 @@ from typing import Dict, List, Tuple, Optional, Set
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
-    from PySide6.QtGui import QAction, QBrush, QColor, QFont, QPainter, QPen, QPixmap, QIcon, QPolygonF
+    from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QIcon, QPolygonF, QRawFont
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QFileDialog, QMessageBox,
         QHBoxLayout, QVBoxLayout, QGridLayout, QGroupBox, QLabel, QLineEdit,
@@ -35,7 +35,7 @@ try:
         QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget,
         QTreeWidgetItem, QInputDialog, QHeaderView, QGraphicsView, QGraphicsScene, QGraphicsItem,
         QScrollArea, QSizePolicy, QDialog, QTextEdit, QDialogButtonBox, QListWidget, QListWidgetItem, QFrame,
-        QDockWidget, QSpinBox, QFormLayout
+        QDockWidget, QSpinBox, QFormLayout, QAbstractItemView
     )
 except Exception as e:
     print("PySide6 is required. Install with: py -m pip install pyside6")
@@ -347,6 +347,12 @@ class Edge:
     vertical_type: str = "unknown"
     elevation_mode: str = "unknown"
     system_type: str = ""
+    start_level_id: Optional[str] = None
+    end_level_id: Optional[str] = None
+    start_z: Optional[float] = None
+    end_z: Optional[float] = None
+    slope_percent: Optional[float] = None
+    elevation_locked: bool = False
 
     @property
     def key(self) -> str:
@@ -1364,6 +1370,135 @@ APP_TEXT = {
     }
 }
 
+APP_TEXT.setdefault("vi", {}).update({
+    "elevation_group": "Cao độ",
+    "elevation_report_group": "Báo cáo cao độ",
+    "elevation_node_level": "Level",
+    "elevation_node_z": "Z",
+    "elevation_start_level": "Level bắt đầu",
+    "elevation_end_level": "Level kết thúc",
+    "elevation_start_z": "Cao độ bắt đầu",
+    "elevation_end_z": "Cao độ kết thúc",
+    "elevation_slope": "Dốc",
+    "elevation_locked": "Khóa",
+    "elevation_apply": "Áp dụng cao độ",
+    "elevation_apply_to_nodes": "Ghi vào node",
+    "elevation_sync_from_nodes": "Lấy từ node",
+    "elevation_propagate_chain": "Truyền cao độ",
+    "elevation_refresh_report": "Tính lại",
+    "elevation_slope_mode": "Kiểu dốc",
+    "elevation_slope_ratio": "1/N",
+    "elevation_slope_percent": "%",
+    "elevation_reference": "Mốc cao độ",
+    "elevation_ref_invert": "Đáy ống",
+    "elevation_ref_center": "Tim ống",
+    "elevation_ref_top": "Đỉnh ống",
+    "elevation_none": "Không",
+    "elevation_report_pipe": "Ống",
+    "elevation_report_start": "Bắt đầu",
+    "elevation_report_end": "Kết thúc",
+    "elevation_report_length": "Dài",
+    "elevation_report_slope": "Dốc",
+    "elevation_report_status": "Trạng thái",
+    "elevation_calc_preview": "Tính thử",
+    "elevation_warnings": "Cảnh báo",
+    "elevation_preview_title": "Báo cáo tính thử cao độ",
+    "elevation_preview_open": "Mở tính thử cao độ",
+    "elevation_preview_run": "Tính thử cao độ",
+    "elevation_preview_readonly": "CHỈ XEM",
+    "elevation_preview_footer": "Chỉ xem. Không thay đổi dữ liệu cao độ trong mô hình.",
+    "elevation_preview_status_proposed": "Đề xuất",
+    "elevation_preview_status_conflict": "Xung đột",
+    "elevation_preview_status_locked": "Khóa",
+    "elevation_preview_status_skipped": "Bỏ qua",
+    "elevation_preview_col_type": "Loại",
+    "elevation_preview_col_target": "Đối tượng",
+    "elevation_preview_col_current": "Cao độ hiện tại",
+    "elevation_preview_col_proposed": "Cao độ đề xuất",
+    "elevation_preview_col_reason": "Lý do",
+    "elevation_preview_target_format": "{pipe} {pair} / {endpoint}",
+    "elevation_preview_empty": "Không có kết quả tính thử.",
+    "elevation_preview_error": "Không thể tính thử cao độ.",
+    "elevation_preview_stale": "Kết quả không còn khớp với mô hình. Hãy tính thử lại.",
+    "elevation_preview_unknown": "Không xác định",
+    "elevation_reason_copy_source": "Lấy cao độ từ điểm nguồn",
+    "elevation_reason_candidate_conflict": "Các đề xuất cao độ xung đột",
+    "elevation_reason_anchor_source_conflict": "Mốc cao độ tại điểm nguồn xung đột",
+    "elevation_reason_anchor_target_conflict": "Mốc cao độ tại đích xung đột",
+    "elevation_reason_multiple_candidates": "Có nhiều đề xuất cho cùng một đích",
+    "elevation_reason_source_locked": "Ống nguồn đã khóa",
+    "elevation_reason_target_locked": "Ống đích đã khóa",
+    "elevation_reason_known_locked": "Cao độ hiện có đã khóa",
+    "elevation_reason_target_known": "Đã có cao độ",
+    "elevation_reason_missing_source": "Thiếu dữ liệu cao độ nguồn",
+    "elevation_reason_invalid_endpoint": "Đầu ống không hợp lệ",
+    "elevation_reason_edge_missing": "Không tìm thấy ống đích",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "elevation_group": "高低差",
+    "elevation_report_group": "高低差レポート",
+    "elevation_node_level": "レベル",
+    "elevation_node_z": "高さ",
+    "elevation_start_level": "開始レベル",
+    "elevation_end_level": "終了レベル",
+    "elevation_start_z": "開始高さ",
+    "elevation_end_z": "終了高さ",
+    "elevation_slope": "勾配",
+    "elevation_locked": "ロック",
+    "elevation_apply": "高低差反映",
+    "elevation_apply_to_nodes": "ノードへ反映",
+    "elevation_sync_from_nodes": "ノードから取得",
+    "elevation_propagate_chain": "高低差伝播",
+    "elevation_refresh_report": "再集計",
+    "elevation_slope_mode": "勾配方式",
+    "elevation_slope_ratio": "1/N",
+    "elevation_slope_percent": "%",
+    "elevation_reference": "高さ基準",
+    "elevation_ref_invert": "管底",
+    "elevation_ref_center": "管芯",
+    "elevation_ref_top": "上端",
+    "elevation_none": "なし",
+    "elevation_report_pipe": "配管",
+    "elevation_report_start": "開始",
+    "elevation_report_end": "終了",
+    "elevation_report_length": "長さ",
+    "elevation_report_slope": "勾配",
+    "elevation_report_status": "状態",
+    "elevation_calc_preview": "計算プレビュー",
+    "elevation_warnings": "警告",
+    "elevation_preview_title": "高低差計算プレビュー",
+    "elevation_preview_open": "高低差計算プレビューを開く",
+    "elevation_preview_run": "高低差を試算",
+    "elevation_preview_readonly": "参照のみ",
+    "elevation_preview_footer": "参照のみ。モデルの高さデータは変更されません。",
+    "elevation_preview_status_proposed": "提案",
+    "elevation_preview_status_conflict": "競合",
+    "elevation_preview_status_locked": "ロック",
+    "elevation_preview_status_skipped": "対象外",
+    "elevation_preview_col_type": "種類",
+    "elevation_preview_col_target": "対象",
+    "elevation_preview_col_current": "現在高さ",
+    "elevation_preview_col_proposed": "提案高さ",
+    "elevation_preview_col_reason": "理由",
+    "elevation_preview_target_format": "{pipe} {pair} / {endpoint}",
+    "elevation_preview_empty": "試算結果はありません。",
+    "elevation_preview_error": "高低差を試算できませんでした。",
+    "elevation_preview_stale": "結果が現在のモデルと一致しません。再試算してください。",
+    "elevation_preview_unknown": "不明",
+    "elevation_reason_copy_source": "参照元端点の高さを採用",
+    "elevation_reason_candidate_conflict": "高さ提案が競合しています",
+    "elevation_reason_anchor_source_conflict": "参照元の基準高さが競合しています",
+    "elevation_reason_anchor_target_conflict": "対象の基準高さが競合しています",
+    "elevation_reason_multiple_candidates": "同一対象に複数の提案があります",
+    "elevation_reason_source_locked": "参照元配管がロックされています",
+    "elevation_reason_target_locked": "対象配管がロックされています",
+    "elevation_reason_known_locked": "設定済み高さがロックされています",
+    "elevation_reason_target_known": "高さ設定済み",
+    "elevation_reason_missing_source": "参照元の高さデータがありません",
+    "elevation_reason_invalid_endpoint": "配管端点が無効です",
+    "elevation_reason_edge_missing": "対象配管が見つかりません",
+})
+
 
 def _nums_from_text(s: str) -> List[float]:
     return [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", s or "")]
@@ -2226,6 +2361,10 @@ class PreviewView(QGraphicsView):
             txt.setAcceptHoverEvents(False)
             # Text labels are for reading only. Do not make them clickable,
             # otherwise pipe/fitting selection becomes noisy around crowded labels.
+
+        elevation_dialog = getattr(self.mainwin, "elevation_preview_dialog", None)
+        if elevation_dialog is not None and elevation_dialog.isVisible():
+            elevation_dialog.refresh_highlight_after_canvas_redraw()
 
     def _draw_fitting_clearance_warnings(self, min_gap: float = 10.0):
         """Show warning marks when the straight pipe between two fittings is too short.
@@ -4572,9 +4711,9 @@ class LevelManagerDialog(QDialog):
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["ID", "Name", "Type", "Elevation mm", "Floor", "Description"])
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self._load_selected_row)
@@ -4656,18 +4795,18 @@ class LevelManagerDialog(QDialog):
     def _form_datum(self) -> Optional[LevelDatum]:
         datum_id = self.edit_id.text().strip()
         if not datum_id:
-            QMessageBox.warning(self, "Level Manager", "ID không được rỗng.")
+            QMessageBox.warning(self, "Level Manager", "ID is required.")
             return None
 
         try:
             elevation = float(self.edit_elevation.text().strip())
         except Exception:
-            QMessageBox.warning(self, "Level Manager", "elevation_mm phải là số.")
+            QMessageBox.warning(self, "Level Manager", "elevation_mm must be a number.")
             return None
 
         datum_type = self.cmb_type.currentText().strip()
         if datum_type not in self.DATUM_TYPES:
-            QMessageBox.warning(self, "Level Manager", "datum_type phải thuộc BM/GL/SL/FL/CL/CH.")
+            QMessageBox.warning(self, "Level Manager", "datum_type must be one of BM/GL/SL/FL/CL/CH.")
             return None
 
         floor_text = self.edit_floor.text().strip()
@@ -4676,7 +4815,7 @@ class LevelManagerDialog(QDialog):
             try:
                 floor_index = int(floor_text)
             except Exception:
-                QMessageBox.warning(self, "Level Manager", "floor_index phải là số nguyên hoặc rỗng.")
+                QMessageBox.warning(self, "Level Manager", "floor_index must be an integer or blank.")
                 return None
 
         return LevelDatum(
@@ -4693,10 +4832,10 @@ class LevelManagerDialog(QDialog):
         for row, datum in enumerate(self._rows):
             datum_id = new_id if replace_row == row else datum.id
             if not datum_id:
-                QMessageBox.warning(self, "Level Manager", "ID không được rỗng.")
+                QMessageBox.warning(self, "Level Manager", "ID is required.")
                 return False
             if datum_id in seen:
-                QMessageBox.warning(self, "Level Manager", f"ID bị trùng: {datum_id}")
+                QMessageBox.warning(self, "Level Manager", f"Duplicate ID: {datum_id}")
                 return False
             seen.add(datum_id)
         return True
@@ -4742,6 +4881,379 @@ class LevelManagerDialog(QDialog):
     def accept(self):
         if self.apply_current():
             super().accept()
+
+
+_NEVIS_ELEVATION_FONT_FAMILIES = None
+
+
+def _nevis_elevation_font_families() -> List[str]:
+    global _NEVIS_ELEVATION_FONT_FAMILIES
+    if _NEVIS_ELEVATION_FONT_FAMILIES is not None:
+        return list(_NEVIS_ELEVATION_FONT_FAMILIES)
+
+    font_paths = (
+        r"C:\Windows\Fonts\NotoSansJP-VF.ttf",
+        r"C:\Windows\Fonts\YuGothM.ttc",
+        r"C:\Windows\Fonts\meiryo.ttc",
+        r"C:\Windows\Fonts\segoeui.ttf",
+    )
+    for path in font_paths:
+        if not Path(path).exists():
+            continue
+        try:
+            QFontDatabase.addApplicationFont(path)
+        except Exception:
+            continue
+    _NEVIS_ELEVATION_FONT_FAMILIES = list(QFontDatabase.families())
+    return list(_NEVIS_ELEVATION_FONT_FAMILIES)
+
+
+def _nevis_elevation_ui_font(lang: str) -> QFont:
+    families = _nevis_elevation_font_families()
+    required = "高低差試算参照" if lang == "jp" else "Đề xuất cao độ thử"
+    preferred = (
+        ("Noto Sans JP", "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo")
+        if lang == "jp"
+        else ("Noto Sans JP", "Segoe UI", "Yu Gothic UI", "Meiryo UI")
+    )
+    for family in preferred:
+        if family not in families:
+            continue
+        raw = QRawFont.fromFont(QFont(family, 10))
+        if raw.isValid() and all(raw.supportsCharacter(ord(char)) for char in required):
+            return QFont(family, 10)
+    return QFont("", 10)
+
+
+class ElevationPreviewDialog(QDialog):
+    STATUS_KEYS = {
+        "Proposed": "elevation_preview_status_proposed",
+        "Blocked by Conflict": "elevation_preview_status_conflict",
+        "Blocked by Lock": "elevation_preview_status_locked",
+        "Skipped (Known Target)": "elevation_preview_status_skipped",
+    }
+    STATUS_COLORS = {
+        "Proposed": QColor(20, 95, 190),
+        "Blocked by Conflict": QColor(190, 35, 35),
+        "Blocked by Lock": QColor(180, 105, 0),
+        "Skipped (Known Target)": QColor(100, 100, 100),
+    }
+    REASON_KEYS = {
+        "copy_source_z_for_dry_run_proposal": "elevation_reason_copy_source",
+        "candidate_conflict": "elevation_reason_candidate_conflict",
+        "anchor_conflict_at_source_node": "elevation_reason_anchor_source_conflict",
+        "anchor_conflict_at_target_node": "elevation_reason_anchor_target_conflict",
+        "multiple_candidates_for_target": "elevation_reason_multiple_candidates",
+        "source_edge_locked": "elevation_reason_source_locked",
+        "target_edge_locked": "elevation_reason_target_locked",
+        "known_endpoint_edge_locked": "elevation_reason_known_locked",
+        "target_already_known": "elevation_reason_target_known",
+        "missing_source_metadata": "elevation_reason_missing_source",
+        "invalid_target_endpoint": "elevation_reason_invalid_endpoint",
+        "target_edge_missing": "elevation_reason_edge_missing",
+    }
+
+    def __init__(self, mainwin):
+        super().__init__(mainwin)
+        self.mainwin = mainwin
+        self.report = None
+        self.report_model_id = None
+        self.highlight_items = []
+        self.resize(1040, 620)
+        self.setFont(_nevis_elevation_ui_font(getattr(mainwin, "lang", "jp")))
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 14)
+        root.setSpacing(10)
+
+        header = QHBoxLayout()
+        self.lbl_title = QLabel()
+        title_font = QFont(self.font())
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        self.lbl_title.setFont(title_font)
+        self.lbl_readonly = QLabel()
+        self.lbl_readonly.setAlignment(Qt.AlignCenter)
+        self.lbl_readonly.setStyleSheet(
+            "color:#1459A0; background:#E8F1FC; border:1px solid #A8C9ED; "
+            "border-radius:5px; padding:5px 10px; font-weight:600;"
+        )
+        header.addWidget(self.lbl_title)
+        header.addStretch(1)
+        header.addWidget(self.lbl_readonly)
+        root.addLayout(header)
+
+        self.btn_run = QPushButton()
+        self.btn_run.setMinimumHeight(36)
+        self.btn_run.setMaximumWidth(220)
+        self.btn_run.clicked.connect(self.run_dry_run)
+        root.addWidget(self.btn_run, 0, Qt.AlignLeft)
+
+        summary = QHBoxLayout()
+        summary.setSpacing(8)
+        self.summary_labels = {}
+        summary_specs = (
+            ("proposed", "elevation_preview_status_proposed", "#145FBE", "#EAF2FD"),
+            ("conflict", "elevation_preview_status_conflict", "#BE2323", "#FDEEEE"),
+            ("locked", "elevation_preview_status_locked", "#B46A00", "#FFF5DF"),
+            ("skipped", "elevation_preview_status_skipped", "#666666", "#F1F2F4"),
+        )
+        for name, key, color, background in summary_specs:
+            label = QLabel()
+            label.setAlignment(Qt.AlignCenter)
+            label.setMinimumHeight(54)
+            label.setStyleSheet(
+                f"color:{color}; background:{background}; border:1px solid #D4D8DE; "
+                "border-radius:6px; padding:7px; font-size:12pt; font-weight:600;"
+            )
+            label.setProperty("language_key", key)
+            self.summary_labels[name] = label
+            summary.addWidget(label, 1)
+        root.addLayout(summary)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setDefaultSectionSize(31)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setColumnWidth(0, 130)
+        self.table.setColumnWidth(1, 220)
+        self.table.setColumnWidth(2, 150)
+        self.table.setColumnWidth(3, 150)
+        self.table.itemSelectionChanged.connect(self._highlight_selected_row)
+        root.addWidget(self.table, 1)
+
+        self.lbl_message = QLabel()
+        self.lbl_message.setStyleSheet("color:#A03030;")
+        root.addWidget(self.lbl_message)
+        self.lbl_footer = QLabel()
+        self.lbl_footer.setStyleSheet("color:#34506F;")
+        root.addWidget(self.lbl_footer)
+
+        self.retranslate_ui()
+        self._update_summary()
+
+    def tr_key(self, key: str) -> str:
+        return self.mainwin.tr(key)
+
+    def retranslate_ui(self):
+        ui_font = _nevis_elevation_ui_font(getattr(self.mainwin, "lang", "jp"))
+        self.setFont(ui_font)
+        title_font = QFont(ui_font)
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        self.lbl_title.setFont(title_font)
+        self.setWindowTitle(self.tr_key("window_title"))
+        self.lbl_title.setText(self.tr_key("elevation_preview_title"))
+        self.lbl_readonly.setText(self.tr_key("elevation_preview_readonly"))
+        self.btn_run.setText(self.tr_key("elevation_preview_run"))
+        self.lbl_footer.setText(self.tr_key("elevation_preview_footer"))
+        self.table.setHorizontalHeaderLabels([
+            self.tr_key("elevation_preview_col_type"),
+            self.tr_key("elevation_preview_col_target"),
+            self.tr_key("elevation_preview_col_current"),
+            self.tr_key("elevation_preview_col_proposed"),
+            self.tr_key("elevation_preview_col_reason"),
+        ])
+        self._update_summary()
+        if self.report is not None:
+            self._populate_table()
+
+    def run_dry_run(self):
+        self.btn_run.setEnabled(False)
+        self.clear_highlight()
+        try:
+            from modules.elevation_review import build_proposal_review
+            self.report = build_proposal_review(self.mainwin.model)
+            self.report_model_id = id(self.mainwin.model)
+            self.lbl_message.setText(
+                "" if self.report.rows else self.tr_key("elevation_preview_empty")
+            )
+            self._update_summary()
+            self._populate_table()
+        except Exception as exc:
+            print("NEVIS_ELEVATION_PREVIEW_ERROR", exc)
+            self.report = None
+            self.report_model_id = None
+            self.table.setRowCount(0)
+            self.lbl_message.setText(self.tr_key("elevation_preview_error"))
+            self._update_summary()
+        finally:
+            self.btn_run.setEnabled(True)
+
+    def _update_summary(self):
+        values = {"proposed": 0, "conflict": 0, "locked": 0, "skipped": 0}
+        if self.report is not None:
+            summary = self.report.summary
+            values = {
+                "proposed": summary.proposed_count,
+                "conflict": summary.blocked_by_conflict_count,
+                "locked": summary.blocked_by_lock_count,
+                "skipped": summary.skipped_known_target_count,
+            }
+        for name, label in self.summary_labels.items():
+            label.setText(f"{self.tr_key(label.property('language_key'))}  {values[name]}")
+
+    def _status_text(self, status: str) -> str:
+        return self.tr_key(self.STATUS_KEYS.get(status, "elevation_preview_unknown"))
+
+    def _reason_text(self, reason: str) -> str:
+        return self.tr_key(self.REASON_KEYS.get(reason, "elevation_preview_unknown"))
+
+    def _resolve_row_edge(self, row):
+        if self.report_model_id != id(self.mainwin.model):
+            return None
+        pair = getattr(row, "target_edge_pair", None)
+        orientation = getattr(row, "target_edge_orientation", None)
+        if pair is None or orientation is None:
+            return None
+        matches = []
+        for edge in getattr(self.mainwin.model, "edges", []):
+            current_pair = (min(int(edge.a), int(edge.b)), max(int(edge.a), int(edge.b)))
+            if current_pair == tuple(pair):
+                matches.append(edge)
+        if len(matches) != 1:
+            return None
+        edge = matches[0]
+        if (int(edge.a), int(edge.b)) != tuple(orientation):
+            return None
+        return edge
+
+    def _current_value(self, row, edge):
+        if edge is None or row.target_endpoint not in {"start", "end"}:
+            return None
+        value = getattr(edge, f"{row.target_endpoint}_z", None)
+        if value not in (None, ""):
+            try:
+                return float(value)
+            except Exception:
+                return None
+        level_id = str(getattr(edge, f"{row.target_endpoint}_level_id", "") or "").strip()
+        datum = (getattr(self.mainwin.model, "level_datums", {}) or {}).get(level_id)
+        if datum is None:
+            return None
+        try:
+            return float(datum.elevation_mm)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _number_text(value) -> str:
+        if value is None:
+            return "—"
+        try:
+            return f"{float(value):g}"
+        except Exception:
+            return "—"
+
+    def _target_text(self, row) -> str:
+        pair = getattr(row, "target_edge_pair", None)
+        if pair is None or row.target_endpoint not in {"start", "end"}:
+            return "—"
+        endpoint_key = (
+            "elevation_report_start"
+            if row.target_endpoint == "start"
+            else "elevation_report_end"
+        )
+        return self.tr_key("elevation_preview_target_format").format(
+            pipe=self.tr_key("elevation_report_pipe"),
+            pair=f"{pair[0]}-{pair[1]}",
+            endpoint=self.tr_key(endpoint_key),
+        )
+
+    def _populate_table(self):
+        rows = [] if self.report is None else list(self.report.rows)
+        self.table.blockSignals(True)
+        try:
+            self.table.setRowCount(len(rows))
+            for table_row, review_row in enumerate(rows):
+                edge = self._resolve_row_edge(review_row)
+                current_value = self._current_value(review_row, edge)
+                proposed_value = (
+                    review_row.proposed_z
+                    if review_row.status == "Proposed"
+                    else None
+                )
+                values = [
+                    self._status_text(review_row.status),
+                    self._target_text(review_row),
+                    self._number_text(current_value),
+                    self._number_text(proposed_value),
+                    self._reason_text(review_row.reason),
+                ]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    if column == 0:
+                        item.setData(Qt.UserRole, review_row)
+                        item.setForeground(
+                            self.STATUS_COLORS.get(review_row.status, QColor(80, 80, 80))
+                        )
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    self.table.setItem(table_row, column, item)
+        finally:
+            self.table.blockSignals(False)
+
+    def clear_highlight(self):
+        scene = getattr(getattr(self.mainwin, "preview", None), "scene", None)
+        for item in self.highlight_items:
+            try:
+                if scene is not None and item.scene() is scene:
+                    scene.removeItem(item)
+            except RuntimeError:
+                pass
+        self.highlight_items = []
+
+    def _highlight_selected_row(self):
+        self.clear_highlight()
+        row_index = self.table.currentRow()
+        item = self.table.item(row_index, 0) if row_index >= 0 else None
+        review_row = item.data(Qt.UserRole) if item is not None else None
+        if review_row is None:
+            return
+        edge = self._resolve_row_edge(review_row)
+        if edge is None:
+            self.lbl_message.setText(self.tr_key("elevation_preview_stale"))
+            return
+        self.lbl_message.setText("")
+        self._draw_highlight(edge)
+
+    def _draw_highlight(self, edge):
+        preview = getattr(self.mainwin, "preview", None)
+        scene = getattr(preview, "scene", None)
+        nodes = getattr(self.mainwin.model, "nodes", {})
+        if scene is None or edge.a not in nodes or edge.b not in nodes:
+            return
+        start = display_point(nodes[edge.a].x, nodes[edge.a].y)
+        end = display_point(nodes[edge.b].x, nodes[edge.b].y)
+        for color, width, z_value in (
+            (QColor(45, 175, 255, 150), 13, 490),
+            (QColor(0, 85, 210), 4, 491),
+        ):
+            pen = QPen(color, width)
+            pen.setCosmetic(True)
+            item = scene.addLine(start[0], start[1], end[0], end[1], pen)
+            item.setZValue(z_value)
+            item.setAcceptedMouseButtons(Qt.NoButton)
+            item.setAcceptHoverEvents(False)
+            self.highlight_items.append(item)
+
+    def refresh_highlight_after_canvas_redraw(self):
+        self.highlight_items = []
+        row_index = self.table.currentRow()
+        item = self.table.item(row_index, 0) if row_index >= 0 else None
+        review_row = item.data(Qt.UserRole) if item is not None else None
+        edge = self._resolve_row_edge(review_row) if review_row is not None else None
+        if edge is not None:
+            self._draw_highlight(edge)
+
+    def closeEvent(self, event):
+        self.clear_highlight()
+        super().closeEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -4883,6 +5395,8 @@ class MainWindow(QMainWindow):
         self.act_open_project = QAction(self.tr("open_project"), self); self.act_open_project.triggered.connect(self.open_project)
         self.act_save_project = QAction(self.tr("save_project"), self); self.act_save_project.triggered.connect(self.save_project)
         self.menu_file.addAction(self.act_open_project); self.menu_file.addAction(self.act_save_project)
+        self.act_level_manager = QAction("Level Manager...", self); self.act_level_manager.triggered.connect(self.open_level_manager)
+        self.menu_file.addAction(self.act_level_manager)
         self.menu_file.addSeparator()
         self.act_exit = QAction(self.tr("act_exit"), self); self.act_exit.triggered.connect(self.close)
         self.menu_file.addAction(self.act_exit)
@@ -5231,6 +5745,26 @@ class MainWindow(QMainWindow):
         self.lbl_detail.setMaximumHeight(38)
         self.lbl_detail.setStyleSheet("color:#5A6B80; font-size:11px;")
 
+        self.lbl_node_level = QLabel("Level")
+        self.cmb_node_level = QComboBox()
+        self.cmb_node_level.setEditable(True)
+        self.cmb_node_level.setMinimumWidth(105)
+        self.cmb_node_level.setMaximumWidth(135)
+        self.cmb_node_level.setMinimumHeight(28)
+        self.cmb_node_level.setMaximumHeight(32)
+        self.cmb_node_level.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.lbl_node_z = QLabel("Z")
+        self.edit_node_z = QLineEdit()
+        self.edit_node_z.setMinimumWidth(70)
+        self.edit_node_z.setMaximumWidth(85)
+        self.btn_apply_node_level = QPushButton("Apply Elev.")
+        self.btn_apply_node_level.setMinimumHeight(28)
+        self.btn_apply_node_level.setMaximumHeight(32)
+        self.btn_apply_node_level.setMinimumWidth(118)
+        self.btn_apply_node_level.setMaximumWidth(145)
+        self.btn_apply_node_level.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_apply_node_level.clicked.connect(self.apply_selected_node_level)
+
         op_grid.addLayout(type_row, 0, 1)
         op_grid.addLayout(size_row, 1, 1)
         op_grid.addWidget(self.lbl_detail, 2, 1)
@@ -5251,6 +5785,169 @@ class MainWindow(QMainWindow):
         op_grid.setVerticalSpacing(5)
 
         sgrid.addLayout(op_grid, 1, 0, 1, 3)
+
+        self.g_pipe_elev = QGroupBox(self.tr("elevation_group"))
+        self.g_pipe_elev.setObjectName("subGroup")
+        pe_root = QVBoxLayout(self.g_pipe_elev)
+        pe_root.setContentsMargins(10, 16, 10, 10)
+        pe_root.setSpacing(9)
+
+        self.w_node_elev = QWidget()
+        node_grid = QGridLayout(self.w_node_elev)
+        node_grid.setContentsMargins(0, 0, 0, 0)
+        node_grid.setHorizontalSpacing(10)
+        node_grid.setVerticalSpacing(8)
+        node_grid.addWidget(self.lbl_node_level, 0, 0)
+        node_grid.addWidget(self.cmb_node_level, 0, 1)
+        node_grid.addWidget(self.lbl_node_z, 0, 2)
+        node_grid.addWidget(self.edit_node_z, 0, 3)
+        node_grid.addWidget(self.btn_apply_node_level, 1, 0, 1, 4)
+        node_grid.setColumnStretch(1, 1)
+        pe_root.addWidget(self.w_node_elev)
+
+        self.w_pipe_elev = QWidget()
+        pe_grid = QGridLayout(self.w_pipe_elev)
+        pe_grid.setContentsMargins(0, 0, 0, 0)
+        pe_grid.setHorizontalSpacing(10)
+        pe_grid.setVerticalSpacing(8)
+        self.lbl_pipe_start_level = QLabel(self.tr("elevation_start_level"))
+        self.lbl_pipe_end_level = QLabel(self.tr("elevation_end_level"))
+        self.lbl_pipe_start_z = QLabel(self.tr("elevation_start_z"))
+        self.lbl_pipe_end_z = QLabel(self.tr("elevation_end_z"))
+        self.lbl_pipe_slope_percent = QLabel(self.tr("elevation_slope"))
+        self.cmb_pipe_start_level = QComboBox()
+        self.cmb_pipe_end_level = QComboBox()
+        self.cmb_pipe_start_level.setEditable(True)
+        self.cmb_pipe_end_level.setEditable(True)
+        self.edit_pipe_start_z = QLineEdit()
+        self.edit_pipe_end_z = QLineEdit()
+        self.edit_pipe_slope_percent = QLineEdit()
+        self.chk_pipe_elevation_locked = QCheckBox(self.tr("elevation_locked"))
+        self.lbl_slope_mode = QLabel(self.tr("elevation_slope_mode"))
+        self.radio_slope_ratio = QRadioButton(self.tr("elevation_slope_ratio"))
+        self.radio_slope_percent = QRadioButton(self.tr("elevation_slope_percent"))
+        self.radio_slope_ratio.setChecked(True)
+        self.slope_mode_group = QButtonGroup(self)
+        self.slope_mode_group.addButton(self.radio_slope_ratio)
+        self.slope_mode_group.addButton(self.radio_slope_percent)
+        self.lbl_elevation_reference = QLabel(self.tr("elevation_reference"))
+        self.radio_ref_invert = QRadioButton(self.tr("elevation_ref_invert"))
+        self.radio_ref_center = QRadioButton(self.tr("elevation_ref_center"))
+        self.radio_ref_top = QRadioButton(self.tr("elevation_ref_top"))
+        self.radio_ref_invert.setChecked(True)
+        self.elevation_reference_group = QButtonGroup(self)
+        self.elevation_reference_group.addButton(self.radio_ref_invert)
+        self.elevation_reference_group.addButton(self.radio_ref_center)
+        self.elevation_reference_group.addButton(self.radio_ref_top)
+        self.btn_apply_pipe_elevation = QPushButton(self.tr("elevation_apply"))
+        self.btn_apply_pipe_elevation_to_nodes = QPushButton(self.tr("elevation_apply_to_nodes"))
+        self.btn_sync_pipe_elevation_from_nodes = QPushButton(self.tr("elevation_sync_from_nodes"))
+        self.btn_propagate_simple_chain_elevation = QPushButton(self.tr("elevation_propagate_chain"))
+        for cmb in (self.cmb_pipe_start_level, self.cmb_pipe_end_level):
+            cmb.setMinimumWidth(105)
+            cmb.setMaximumWidth(130)
+            cmb.setMinimumHeight(31)
+            cmb.setMaximumHeight(36)
+        for edit in (self.edit_pipe_start_z, self.edit_pipe_end_z, self.edit_pipe_slope_percent):
+            edit.setMinimumWidth(70)
+            edit.setMaximumWidth(85)
+            edit.setMinimumHeight(31)
+            edit.setMaximumHeight(36)
+        for edit in (self.edit_node_z,):
+            edit.setMinimumHeight(31)
+            edit.setMaximumHeight(36)
+        self.cmb_node_level.setMinimumHeight(31)
+        self.cmb_node_level.setMaximumHeight(36)
+        for label in (
+            self.lbl_node_level, self.lbl_node_z, self.lbl_pipe_start_level, self.lbl_pipe_end_level,
+            self.lbl_pipe_start_z, self.lbl_pipe_end_z, self.lbl_pipe_slope_percent,
+            self.lbl_slope_mode, self.lbl_elevation_reference
+        ):
+            label.setMinimumHeight(28)
+        for radio in (
+            self.radio_slope_ratio, self.radio_slope_percent,
+            self.radio_ref_invert, self.radio_ref_center, self.radio_ref_top
+        ):
+            radio.setMinimumHeight(30)
+            radio.setMinimumWidth(58)
+        self.chk_pipe_elevation_locked.setMinimumHeight(30)
+        self.btn_apply_pipe_elevation.setMinimumHeight(31)
+        self.btn_apply_pipe_elevation.setMaximumHeight(36)
+        self.btn_apply_pipe_elevation.clicked.connect(self.apply_selected_pipe_elevation)
+        for btn in (self.btn_apply_pipe_elevation, self.btn_apply_pipe_elevation_to_nodes, self.btn_sync_pipe_elevation_from_nodes, self.btn_propagate_simple_chain_elevation, self.btn_apply_node_level):
+            btn.setMinimumHeight(32)
+            btn.setMaximumHeight(38)
+            btn.setMinimumWidth(128)
+        self.btn_apply_pipe_elevation_to_nodes.clicked.connect(self.apply_selected_pipe_elevation_to_nodes)
+        self.btn_sync_pipe_elevation_from_nodes.clicked.connect(self.sync_selected_pipe_elevation_from_nodes)
+        self.btn_propagate_simple_chain_elevation.clicked.connect(self.propagate_simple_chain_elevation)
+        pe_grid.addWidget(self.lbl_pipe_start_level, 0, 0)
+        pe_grid.addWidget(self.cmb_pipe_start_level, 0, 1)
+        pe_grid.addWidget(self.lbl_pipe_end_level, 0, 2)
+        pe_grid.addWidget(self.cmb_pipe_end_level, 0, 3)
+        pe_grid.addWidget(self.lbl_pipe_start_z, 1, 0)
+        pe_grid.addWidget(self.edit_pipe_start_z, 1, 1)
+        pe_grid.addWidget(self.lbl_pipe_end_z, 1, 2)
+        pe_grid.addWidget(self.edit_pipe_end_z, 1, 3)
+        pe_grid.addWidget(self.lbl_pipe_slope_percent, 2, 0)
+        pe_grid.addWidget(self.edit_pipe_slope_percent, 2, 1)
+        pe_grid.addWidget(self.chk_pipe_elevation_locked, 2, 2)
+        pe_grid.addWidget(self.btn_apply_pipe_elevation, 2, 3)
+        pe_grid.addWidget(self.lbl_slope_mode, 3, 0)
+        pe_grid.addWidget(self.radio_slope_ratio, 3, 1)
+        pe_grid.addWidget(self.radio_slope_percent, 3, 2)
+        pe_grid.addWidget(self.lbl_elevation_reference, 4, 0)
+        pe_grid.addWidget(self.radio_ref_invert, 4, 1)
+        pe_grid.addWidget(self.radio_ref_center, 4, 2)
+        pe_grid.addWidget(self.radio_ref_top, 4, 3)
+        pe_grid.addWidget(self.btn_apply_pipe_elevation_to_nodes, 5, 0, 1, 2)
+        pe_grid.addWidget(self.btn_sync_pipe_elevation_from_nodes, 5, 2, 1, 2)
+        pe_grid.addWidget(self.btn_propagate_simple_chain_elevation, 6, 0, 1, 4)
+        for col in range(4):
+            pe_grid.setColumnStretch(col, 1)
+        pe_root.addWidget(self.w_pipe_elev)
+        sgrid.addWidget(self.g_pipe_elev, 2, 0, 1, 3)
+        self.update_pipe_elevation_controls()
+
+        self.g_elevation_report = QGroupBox(self.tr("elevation_report_group"))
+        self.g_elevation_report.setObjectName("subGroup")
+        er_v = QVBoxLayout(self.g_elevation_report)
+        er_v.setContentsMargins(10, 16, 10, 10)
+        er_v.setSpacing(8)
+        self.table_elevation_report = QTableWidget(0, 6)
+        self.table_elevation_report.setHorizontalHeaderLabels([
+            self.tr("elevation_report_pipe"),
+            self.tr("elevation_report_start"),
+            self.tr("elevation_report_end"),
+            self.tr("elevation_report_length"),
+            self.tr("elevation_report_slope"),
+            self.tr("elevation_report_status"),
+        ])
+        self.table_elevation_report.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table_elevation_report.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table_elevation_report.setAlternatingRowColors(True)
+        self.table_elevation_report.setMinimumHeight(130)
+        self.table_elevation_report.setMaximumHeight(175)
+        self.table_elevation_report.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table_elevation_report.verticalHeader().setDefaultSectionSize(30)
+        self.table_elevation_report.horizontalHeader().setMinimumSectionSize(72)
+        self._set_elevation_report_column_widths()
+        self.btn_refresh_elevation_report = QPushButton(self.tr("elevation_refresh_report"))
+        self.btn_open_elevation_preview = QPushButton(self.tr("elevation_preview_open"))
+        self.btn_refresh_elevation_report.setMinimumHeight(32)
+        self.btn_refresh_elevation_report.setMaximumHeight(38)
+        self.btn_open_elevation_preview.setMinimumHeight(32)
+        self.btn_open_elevation_preview.setMaximumHeight(38)
+        self.btn_refresh_elevation_report.clicked.connect(self.refresh_elevation_report)
+        self.btn_open_elevation_preview.clicked.connect(self.open_elevation_preview)
+        er_v.addWidget(self.table_elevation_report)
+        er_buttons = QHBoxLayout()
+        er_buttons.addStretch(1)
+        er_buttons.addWidget(self.btn_open_elevation_preview)
+        er_buttons.addWidget(self.btn_refresh_elevation_report)
+        er_v.addLayout(er_buttons)
+        sgrid.addWidget(self.g_elevation_report, 3, 0, 1, 3)
+        self.refresh_elevation_report()
 
         # --------------------------------------------------
         # Object operation blocks: keep fitting/pipe/reducer/branch actions
@@ -5287,7 +5984,7 @@ class MainWindow(QMainWindow):
         self.lbl_branch_mat_hint = QLabel(self.tr("branch_mat_hint_normal"))
         self.lbl_branch_mat_hint.setStyleSheet("color:#5A6B80; font-size:11px;")
         bm.addWidget(self.lbl_branch_mat_hint)
-        sgrid.addWidget(self.g_branch_mat, 2, 0, 1, 4)
+        sgrid.addWidget(self.g_branch_mat, 4, 0, 1, 4)
         self.update_branch_material_buttons()
 
         self.g_reducer = QGroupBox(self.tr("reducer_group"))
@@ -5319,7 +6016,7 @@ class MainWindow(QMainWindow):
         self.lbl_reducer_hint = QLabel(self.tr("reducer_hint_normal"))
         self.lbl_reducer_hint.setStyleSheet("color:#5A6B80; font-size:11px;")
         rv_red.addWidget(self.lbl_reducer_hint)
-        sgrid.addWidget(self.g_reducer, 4, 0, 1, 4)
+        sgrid.addWidget(self.g_reducer, 5, 0, 1, 4)
         self.update_reducer_buttons()
 
         self.g_support = QGroupBox(self.tr("support_group"))
@@ -5366,7 +6063,7 @@ class MainWindow(QMainWindow):
         sv.setColumnStretch(2, 0)
         sv.setColumnStretch(3, 0)
         sv.setColumnStretch(4, 1)
-        sgrid.addWidget(self.g_support, 5, 0, 1, 4)
+        sgrid.addWidget(self.g_support, 6, 0, 1, 4)
         self.update_support_controls(refresh_only=True)
 
         lv.addWidget(self.g_sel)
@@ -6287,6 +6984,7 @@ class MainWindow(QMainWindow):
         self.act_open.setText(self.tr("act_open")); self.act_exit.setText(self.tr("act_exit")); self.act_scan.setText(self.tr("act_scan")); self.act_fit.setText(self.tr("act_fit")); self.act_undo.setText(self.tr("undo")); self.act_lang.setText(self.tr("act_lang")); self.act_about.setText(self.tr("act_about")); self.act_master_manager.setText(self.tr("master_manager")); self.act_settings.setText(self.tr("act_settings"))
         if hasattr(self, "act_open_project"): self.act_open_project.setText(self.tr("open_project"))
         if hasattr(self, "act_save_project"): self.act_save_project.setText(self.tr("save_project"))
+        if hasattr(self, "act_level_manager"): self.act_level_manager.setText("Level Manager...")
         if hasattr(self, "btn_center_undo"): self.btn_center_undo.setText(self.tr("undo"))
         if hasattr(self, "btn_detail_preview"): self.btn_detail_preview.setText(self.tr("end_detail_preview") if getattr(self, "preview_detail_mode", False) else self.tr("detail_preview"))
         if hasattr(self, "lbl_fixed_system"): self.lbl_fixed_system.setText(self.tr("fixed_system"))
@@ -6307,6 +7005,44 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_terminal_side"): self.lbl_terminal_side.setText(self.tr("branch_end"))
         self.chk_fire.setText(self.tr("fire_rule")); self.lbl_fire_len.setText(self.tr("fire_len")); self.lbl_inside.setText(self.tr("inside")); self.lbl_outside.setText(self.tr("outside")); self.lbl_terminal.setText(self.tr("branch_end")); self.btn_common_list.setText(self.tr("common_list")); self.btn_apply_common.setText(self.tr("apply")); self._refresh_branch_rule_language()
         self.g_sel.setTitle(self.tr("selected_group")); self.lbl_fit_type.setText(self.tr("type")); self.lbl_fit_size.setText(self.tr("size")); self.btn_apply_node.setText(self.tr("apply")); self.btn_default_node.setText(self.tr("default")); self.btn_delete_node.setText(self.tr("delete_fit")); self.btn_set_base.setText(self.tr("set_base")); self.btn_library_editor.setText("🛠 " + self.tr("library_editor"))
+        if hasattr(self, "g_pipe_elev"):
+            self.g_pipe_elev.setTitle(self.tr("elevation_group"))
+            self.lbl_node_level.setText(self.tr("elevation_node_level"))
+            self.lbl_node_z.setText(self.tr("elevation_node_z"))
+            self.btn_apply_node_level.setText(self.tr("elevation_apply"))
+            self.lbl_pipe_start_level.setText(self.tr("elevation_start_level"))
+            self.lbl_pipe_end_level.setText(self.tr("elevation_end_level"))
+            self.lbl_pipe_start_z.setText(self.tr("elevation_start_z"))
+            self.lbl_pipe_end_z.setText(self.tr("elevation_end_z"))
+            self.lbl_pipe_slope_percent.setText(self.tr("elevation_slope"))
+            self.chk_pipe_elevation_locked.setText(self.tr("elevation_locked"))
+            self.btn_apply_pipe_elevation.setText(self.tr("elevation_apply"))
+            self.btn_apply_pipe_elevation_to_nodes.setText(self.tr("elevation_apply_to_nodes"))
+            self.btn_sync_pipe_elevation_from_nodes.setText(self.tr("elevation_sync_from_nodes"))
+            self.btn_propagate_simple_chain_elevation.setText(self.tr("elevation_propagate_chain"))
+            self.lbl_slope_mode.setText(self.tr("elevation_slope_mode"))
+            self.radio_slope_ratio.setText(self.tr("elevation_slope_ratio"))
+            self.radio_slope_percent.setText(self.tr("elevation_slope_percent"))
+            self.lbl_elevation_reference.setText(self.tr("elevation_reference"))
+            self.radio_ref_invert.setText(self.tr("elevation_ref_invert"))
+            self.radio_ref_center.setText(self.tr("elevation_ref_center"))
+            self.radio_ref_top.setText(self.tr("elevation_ref_top"))
+        if hasattr(self, "g_elevation_report"):
+            self.g_elevation_report.setTitle(self.tr("elevation_report_group"))
+            self.btn_refresh_elevation_report.setText(self.tr("elevation_refresh_report"))
+            self.btn_open_elevation_preview.setText(self.tr("elevation_preview_open"))
+            self.table_elevation_report.setHorizontalHeaderLabels([
+                self.tr("elevation_report_pipe"),
+                self.tr("elevation_report_start"),
+                self.tr("elevation_report_end"),
+                self.tr("elevation_report_length"),
+                self.tr("elevation_report_slope"),
+                self.tr("elevation_report_status"),
+            ])
+            self._set_elevation_report_column_widths()
+        elevation_dialog = getattr(self, "elevation_preview_dialog", None)
+        if elevation_dialog is not None:
+            elevation_dialog.retranslate_ui()
         if hasattr(self, "g_branch_mat"):
             self.g_branch_mat.setTitle(self.tr("branch_mat_group")); self.lbl_branch_material.setText(self.tr("branch_material")); self.btn_apply_branch_material.setText(self.tr("apply_branch_material")); self.btn_clear_branch_material.setText(self.tr("clear_branch_material"))
         if hasattr(self, "g_support"):
@@ -6484,13 +7220,474 @@ class MainWindow(QMainWindow):
         self.measure_points = []
         self.lbl_status.setText(self.tr("measure_result").format(dist=dist))
 
+    def open_level_manager(self):
+        dlg = LevelManagerDialog(getattr(self.model, "level_datums", {}), self)
+        if dlg.exec() == QDialog.Accepted:
+            self.model.level_datums = dlg.level_datums()
+            self.update_node_level_choices()
+            msg = self.tr("level_manager_saved")
+            self.lbl_status.setText(msg if msg != "level_manager_saved" else "Đã cập nhật LevelDatum")
+
+    def open_elevation_preview(self):
+        dialog = getattr(self, "elevation_preview_dialog", None)
+        if dialog is None:
+            dialog = ElevationPreviewDialog(self)
+            self.elevation_preview_dialog = dialog
+        dialog.retranslate_ui()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def update_node_level_choices(self):
+        if not hasattr(self, "cmb_node_level"):
+            return
+        current = ""
+        if getattr(self, "selected_node", None) in getattr(self.model, "nodes", {}):
+            current = str(getattr(self.model.nodes[self.selected_node], "level_id", "") or "")
+        combo = self.cmb_node_level
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem(self.tr("elevation_none"), "")
+            ids = sorted(str(k) for k in getattr(self.model, "level_datums", {}).keys() if str(k).strip())
+            for datum_id in ids:
+                combo.addItem(datum_id, datum_id)
+            if current and current not in ids:
+                combo.addItem(current, current)
+            idx = combo.findData(current)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            enabled = getattr(self, "selected_node", None) in getattr(self.model, "nodes", {})
+            combo.setEnabled(enabled)
+            if hasattr(self, "edit_node_z"):
+                node_z = None
+                if enabled:
+                    node_z = getattr(self.model.nodes[self.selected_node], "z", None)
+                self.edit_node_z.setText("" if node_z is None else f"{float(node_z):g}")
+                self.edit_node_z.setEnabled(enabled)
+            if hasattr(self, "btn_apply_node_level"):
+                self.btn_apply_node_level.setEnabled(enabled)
+        finally:
+            combo.blockSignals(False)
+
+    def _level_id_from_combo(self, combo: QComboBox) -> str:
+        data = combo.currentData()
+        if data not in (None, ""):
+            return str(data).strip()
+        text = combo.currentText().strip()
+        return "" if text in ("None", self.tr("elevation_none")) else text
+
+    def _warn_unknown_level_id(self, level_id: str):
+        if level_id and level_id not in getattr(self.model, "level_datums", {}):
+            QMessageBox.warning(self, "Elevation Metadata", f"Level ID is not defined in LevelDatum: {level_id}")
+
+    def apply_selected_node_level(self):
+        nid = getattr(self, "selected_node", None)
+        if nid not in getattr(self.model, "nodes", {}):
+            return
+        combo = getattr(self, "cmb_node_level", None)
+        if combo is None:
+            return
+        try:
+            node_z = self._parse_optional_float_field(self.edit_node_z, "Node Z")
+        except Exception:
+            return
+        level_id = self._level_id_from_combo(combo)
+        self._warn_unknown_level_id(level_id)
+        self.model.nodes[nid].level_id = str(level_id or "")
+        self.model.nodes[nid].z = node_z
+        self.update_node_level_choices()
+        self.update_selected_elevation_summary()
+        if hasattr(self, "lbl_status"):
+            self.lbl_status.setText(f"Node {nid} elevation metadata updated")
+
+    def _selected_edge_obj(self) -> Optional[Edge]:
+        key = getattr(self, "selected_edge", None)
+        if not key:
+            return None
+        return next((e for e in getattr(self.model, "edges", []) if e.key == key), None)
+
+    def get_pipe_start_node(self, pipe: Edge) -> Optional[Node]:
+        return getattr(self.model, "nodes", {}).get(pipe.a)
+
+    def get_pipe_end_node(self, pipe: Edge) -> Optional[Node]:
+        return getattr(self.model, "nodes", {}).get(pipe.b)
+
+    def _fill_level_combo(self, combo: QComboBox, current: Optional[str]):
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem(self.tr("elevation_none"), "")
+            ids = sorted(str(k) for k in getattr(self.model, "level_datums", {}).keys() if str(k).strip())
+            for datum_id in ids:
+                combo.addItem(datum_id, datum_id)
+            current_s = str(current or "")
+            if current_s and current_s not in ids:
+                combo.addItem(current_s, current_s)
+            idx = combo.findData(current_s)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+        finally:
+            combo.blockSignals(False)
+
+    def update_pipe_elevation_controls(self):
+        if not hasattr(self, "g_pipe_elev"):
+            return
+        edge = self._selected_edge_obj()
+        has_node = getattr(self, "selected_node", None) in getattr(self.model, "nodes", {})
+        has_pipe = edge is not None
+        enabled = has_pipe or has_node
+        self.g_pipe_elev.setVisible(enabled)
+        self.g_pipe_elev.setEnabled(enabled)
+        if hasattr(self, "w_node_elev"):
+            self.w_node_elev.setVisible(has_node and not has_pipe)
+        if hasattr(self, "w_pipe_elev"):
+            self.w_pipe_elev.setVisible(has_pipe)
+        self._fill_level_combo(self.cmb_pipe_start_level, getattr(edge, "start_level_id", None) if edge else None)
+        self._fill_level_combo(self.cmb_pipe_end_level, getattr(edge, "end_level_id", None) if edge else None)
+        self.edit_pipe_start_z.setText("" if edge is None or edge.start_z is None else f"{float(edge.start_z):g}")
+        self.edit_pipe_end_z.setText("" if edge is None or edge.end_z is None else f"{float(edge.end_z):g}")
+        self.edit_pipe_slope_percent.setText("" if edge is None or edge.slope_percent is None else f"{float(edge.slope_percent):g}")
+        self.chk_pipe_elevation_locked.setChecked(bool(edge.elevation_locked) if edge else False)
+
+    def _parse_optional_float_field(self, edit: QLineEdit, label: str) -> Optional[float]:
+        text = edit.text().strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except Exception:
+            QMessageBox.warning(self, "Pipe Elevation", f"{label} must be a number or blank.")
+            raise
+
+    def apply_selected_pipe_elevation(self):
+        edge = self._selected_edge_obj()
+        if edge is None:
+            return
+        try:
+            start_z = self._parse_optional_float_field(self.edit_pipe_start_z, "Start Z")
+            end_z = self._parse_optional_float_field(self.edit_pipe_end_z, "End Z")
+            slope_percent = self._parse_optional_float_field(self.edit_pipe_slope_percent, "Slope %")
+        except Exception:
+            return
+        start_level_id = self._level_id_from_combo(self.cmb_pipe_start_level)
+        end_level_id = self._level_id_from_combo(self.cmb_pipe_end_level)
+        self._warn_unknown_level_id(start_level_id)
+        self._warn_unknown_level_id(end_level_id)
+        edge.start_level_id = start_level_id or None
+        edge.end_level_id = end_level_id or None
+        edge.start_z = start_z
+        edge.end_z = end_z
+        edge.slope_percent = slope_percent
+        edge.elevation_locked = bool(self.chk_pipe_elevation_locked.isChecked())
+        self.update_pipe_elevation_controls()
+        if hasattr(self, "lbl_status"):
+            self.lbl_status.setText(f"Pipe {edge.key} elevation metadata updated")
+
+    def apply_selected_pipe_elevation_to_nodes(self):
+        edge = self._selected_edge_obj()
+        if edge is None:
+            return
+        start_node = self.get_pipe_start_node(edge)
+        end_node = self.get_pipe_end_node(edge)
+        if start_node is None or end_node is None:
+            return
+        if edge.start_z is not None:
+            start_node.z = float(edge.start_z)
+        if edge.end_z is not None:
+            end_node.z = float(edge.end_z)
+        if edge.start_level_id:
+            start_node.level_id = str(edge.start_level_id)
+        if edge.end_level_id:
+            end_node.level_id = str(edge.end_level_id)
+        self.update_node_level_choices()
+        self.update_pipe_elevation_controls()
+        self.update_selected_elevation_summary()
+        self.refresh_elevation_report()
+        if hasattr(self, "lbl_status"):
+            self.lbl_status.setText(f"Pipe {edge.key} elevation applied to nodes")
+
+    def sync_selected_pipe_elevation_from_nodes(self):
+        edge = self._selected_edge_obj()
+        if edge is None:
+            return
+        start_node = self.get_pipe_start_node(edge)
+        end_node = self.get_pipe_end_node(edge)
+        if start_node is None or end_node is None:
+            return
+        if start_node.z is not None:
+            edge.start_z = float(start_node.z)
+        if end_node.z is not None:
+            edge.end_z = float(end_node.z)
+        if getattr(start_node, "level_id", ""):
+            edge.start_level_id = str(start_node.level_id)
+        if getattr(end_node, "level_id", ""):
+            edge.end_level_id = str(end_node.level_id)
+        self.update_pipe_elevation_controls()
+        self.update_selected_elevation_summary()
+        self.refresh_elevation_report()
+        if hasattr(self, "lbl_status"):
+            self.lbl_status.setText(f"Pipe {edge.key} elevation synced from nodes")
+
+    def _edge_between_nodes(self, a: int, b: int) -> Optional[Edge]:
+        key = edge_key(a, b)
+        return next((e for e in getattr(self.model, "edges", []) if e.key == key), None)
+
+    def _set_edge_z_for_direction(self, edge: Edge, from_node: int, current_z: float, next_z: float):
+        if edge.a == from_node:
+            edge.start_z = float(current_z)
+            edge.end_z = float(next_z)
+        else:
+            edge.start_z = float(next_z)
+            edge.end_z = float(current_z)
+
+    def _simple_chain_start(self) -> Tuple[Optional[int], Optional[Edge]]:
+        edge = self._selected_edge_obj()
+        if edge is not None:
+            return edge.a, edge
+        nid = getattr(self, "selected_node", None)
+        if nid not in getattr(self.model, "nodes", {}):
+            return None, None
+        neighbors = self.model.neighbors(nid)
+        if len(neighbors) != 1:
+            return nid, None
+        return nid, self._edge_between_nodes(nid, neighbors[0])
+
+    def propagate_simple_chain_elevation(self):
+        try:
+            start_z = self._parse_optional_float_field(self.edit_pipe_start_z, "Start Z")
+            slope_percent = self._parse_optional_float_field(self.edit_pipe_slope_percent, "Slope %")
+        except Exception:
+            return
+        if start_z is None or slope_percent is None:
+            QMessageBox.warning(self, "Elevation Propagation", "Start Z and Slope % are required.")
+            return
+        start_node_id, first_edge = self._simple_chain_start()
+        if start_node_id is None or first_edge is None:
+            QMessageBox.warning(self, "Elevation Propagation", "Select a start pipe or an end node of a simple chain.")
+            return
+        if start_node_id not in self.model.nodes:
+            return
+
+        warnings = []
+        current_node_id = int(start_node_id)
+        current_z = float(start_z)
+        previous_node_id = None
+        next_edge = first_edge
+        self.model.nodes[current_node_id].z = current_z
+
+        while next_edge is not None:
+            if next_edge.a == current_node_id:
+                next_node_id = next_edge.b
+            elif next_edge.b == current_node_id:
+                next_node_id = next_edge.a
+            else:
+                break
+            length_2d = self.model.edge_length(next_edge)
+            if length_2d <= 0:
+                warnings.append("zero_length_pipe")
+                break
+            next_z = current_z - float(length_2d) * float(slope_percent) / 100.0
+            self._set_edge_z_for_direction(next_edge, current_node_id, current_z, next_z)
+            next_edge.slope_percent = float(slope_percent)
+            if current_node_id in self.model.nodes:
+                self.model.nodes[current_node_id].z = float(current_z)
+            if next_node_id in self.model.nodes:
+                self.model.nodes[next_node_id].z = float(next_z)
+
+            degree = self.model.degree(next_node_id)
+            if degree > 2:
+                warnings.append(f"branch_stopped_at_node_{next_node_id}")
+                break
+
+            candidates = [n for n in self.model.neighbors(next_node_id) if n != current_node_id]
+            if not candidates:
+                break
+            previous_node_id = current_node_id
+            current_node_id = next_node_id
+            current_z = next_z
+            next_edge = self._edge_between_nodes(current_node_id, candidates[0])
+            if previous_node_id == current_node_id:
+                break
+
+        self.update_pipe_elevation_controls()
+        self.update_selected_elevation_summary()
+        self.refresh_elevation_report()
+        if warnings:
+            QMessageBox.warning(self, "Elevation Propagation", ", ".join(warnings))
+        if hasattr(self, "lbl_status"):
+            suffix = f" ({', '.join(warnings)})" if warnings else ""
+            self.lbl_status.setText(f"Simple chain elevation propagated{suffix}")
+
+    def _fmt_optional_number(self, value) -> str:
+        return "None" if value is None else f"{float(value):g}"
+
+    def _pipe_has_elevation_metadata(self, edge: Edge) -> bool:
+        return any([
+            bool(getattr(edge, "start_level_id", None)),
+            bool(getattr(edge, "end_level_id", None)),
+            getattr(edge, "start_z", None) is not None,
+            getattr(edge, "end_z", None) is not None,
+            getattr(edge, "slope_percent", None) is not None,
+            bool(getattr(edge, "elevation_locked", False)),
+        ])
+
+    def _set_elevation_report_column_widths(self):
+        table = getattr(self, "table_elevation_report", None)
+        if table is None:
+            return
+        for col, width in enumerate([72, 112, 112, 82, 82, 140]):
+            table.setColumnWidth(col, width)
+
+    def refresh_elevation_report(self):
+        table = getattr(self, "table_elevation_report", None)
+        if table is None:
+            return
+        rows = []
+        for edge in getattr(self.model, "edges", []):
+            if not self._pipe_has_elevation_metadata(edge):
+                continue
+            calc = self.calculate_pipe_elevation_preview(edge)
+            warnings = self.check_pipe_elevation_consistency(edge)
+            start_text = f"{str(getattr(edge, 'start_level_id', '') or '')} / {self._fmt_optional_number(getattr(edge, 'start_z', None))}".strip()
+            end_text = f"{str(getattr(edge, 'end_level_id', '') or '')} / {self._fmt_optional_number(getattr(edge, 'end_z', None))}".strip()
+            rows.append([
+                edge.key,
+                start_text,
+                end_text,
+                self._fmt_optional_number(calc["pipe_length_2d"]),
+                self._fmt_optional_number(calc["computed_slope_percent"]),
+                ", ".join(warnings) if warnings else "OK",
+            ])
+        table.setRowCount(len(rows))
+        for row, values in enumerate(rows):
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                table.setItem(row, col, item)
+        self._set_elevation_report_column_widths()
+        if hasattr(self, "lbl_status"):
+            self.lbl_status.setText(f"Elevation report refreshed: {len(rows)} pipes")
+
+    def calculate_pipe_elevation_preview(self, edge: Edge) -> Dict[str, Optional[float]]:
+        def _resolve_z(explicit_z, level_id) -> Optional[float]:
+            if explicit_z is not None:
+                try:
+                    return float(explicit_z)
+                except Exception:
+                    return None
+            level_key = str(level_id or "").strip()
+            if not level_key:
+                return None
+            datum = getattr(self.model, "level_datums", {}).get(level_key)
+            if datum is None:
+                return None
+            try:
+                return float(datum.elevation_mm)
+            except Exception:
+                return None
+
+        try:
+            length_2d = float(self.model.edge_length(edge))
+        except Exception:
+            length_2d = None
+        start_z = _resolve_z(getattr(edge, "start_z", None), getattr(edge, "start_level_id", None))
+        end_z = _resolve_z(getattr(edge, "end_z", None), getattr(edge, "end_level_id", None))
+        delta_z = None
+        slope_percent = None
+        if start_z is not None and end_z is not None:
+            delta_z = end_z - start_z
+            if length_2d is not None and length_2d > 0:
+                slope_percent = delta_z / length_2d * 100.0
+        return {
+            "resolved_start_z": start_z,
+            "resolved_end_z": end_z,
+            "delta_z": delta_z,
+            "pipe_length_2d": length_2d,
+            "computed_slope_percent": slope_percent,
+        }
+
+    def check_pipe_elevation_consistency(self, edge: Edge) -> List[str]:
+        warnings = []
+        level_datums = getattr(self.model, "level_datums", {})
+        start_level_id = str(getattr(edge, "start_level_id", None) or "").strip()
+        end_level_id = str(getattr(edge, "end_level_id", None) or "").strip()
+        has_start_z = getattr(edge, "start_z", None) is not None
+        has_end_z = getattr(edge, "end_z", None) is not None
+
+        if not has_start_z and not start_level_id:
+            warnings.append("missing_start_elevation")
+        if not has_end_z and not end_level_id:
+            warnings.append("missing_end_elevation")
+        if (start_level_id and start_level_id not in level_datums) or (end_level_id and end_level_id not in level_datums):
+            warnings.append("missing_level_datum")
+
+        calc = self.calculate_pipe_elevation_preview(edge)
+        if calc["pipe_length_2d"] == 0:
+            warnings.append("zero_length_pipe")
+
+        entered_slope = getattr(edge, "slope_percent", None)
+        computed_slope = calc["computed_slope_percent"]
+        if entered_slope is not None and computed_slope is not None:
+            try:
+                if abs(float(entered_slope) - float(computed_slope)) > 0.01:
+                    warnings.append("slope_mismatch")
+            except Exception:
+                pass
+
+        if bool(getattr(edge, "elevation_locked", False)) and (
+            calc["resolved_start_z"] is None or calc["resolved_end_z"] is None
+        ):
+            warnings.append("locked_but_incomplete")
+        return warnings
+
+    def update_selected_elevation_summary(self):
+        if not hasattr(self, "lbl_detail"):
+            return
+        nid = getattr(self, "selected_node", None)
+        if nid in getattr(self.model, "nodes", {}):
+            n = self.model.nodes[nid]
+            level = str(getattr(n, "level_id", "") or "None")
+            z = self._fmt_optional_number(getattr(n, "z", None))
+            self.lbl_detail.setText(
+                self.tr("coord_degree_fmt").format(x=n.x, y=n.y, deg=self.model.degree(nid))
+                + f" | Level: {level} | Z: {z}"
+            )
+            return
+        edge = self._selected_edge_obj()
+        if edge is not None:
+            length = self.model.edge_length(edge) / 1000.0
+            mat = self.edge_material(edge)
+            pipe_name = f"{edge.size}{self.pipe_prefix(mat)}"
+            start_level = str(edge.start_level_id or "None")
+            end_level = str(edge.end_level_id or "None")
+            start_z = self._fmt_optional_number(edge.start_z)
+            end_z = self._fmt_optional_number(edge.end_z)
+            slope = self._fmt_optional_number(edge.slope_percent)
+            locked = "ON" if bool(edge.elevation_locked) else "OFF"
+            calc = self.calculate_pipe_elevation_preview(edge)
+            calc_start_z = self._fmt_optional_number(calc["resolved_start_z"])
+            calc_end_z = self._fmt_optional_number(calc["resolved_end_z"])
+            calc_delta_z = self._fmt_optional_number(calc["delta_z"])
+            calc_length = self._fmt_optional_number(calc["pipe_length_2d"])
+            calc_slope = self._fmt_optional_number(calc["computed_slope_percent"])
+            consistency_warnings = self.check_pipe_elevation_consistency(edge)
+            warning_text = ", ".join(consistency_warnings) if consistency_warnings else "none"
+            self.lbl_detail.setText(
+                f"{pipe_name}   |   {length:.3f} m"
+                f" | {self.tr('elevation_report_start')}: {start_level} / Z {start_z}"
+                f" | {self.tr('elevation_report_end')}: {end_level} / Z {end_z}"
+                f" | {self.tr('elevation_slope')}: {slope}"
+                f" | {self.tr('elevation_locked')}: {locked}"
+                f" | {self.tr('elevation_calc_preview')}: Z {calc_start_z}->{calc_end_z}, dZ {calc_delta_z}, L2D {calc_length}, {self.tr('elevation_slope')} {calc_slope}%"
+                f" | {self.tr('elevation_warnings')}: {warning_text}"
+            )
+
     def _project_payload(self) -> Dict[str, object]:
         return {
             "version": 54,
             "model_schema_version": max(2, int(getattr(self.model, "model_schema_version", 1) or 1)),
             "lang": self.lang,
             "nodes": {str(k): {"x": v.x, "y": v.y, "z": v.z, "level_id": v.level_id} for k, v in self.model.nodes.items()},
-            "edges": [{"a": e.a, "b": e.b, "size": e.size, "material_override": e.material_override, "slope": e.slope, "vertical_type": e.vertical_type, "elevation_mode": e.elevation_mode, "system_type": e.system_type} for e in self.model.edges],
+            "edges": [{"a": e.a, "b": e.b, "size": e.size, "material_override": e.material_override, "slope": e.slope, "vertical_type": e.vertical_type, "elevation_mode": e.elevation_mode, "system_type": e.system_type, "start_level_id": e.start_level_id, "end_level_id": e.end_level_id, "start_z": e.start_z, "end_z": e.end_z, "slope_percent": e.slope_percent, "elevation_locked": bool(e.elevation_locked)} for e in self.model.edges],
             "level_datums": {str(k): {"id": d.id, "name": d.name, "elevation_mm": d.elevation_mm, "datum_type": d.datum_type, "floor_index": d.floor_index, "description": d.description} for k, d in getattr(self.model, "level_datums", {}).items()},
             "fittings": {str(k): {"node_id": f.node_id, "ftype": f.ftype, "size": f.size, "manual": f.manual, "excluded": f.excluded, "material_override": f.material_override} for k, f in self.model.fittings.items()},
             "bushings": list(getattr(self.model, "bushings", [])),
@@ -6548,7 +7745,25 @@ class MainWindow(QMainWindow):
             nid = int(k); m.nodes[nid] = Node(nid, float(v["x"]), float(v["y"]), None if node_z is None else float(node_z), str(v.get("level_id", "")))
         for e in data.get("edges", []):
             edge_slope = e.get("slope", None)
-            m.edges.append(Edge(int(e["a"]), int(e["b"]), str(e.get("size", "65")), str(e.get("material_override", "")), None if edge_slope is None else float(edge_slope), str(e.get("vertical_type", "unknown")), str(e.get("elevation_mode", "unknown")), str(e.get("system_type", ""))))
+            edge_start_z = e.get("start_z", None)
+            edge_end_z = e.get("end_z", None)
+            edge_slope_percent = e.get("slope_percent", None)
+            m.edges.append(Edge(
+                int(e["a"]),
+                int(e["b"]),
+                str(e.get("size", "65")),
+                str(e.get("material_override", "")),
+                None if edge_slope is None else float(edge_slope),
+                str(e.get("vertical_type", "unknown")),
+                str(e.get("elevation_mode", "unknown")),
+                str(e.get("system_type", "")),
+                None if e.get("start_level_id", None) in (None, "") else str(e.get("start_level_id", "")),
+                None if e.get("end_level_id", None) in (None, "") else str(e.get("end_level_id", "")),
+                None if edge_start_z in (None, "") else float(edge_start_z),
+                None if edge_end_z in (None, "") else float(edge_end_z),
+                None if edge_slope_percent in (None, "") else float(edge_slope_percent),
+                bool(e.get("elevation_locked", False)),
+            ))
         for k, d in data.get("level_datums", {}).items():
             try:
                 if not isinstance(d, dict):
@@ -20744,6 +21959,102 @@ try:
 
     MainWindow.update_reducer_buttons = _v91_update_reducer_buttons
 
+    @dataclass
+    class _V91ModelTransactionToken:
+        token_id: str
+        owner_id: int
+        reason: str
+        snapshot: Dict[str, object]
+        undo_stack_before: List[Dict[str, object]]
+        state: str = 'active'
+
+    def _v91_transaction_is_active(self, token) -> bool:
+        active = getattr(self, '_nevis_model_transaction', None)
+        return bool(
+            isinstance(token, _V91ModelTransactionToken)
+            and active is token
+            and token.owner_id == id(self)
+            and token.state == 'active'
+        )
+
+    def _v91_transaction_stack_unchanged(self, token) -> bool:
+        current = list(getattr(self, '_nevis_undo_stack', []) or [])
+        before = token.undo_stack_before
+        return len(current) == len(before) and all(
+            current_item is before_item
+            for current_item, before_item in zip(current, before)
+        )
+
+    def _v91_begin_model_transaction(self, reason: str):
+        """Capture pre-state without adding an undo entry until commit."""
+        active = getattr(self, '_nevis_model_transaction', None)
+        if active is not None and getattr(active, 'state', '') == 'active':
+            return None
+        reason = str(reason or '').strip()
+        if not reason:
+            return None
+        try:
+            snapshot = {
+                'action': reason,
+                'model': copy.deepcopy(self.model),
+                'selected_node': getattr(self, 'selected_node', None),
+                'selected_edge': getattr(self, 'selected_edge', None),
+                'selected_bushing_id': getattr(self, 'selected_bushing_id', None),
+            }
+            token = _V91ModelTransactionToken(
+                token_id=str(uuid.uuid4()),
+                owner_id=id(self),
+                reason=reason,
+                snapshot=snapshot,
+                undo_stack_before=list(getattr(self, '_nevis_undo_stack', []) or []),
+            )
+            self._nevis_model_transaction = token
+            return token
+        except Exception as e:
+            print('NEVIS_V91_BEGIN_TRANSACTION_ERROR', e)
+            return None
+
+    def _v91_commit_model_transaction(self, token) -> bool:
+        """Publish one pending snapshot to the shared V91 undo stack."""
+        if not _v91_transaction_is_active(self, token):
+            return False
+        if not _v91_transaction_stack_unchanged(self, token):
+            return False
+        try:
+            stack = list(token.undo_stack_before)
+            stack.append(token.snapshot)
+            limit = int(getattr(self, '_nevis_undo_limit', 3) or 3)
+            if len(stack) > limit:
+                stack = stack[-limit:]
+            self._nevis_undo_stack = stack
+            self.undo_snapshot = stack[-1] if stack else None
+            token.state = 'committed'
+            self._nevis_model_transaction = None
+            return True
+        except Exception as e:
+            print('NEVIS_V91_COMMIT_TRANSACTION_ERROR', e)
+            return False
+
+    def _v91_rollback_model_transaction(self, token) -> bool:
+        """Restore the pending pre-state without creating an undo entry."""
+        if not _v91_transaction_is_active(self, token):
+            return False
+        try:
+            self.model = token.snapshot['model']
+            self.selected_node = token.snapshot.get('selected_node')
+            self.selected_edge = token.snapshot.get('selected_edge')
+            self.selected_bushing_id = token.snapshot.get('selected_bushing_id')
+            self.pending_reducer = None
+            stack = list(token.undo_stack_before)
+            self._nevis_undo_stack = stack
+            self.undo_snapshot = stack[-1] if stack else None
+            token.state = 'rolled_back'
+            self._nevis_model_transaction = None
+            return True
+        except Exception as e:
+            print('NEVIS_V91_ROLLBACK_TRANSACTION_ERROR', e)
+            return False
+
     def _v91_save_undo_snapshot(self, action: str = ''):
         """Save a system-wide snapshot; keep only the latest 3 states.
 
@@ -20827,6 +22138,9 @@ try:
 
     MainWindow.save_undo_snapshot = _v91_save_undo_snapshot
     MainWindow.undo_last_action = _v91_undo_last_action
+    MainWindow.begin_model_transaction = _v91_begin_model_transaction
+    MainWindow.commit_model_transaction = _v91_commit_model_transaction
+    MainWindow.rollback_model_transaction = _v91_rollback_model_transaction
 
     print('NEVIS_202_V91_REMOVE_REDUCER_PANEL_UNDO3_READY')
 except Exception as _nevis_v91_err:
@@ -23648,6 +24962,42 @@ try:
     print('NEVIS_203_BOM_CANONICALIZATION_READY')
 except Exception as _nevis_203_bom_canon_err:
     print('NEVIS_203_BOM_CANONICALIZATION_PATCH_ERROR', _nevis_203_bom_canon_err)
+
+
+# =============================================================================
+# NEVIS 2.03 Node Level Assignment - metadata only
+# =============================================================================
+try:
+    _NEVIS_203_NODE_LEVEL_PREV_SELECT_NODE = getattr(MainWindow, 'select_node', None)
+    _NEVIS_203_NODE_LEVEL_PREV_SELECT_EDGE = getattr(MainWindow, 'select_edge', None)
+
+    def _nevis_203_node_level_select_node(self, nid: int):
+        ret = _NEVIS_203_NODE_LEVEL_PREV_SELECT_NODE(self, nid) if _NEVIS_203_NODE_LEVEL_PREV_SELECT_NODE else None
+        try:
+            self.update_node_level_choices()
+            self.update_pipe_elevation_controls()
+            self.update_selected_elevation_summary()
+        except Exception:
+            pass
+        return ret
+
+    def _nevis_203_node_level_select_edge(self, key: str):
+        ret = _NEVIS_203_NODE_LEVEL_PREV_SELECT_EDGE(self, key) if _NEVIS_203_NODE_LEVEL_PREV_SELECT_EDGE else None
+        try:
+            self.update_node_level_choices()
+            self.update_pipe_elevation_controls()
+            self.update_selected_elevation_summary()
+        except Exception:
+            pass
+        return ret
+
+    if _NEVIS_203_NODE_LEVEL_PREV_SELECT_NODE:
+        MainWindow.select_node = _nevis_203_node_level_select_node
+    if _NEVIS_203_NODE_LEVEL_PREV_SELECT_EDGE:
+        MainWindow.select_edge = _nevis_203_node_level_select_edge
+    print('NEVIS_203_NODE_LEVEL_ASSIGNMENT_READY')
+except Exception as _nevis_203_node_level_err:
+    print('NEVIS_203_NODE_LEVEL_ASSIGNMENT_PATCH_ERROR', _nevis_203_node_level_err)
 
 
 # =============================================================================

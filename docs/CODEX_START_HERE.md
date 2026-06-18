@@ -1,36 +1,48 @@
 # NEVIS - READ FIRST
 
-Nếu bạn là Codex mới:
+If you are Codex joining this project, read these documents before changing code:
 
-1. Đọc PROJECT_CONTEXT.md
-2. Đọc KNOWN_RULES.md
-3. Đọc VISION.md
-4. Đọc NEVIS_HISTORY.md
-5. Đọc NEVIS_FUTURE_FOUNDATION_REVIEW.md
+1. docs/PROJECT_CONTEXT.md
+2. docs/KNOWN_RULES.md
+3. docs/VISION.md
+4. docs/NEVIS_HISTORY.md
+5. docs/NEVIS_FUTURE_FOUNDATION_REVIEW.md
 
-Sau đó tóm tắt:
+Then summarize:
 
-- NEVIS là gì
-- Trạng thái hiện tại
-- Roadmap hiện tại
-- Công việc đang thực hiện
+- What NEVIS is
+- Current status
+- Current roadmap
+- Current work in progress
 
-Chưa sửa code trước khi hiểu dự án.
+Do not modify code before understanding the project.
 
-Nguyên tắc cao nhất:
+## Priority Order
 
 Correctness
-→ Constructability
-→ Clash Prevention
-→ Elevation
-→ Material
-→ Drawing
-→ Performance
-→ UI Convenience
+-> Constructability
+-> Clash Prevention
+-> Elevation
+-> Material
+-> Drawing
+-> Performance
+-> UI Convenience
 
-Không phá:
+## Do Not Break
+
 - Drainage workflow
 - BOM
 - JWW export
 - Existing libraries
 - Existing projects
+
+## First Task For Any New Codex Session
+
+Before changing code:
+
+- Read docs/PROJECT_CONTEXT.md
+- Read docs/KNOWN_RULES.md
+- Read docs/VISION.md
+- Read docs/NEVIS_HISTORY.md
+
+Engineering correctness has priority over performance.
