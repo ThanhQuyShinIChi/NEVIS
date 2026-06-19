@@ -1,76 +1,51 @@
 # Next Task
 
-Date: 2026-06-17
+Date: 2026-06-18
 
-## Current State
+## Current Status
 
-Elevation Foundation is complete.
+NEVIS 2.03 is in a stable handover state. The main application starts normally,
+the central preview remains usable without a main-pipe size at startup, and the
+PDF underlay no longer blocks pipe selection, drawing, pan, or zoom.
 
-Completed:
+### Completed
 
-- Milestone A: PASS
-- B1 - Anchor Discovery
-- B2 - Wavefront Topology
-- B3 - Candidate Evaluation
-- B4 - Conflict & Lock Framework
-- B5 - Propagation Proposal / Dry Run
-- B6 - Proposal Review / Dry Run Report
+- PDF Underlay Phase 1:
+  - Load the first page of a PDF or load an image.
+  - Show/hide the underlay and adjust opacity.
+  - Clear the underlay from the PDF menu.
+  - Underlay ignores mouse input and does not intercept model interaction.
+  - PDF toolbar is responsive at narrow window sizes.
+- Quick Check:
+  - Read-only validation panel is complete.
+  - Error codes E101, E102, E201, E202, and E203 are active.
+  - TMP to DV fitting fallback is accepted when the resolver finds a valid file.
+  - Quick Check regression suite: 10/10 PASS.
+- Startup/UI stability:
+  - The application no longer locks the whole workflow when main-pipe size is empty.
+  - Apply/draw actions show a light message: `Vui lòng nhập kích thước ống chính`.
+  - Preview toolbar keeps Detail, Undo, Fit, PDF, visibility, opacity, and alignment controls.
+  - Rotate/flip and clear-background commands are secondary items in the PDF menu.
 
-Final test status:
+### Current Phase 2A Implementation
 
-```text
-Ran 32 tests in 0.011s
+The current workspace already contains a working and automated-tested version of
+PDF Underlay Phase 2A (two-point straightening). It rotates only the underlay,
+shows the current angle, survives scene redraw, and leaves the NEVIS model unchanged.
+This implementation still needs user acceptance with real project PDFs on the home PC.
 
-OK
-```
+## Next Tasks
 
-## First Task For Next Session
+1. PDF Underlay Phase 2A - Straighten (`Căn thẳng`)
+   - Reopen and manually verify with real PDF/image files tilted by 1-3 degrees.
+   - Confirm point A/B workflow, horizontal/vertical snapping, pan/zoom, and 8-direction pipe work.
+   - Treat this as acceptance/hardening only; do not redesign the renderer.
+2. PDF Underlay Phase 2B - Scale (`Căn tỷ lệ`)
+   - Define the two-point known-distance workflow before implementation.
+   - Scale only the underlay; never transform the NEVIS model.
 
-Read the handoff documents and confirm the Apply Engine scope before writing implementation code.
+## Boundaries
 
-Recommended first action:
-
-1. Read `docs/ELEVATION_FOUNDATION_COMPLETE.md`.
-2. Read `docs/APPLY_ENGINE_ARCHITECTURE.md`.
-3. Create an Apply Engine implementation plan or ask for approval to implement Apply Engine.
-
-## Documents To Read
-
-Required:
-
-- `docs/PROJECT_STATUS.md`
-- `docs/ELEVATION_FOUNDATION_COMPLETE.md`
-- `docs/APPLY_ENGINE_ARCHITECTURE.md`
-- `docs/ELEVATION_FOUNDATION_SUMMARY.md`
-
-Useful context:
-
-- `docs/MILESTONE_B_STATUS.md`
-- `docs/B6_SCOPE_PLAN.md`
-- `docs/ELEVATION_ARCHITECTURE.md`
-- `docs/ELEVATION_SCOPE.md`
-
-## Do Not Do Yet
-
-Do not:
-
-- Implement Apply Engine without explicit approval.
-- Modify `Nevis_no_ui.py` without explicit approval.
-- Add UI.
-- Add save/open integration.
-- Add preview/apply UI.
-- Add Milestone C physical modeling.
-- Resolve conflicts automatically.
-- Bypass locked values.
-- Write `Node.z`.
-- Overwrite known endpoint values without an approved validation rule.
-
-## Current Recommended Next Milestone
-
-Apply Engine.
-
-Goal:
-
-- Safely apply reviewed `Proposed` rows from B6 to `edge.start_z` / `edge.end_z`.
-- Add validation, undo snapshot, and rollback strategy.
-- Keep UI/save/open integration out of the first implementation unless separately approved.
+Do not change PDF rendering, model topology, fitting algorithms, BOM, JWW, Elevation,
+or Quick Check while completing the underlay alignment/scale work unless a separate
+task explicitly authorizes it.

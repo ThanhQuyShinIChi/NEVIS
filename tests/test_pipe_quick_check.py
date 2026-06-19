@@ -41,6 +41,21 @@ class QuickCheckHost:
         return [["DV", "50", "DVパイプ", "m", 0.1, ""]]
 
 
+class TmpFallbackHost(QuickCheckHost):
+    def __init__(self, sizes):
+        super().__init__()
+        self.model.edges = [nevis.Edge(1, 2, size="30", material_override="TMP")]
+        self.model.fittings = {2: nevis.Fitting(2, "Y", "30x30")}
+        self._nevis_master_data = {"materials": [{"code": "TMP", "sizes": list(sizes)}]}
+
+    def resolve_fitting_library_path_for_jww(self, node_id, fitting):
+        # NEVIS intentionally permits this resolver to select an approved DV fallback.
+        return "DV_Y_30_30.json"
+
+    def build_material_rows(self, _sheet_type=""):
+        return []
+
+
 class PipeQuickCheckTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -61,6 +76,7 @@ class PipeQuickCheckTest(unittest.TestCase):
                 ("bom", "bom", ""),
             ],
         )
+        self.assertEqual([issue["code"] for issue in issues], ["E102", "E202", ""])
 
     def test_matching_visible_bom_does_not_create_warning(self):
         host = QuickCheckHost()
@@ -89,6 +105,62 @@ class PipeQuickCheckTest(unittest.TestCase):
         self.assertEqual(len(invalid_issues), 1)
         self.assertEqual(invalid_issues[0]["check"], "slope")
 
+    def test_tmp_size_and_approved_dv_fitting_fallback_do_not_report_false_errors(self):
+        host = TmpFallbackHost(["30", "40"])
+
+        issues = nevis.build_pipe_quick_check_issues(host)
+
+        self.assertEqual(issues, [])
+
+    def test_tmp_size_missing_from_material_db_has_short_specific_message(self):
+        host = TmpFallbackHost(["40", "50"])
+
+        issues = nevis.build_pipe_quick_check_issues(host)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["message"], "pipe_check_size_missing")
+        self.assertEqual(issues[0]["message_args"], {"size": "30", "material": "TMP"})
+        self.assertEqual(issues[0]["code"], "E102")
+
+    def test_missing_pipe_size_has_e101(self):
+        host = QuickCheckHost()
+        host.model.edges = [nevis.Edge(1, 2, size="")]
+        host.model.fittings = {}
+        host.build_material_rows = lambda _sheet_type="": []
+
+        issues = nevis.build_pipe_quick_check_issues(host)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["code"], "E101")
+
+    def test_missing_fitting_library_has_e202(self):
+        host = QuickCheckHost()
+        host.model.edges = []
+        host.build_material_rows = lambda _sheet_type="": []
+
+        issues = nevis.build_pipe_quick_check_issues(host)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["code"], "E202")
+
+    def test_incomplete_fitting_has_e201_and_missing_size_variant_has_e203(self):
+        host = QuickCheckHost()
+        host.model.edges = []
+        host.build_material_rows = lambda _sheet_type="": []
+        host.model.fittings = {2: nevis.Fitting(2, "", "")}
+
+        incomplete = nevis.build_pipe_quick_check_issues(host)
+
+        self.assertEqual(incomplete[0]["code"], "E201")
+
+        host.model.fittings = {2: nevis.Fitting(2, "Y", "75x50")}
+        host.current_pipe_for_node = lambda _node_id: "DV"
+        host.library_sizes = lambda _pipe, _ftype: ["50x40", "65x50"]
+
+        missing_size = nevis.build_pipe_quick_check_issues(host)
+
+        self.assertEqual(missing_size[0]["code"], "E203")
+
     def test_main_window_panel_is_read_only_and_retranslates(self):
         window = nevis.MainWindow()
         try:
@@ -98,6 +170,9 @@ class PipeQuickCheckTest(unittest.TestCase):
             self.assertEqual(window.model, before)
             self.assertEqual(window.tabs.currentIndex(), window._pipe_check_tab_index)
             self.assertEqual(window.table_pipe_check.editTriggers(), QTableWidget.NoEditTriggers)
+            self.assertGreaterEqual(window.table_pipe_check.horizontalHeader().height(), 38)
+            self.assertTrue(window.table_pipe_check.wordWrap())
+            self.assertGreaterEqual(window.table_pipe_check.columnWidth(2), 125)
             self.assertEqual(window.btn_pipe_check.text(), "配管チェック")
             self.assertFalse(any("Apply" in button.text() for button in window.pipe_check_tab.findChildren(nevis.QPushButton)))
 
@@ -105,6 +180,15 @@ class PipeQuickCheckTest(unittest.TestCase):
             window.retranslate_pipe_check_ui()
             self.assertEqual(window.btn_pipe_check.text(), "Kiểm tra ống")
             self.assertEqual(window.table_pipe_check.horizontalHeaderItem(0).text(), "Mức độ")
+
+            window._pipe_check_issues = [
+                nevis._nevis_pipe_check_issue(
+                    "error", "library", "edge", "1-2", "pipe_check_size_missing",
+                    {"size": "30", "material": "TMP"}, code="E102"
+                )
+            ]
+            nevis._nevis_pipe_check_render(window)
+            self.assertEqual(window.table_pipe_check.item(0, 3).text(), "[E102] TMP: không có cỡ 30")
         finally:
             window.close()
 

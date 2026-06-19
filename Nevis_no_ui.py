@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import time
 import uuid
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set
@@ -35,7 +36,7 @@ try:
         QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget,
         QTreeWidgetItem, QInputDialog, QHeaderView, QGraphicsView, QGraphicsScene, QGraphicsItem,
         QScrollArea, QSizePolicy, QDialog, QTextEdit, QDialogButtonBox, QListWidget, QListWidgetItem, QFrame,
-        QDockWidget, QSpinBox, QFormLayout, QAbstractItemView
+        QDockWidget, QSpinBox, QSlider, QFormLayout, QAbstractItemView, QMenu
     )
 except Exception as e:
     print("PySide6 is required. Install with: py -m pip install pyside6")
@@ -43,6 +44,7 @@ except Exception as e:
 
 EPS = 1e-6
 NODE_TOL = 3.0
+ELEVATION_UI_ENABLED = False
 
 # NEVIS performance cache: JSON libraries are expensive to parse/convert.
 # Key includes path mtime/size, so editing a JSON file refreshes automatically.
@@ -2116,7 +2118,7 @@ class PreviewView(QGraphicsView):
         _sig_now = (id(bg_items), len(bg_items))
         if _sig_now != self._bg_sig:
             # Background thay đổi hoặc lần đầu vẽ: xóa toàn bộ rồi rebuild.
-            self.scene.clear(); self._item_map.clear()
+            _nevis_runtime_timed_scene_clear(self.scene); self._item_map.clear()
             self._bg_items = []
             if not m.nodes and not bg_items:
                 self._bg_sig = _sig_now
@@ -3551,11 +3553,23 @@ class PreviewView(QGraphicsView):
         item = self.itemAt(event.pos())
         if getattr(self.mainwin, "pending_reducer", None):
             self.viewport().setCursor(Qt.CrossCursor)
-        elif item and item.data(0):
+        elif self._interactive_item_data(item) is not None:
             self.viewport().setCursor(Qt.PointingHandCursor)
         elif self.dragMode() == QGraphicsView.ScrollHandDrag:
             self.viewport().setCursor(Qt.OpenHandCursor)
         super().mouseMoveEvent(event)
+
+    @staticmethod
+    def _interactive_item_data(item):
+        """Return selectable scene metadata without trusting arbitrary item data."""
+        if item is None:
+            return None
+        data = item.data(0)
+        if data == "nevis_reference_raster_background":
+            return None
+        if not isinstance(data, tuple) or len(data) != 2:
+            return None
+        return data
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and getattr(self.mainwin, "measure_mode", False):
@@ -3566,8 +3580,9 @@ class PreviewView(QGraphicsView):
             if self._move_pending_reducer_from_view_pos(event.pos()):
                 return
         item = self.itemAt(event.pos())
-        if event.button() == Qt.LeftButton and item and item.data(0):
-            kind, val = item.data(0)
+        item_data = self._interactive_item_data(item)
+        if event.button() == Qt.LeftButton and item_data is not None:
+            kind, val = item_data
             if kind == "node":
                 self.mainwin.select_node(val)
             elif kind == "edge":
@@ -3577,8 +3592,9 @@ class PreviewView(QGraphicsView):
             return
         if event.button() == Qt.RightButton:
             item = self.itemAt(event.pos())
-            if item and item.data(0):
-                kind, val = item.data(0)
+            item_data = self._interactive_item_data(item)
+            if item_data is not None:
+                kind, val = item_data
                 self.setFocus()
                 if kind == "edge":
                     self._start_pipe_run_move(val, self.mapToScene(event.pos()))
@@ -5257,6 +5273,10 @@ class ElevationPreviewDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    def _log_startup_timing(self, marker: str) -> None:
+        elapsed = time.perf_counter() - self._startup_started_at
+        print(f"{marker} {elapsed:.3f}s", flush=True)
+
     def load_app_settings(self) -> Dict[str, object]:
         default = {"light_detail_preview": True, "auto_scan_library": True, "show_library_tab": False}
         p = Path("nevis_settings.json")
@@ -5301,7 +5321,10 @@ class MainWindow(QMainWindow):
                 pass
 
     def __init__(self, temp_path: Optional[str] = None):
+        startup_started_at = time.perf_counter()
+        print(f"START_MAINWINDOW {time.perf_counter() - startup_started_at:.3f}s", flush=True)
         super().__init__()
+        self._startup_started_at = startup_started_at
         self.lang = "jp"
         self.setWindowTitle(APP_TEXT[self.lang]["window_title"])
         ico = self.resolve_app_icon_path() if hasattr(self, "resolve_app_icon_path") else None
@@ -5363,17 +5386,21 @@ class MainWindow(QMainWindow):
         self.jww_joint_ly = "c"
         self.jww_colors = self.load_jww_colors_for_style()
         self._build_ui()
+        self._log_startup_timing("AFTER_BUILD_UI")
         self.load_common_config()
         self.apply_master_to_common_controls()
         self._load_library_index()
+        self._log_startup_timing("AFTER_LOAD_LIBRARIES")
         # After library index is ready, refresh size/terminal combos once more.
         try:
             self.apply_master_to_common_controls()
             self.refresh_size_and_terminal_from_library()
         except Exception:
             pass
+        self._log_startup_timing("AFTER_RESTORE_SETTINGS")
         if temp_path and Path(temp_path).exists():
             self.load_temp(temp_path)
+        self._log_startup_timing("AFTER_SCENE_READY")
 
     def tr(self, key: str) -> str:
         return APP_TEXT.get(getattr(self, "lang", "vi"), APP_TEXT["vi"]).get(key, key)
@@ -5396,6 +5423,7 @@ class MainWindow(QMainWindow):
         self.act_save_project = QAction(self.tr("save_project"), self); self.act_save_project.triggered.connect(self.save_project)
         self.menu_file.addAction(self.act_open_project); self.menu_file.addAction(self.act_save_project)
         self.act_level_manager = QAction("Level Manager...", self); self.act_level_manager.triggered.connect(self.open_level_manager)
+        self.act_level_manager.setVisible(ELEVATION_UI_ENABLED)
         self.menu_file.addAction(self.act_level_manager)
         self.menu_file.addSeparator()
         self.act_exit = QAction(self.tr("act_exit"), self); self.act_exit.triggered.connect(self.close)
@@ -5907,6 +5935,7 @@ class MainWindow(QMainWindow):
             pe_grid.setColumnStretch(col, 1)
         pe_root.addWidget(self.w_pipe_elev)
         sgrid.addWidget(self.g_pipe_elev, 2, 0, 1, 3)
+        self.g_pipe_elev.setVisible(ELEVATION_UI_ENABLED)
         self.update_pipe_elevation_controls()
 
         self.g_elevation_report = QGroupBox(self.tr("elevation_report_group"))
@@ -5947,6 +5976,7 @@ class MainWindow(QMainWindow):
         er_buttons.addWidget(self.btn_refresh_elevation_report)
         er_v.addLayout(er_buttons)
         sgrid.addWidget(self.g_elevation_report, 3, 0, 1, 3)
+        self.g_elevation_report.setVisible(ELEVATION_UI_ENABLED)
         self.refresh_elevation_report()
 
         # --------------------------------------------------
@@ -6199,30 +6229,85 @@ class MainWindow(QMainWindow):
 
         # CENTER
         cv = QVBoxLayout(center); cv.setContentsMargins(6,6,6,6); cv.setSpacing(6)
-        row = QHBoxLayout(); row.setSpacing(6)
+        row = QGridLayout(); row.setHorizontalSpacing(6); row.setVerticalSpacing(4)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.preview_toolbar_layout = row
+        self._preview_toolbar_compact = None
+        self._preview_toolbar_narrow = None
         self.lbl_drawing_preview = QLabel(self.tr("drawing_preview"))
         self.lbl_drawing_preview.setStyleSheet("color:#1B4A7E; font-weight:700; font-size:13px;")
-        row.addWidget(self.lbl_drawing_preview)
-        row.addStretch(1)
+        row.addWidget(self.lbl_drawing_preview, 0, 0)
+        row.setColumnStretch(1, 1)
         # Detail preview is a view-only mode. One button toggles: Xem chi tiết ⇄ Kết thúc xem.
         # Undo remains only for real edit operations.
         self.btn_detail_preview = QPushButton(self.tr("detail_preview"))
         self.btn_detail_preview.setCheckable(True)
         self.btn_detail_preview.clicked.connect(self.toggle_detail_preview)
-        row.addWidget(self.btn_detail_preview)
         self.btn_center_undo = QPushButton(self.tr("undo"))
         self.btn_center_undo.setToolTip("Ctrl+Z")
         self.btn_center_undo.clicked.connect(self.undo_last_action)
-        row.addWidget(self.btn_center_undo)
         self.btn_fit = QPushButton(self.tr("fit")) ; self.btn_fit.clicked.connect(lambda: self.preview.fit_view())
-        row.addWidget(self.btn_fit)
-        self.btn_rot = QPushButton(self.tr("rotate")); self.btn_rot.clicked.connect(self.toggle_preview_rotate180)
-        self.btn_fx = QPushButton(self.tr("flip_x")); self.btn_fx.clicked.connect(self.toggle_preview_flip_x)
-        self.btn_fy = QPushButton(self.tr("flip_y")); self.btn_fy.clicked.connect(self.toggle_preview_flip_y)
-        row.addWidget(self.btn_rot); row.addWidget(self.btn_fx); row.addWidget(self.btn_fy)
+        # Keep compatibility attributes for existing state/language code, but move
+        # these secondary transforms out of the main toolbar and into the PDF menu.
+        self.btn_rot = QPushButton(self.tr("rotate"), self); self.btn_rot.hide()
+        self.btn_fx = QPushButton(self.tr("flip_x"), self); self.btn_fx.hide()
+        self.btn_fy = QPushButton(self.tr("flip_y"), self); self.btn_fy.hide()
         for _b in [self.btn_detail_preview, self.btn_center_undo, self.btn_fit, self.btn_rot, self.btn_fx, self.btn_fy]:
             _b.setMinimumHeight(28)
-            _b.setMinimumWidth(64)
+            _b.setMinimumWidth(0)
+
+        self.btn_open_reference_background = QPushButton("PDF")
+        self.btn_open_reference_background.setMinimumWidth(64)
+        self.menu_pdf_underlay = QMenu(self.btn_open_reference_background)
+        self.act_pdf_underlay_open = self.menu_pdf_underlay.addAction("Nạp PDF/Ảnh...")
+        self.act_pdf_underlay_open.triggered.connect(self.open_reference_background)
+        self.act_pdf_underlay_clear = self.menu_pdf_underlay.addAction("Xóa nền")
+        self.act_pdf_underlay_clear.triggered.connect(self.clear_reference_background)
+        self.menu_pdf_underlay.addSeparator()
+        self.act_pdf_rotate_180 = self.menu_pdf_underlay.addAction("Xoay 180°")
+        self.act_pdf_rotate_180.triggered.connect(self.toggle_preview_rotate180)
+        self.act_pdf_flip_horizontal = self.menu_pdf_underlay.addAction("Lật ngang")
+        self.act_pdf_flip_horizontal.triggered.connect(self.toggle_preview_flip_x)
+        self.act_pdf_flip_vertical = self.menu_pdf_underlay.addAction("Lật dọc")
+        self.act_pdf_flip_vertical.triggered.connect(self.toggle_preview_flip_y)
+        self.btn_open_reference_background.setMenu(self.menu_pdf_underlay)
+        self.chk_reference_background_visible = QCheckBox("Hiện nền")
+        self.chk_reference_background_visible.setChecked(True)
+        self.chk_reference_background_visible.toggled.connect(self.toggle_reference_background)
+        self.lbl_reference_background_opacity = QLabel("Độ mờ")
+        self.slider_reference_background_opacity = QSlider(Qt.Horizontal)
+        self.slider_reference_background_opacity.setRange(20, 100)
+        self.slider_reference_background_opacity.setValue(45)
+        self.slider_reference_background_opacity.setMinimumWidth(25)
+        self.slider_reference_background_opacity.setMaximumWidth(65)
+        self.slider_reference_background_opacity.valueChanged.connect(self.set_reference_background_opacity)
+        self.btn_clear_reference_background = QPushButton("Xóa nền", self)
+        self.btn_clear_reference_background.hide()
+        self.btn_align_reference_background = QPushButton("Căn thẳng")
+        self.btn_scale_reference_background = QPushButton("Căn tỷ lệ")
+        self.btn_align_reference_background.setMinimumHeight(28)
+        self.btn_align_reference_background.setCheckable(True)
+        self.btn_align_reference_background.clicked.connect(self.start_reference_background_alignment)
+        self.btn_scale_reference_background.setMinimumHeight(28)
+        self.btn_scale_reference_background.setEnabled(False)
+        self.btn_scale_reference_background.setToolTip("Chức năng đang được chuẩn bị")
+        self.btn_scale_reference_background.hide()
+        self.lbl_reference_background_angle = QLabel("Góc hiện tại: 0.00°")
+        self.lbl_reference_background_name = QLabel("Chưa có nền")
+        self.lbl_reference_background_name.setVisible(False)
+        self._preview_primary_widgets = [
+            self.btn_detail_preview, self.btn_center_undo, self.btn_fit,
+        ]
+        self._preview_background_widgets = [
+            self.btn_open_reference_background,
+            self.chk_reference_background_visible,
+            self.lbl_reference_background_opacity,
+            self.slider_reference_background_opacity,
+            self.btn_align_reference_background,
+            self.lbl_reference_background_angle,
+        ]
+        self._set_preview_toolbar_compact(False, False)
+        print("NEVIS_PDF_UNDERLAY_UI_ATTACHED", flush=True)
         cv.addLayout(row)
         self.preview = PreviewView(self)
         cv.addWidget(self.preview, 1)
@@ -6395,13 +6480,12 @@ class MainWindow(QMainWindow):
         return False
 
     def update_workflow_state(self, applied: Optional[bool] = None):
-        """Enable operation panels only after the common setting Apply button is pressed."""
+        """Track common settings without globally locking the editing workflow."""
         if applied is not None:
             self.common_applied = bool(applied)
-        enabled = bool(getattr(self, "common_applied", False))
         for obj in getattr(self, "_workflow_locked_widgets", []):
             try:
-                obj.setEnabled(enabled)
+                obj.setEnabled(True)
             except Exception:
                 pass
         # Keep common setting panel and file-open/settings actions usable at all times.
@@ -6410,12 +6494,21 @@ class MainWindow(QMainWindow):
                 obj.setEnabled(True)
             except Exception:
                 pass
-        try:
-            self.lbl_status.setText(self.tr("status_wait") if enabled else "Trạng thái: hãy thiết lập chung rồi bấm Áp dụng")
-        except Exception:
-            pass
         if getattr(self, "preview_detail_mode", False):
             self._set_detail_readonly_state(True)
+
+    def require_main_size_for_action(self) -> bool:
+        """Report a missing main-pipe size without disabling controls or showing a modal."""
+        main_size = self.cmb_main_size.currentText().strip() if hasattr(self, "cmb_main_size") else ""
+        if main_size:
+            return True
+        message = "Vui lòng nhập kích thước ống chính"
+        try:
+            self.lbl_status.setText(message)
+            self.statusBar().showMessage(message, 6000)
+        except Exception:
+            pass
+        return False
 
     def apply_nevis_theme(self):
         """NEVIS CAD-style theme: slate/steel palette, compact controls, visible dropdown arrows."""
@@ -6505,11 +6598,7 @@ class MainWindow(QMainWindow):
             QComboBox:hover::drop-down { background:#D5E2F5; border-left:1px solid #2D6CC4; }
             QComboBox:disabled::drop-down { background:#E6E8EC; border-left:1px solid #D9DEE6; }
             QComboBox::down-arrow {
-                image: url(data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2710%27%20height%3D%276%27%20viewBox%3D%270%200%2010%206%27%3E%3Cpath%20d%3D%27M0%200L5%206L10%200Z%27%20fill%3D%27%233B5B7E%27%2F%3E%3C%2Fsvg%3E);
                 width:10px; height:6px;
-            }
-            QComboBox::down-arrow:disabled {
-                image: url(data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2710%27%20height%3D%276%27%20viewBox%3D%270%200%2010%206%27%3E%3Cpath%20d%3D%27M0%200L5%206L10%200Z%27%20fill%3D%27%23B7BFCB%27%2F%3E%3C%2Fsvg%3E);
             }
             QComboBox QAbstractItemView {
                 color:#000000;
@@ -6716,6 +6805,47 @@ class MainWindow(QMainWindow):
         center_w = max(320, total - left_w - right_w)
         if sizes[0] != left_w or abs(sizes[2] - right_w) > 4 or abs(sizes[1] - center_w) > 4:
             self.splitter.setSizes([left_w, center_w, right_w])
+        self._set_preview_toolbar_compact(center_w < 1250, center_w < 560)
+
+    def _set_preview_toolbar_compact(self, compact: bool, narrow: bool = False):
+        """Wrap reference-background controls when the preview panel is narrow."""
+        layout = getattr(self, "preview_toolbar_layout", None)
+        mode = (bool(compact), bool(narrow))
+        current_mode = (
+            getattr(self, "_preview_toolbar_compact", None),
+            getattr(self, "_preview_toolbar_narrow", None),
+        )
+        if layout is None or current_mode == mode:
+            return
+
+        primary = getattr(self, "_preview_primary_widgets", [])
+        background = getattr(self, "_preview_background_widgets", [])
+        if narrow:
+            layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 3)
+            for offset, widget in enumerate(primary[:3]):
+                layout.addWidget(widget, 1, offset)
+            for offset, widget in enumerate(primary[3:]):
+                layout.addWidget(widget, 2, offset)
+            for offset, widget in enumerate(background[:2]):
+                layout.addWidget(widget, 3, offset)
+            for offset, widget in enumerate(background[2:]):
+                layout.addWidget(widget, 4, offset)
+        elif compact:
+            layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 6)
+            for offset, widget in enumerate(primary):
+                layout.addWidget(widget, 1, offset)
+            for offset, widget in enumerate(background):
+                layout.addWidget(widget, 2, offset)
+        else:
+            layout.addWidget(self.lbl_drawing_preview, 0, 0)
+            for column, widget in enumerate(primary, start=2):
+                layout.addWidget(widget, 0, column)
+            for offset, widget in enumerate(background):
+                layout.addWidget(widget, 0, 2 + len(primary) + offset)
+
+        self._preview_toolbar_compact = bool(compact)
+        self._preview_toolbar_narrow = bool(narrow)
+        layout.invalidate()
 
     def set_side_panel_visible(self, side: str, visible: bool):
         """Pin/unpin only the right material/library panel.
@@ -7335,7 +7465,7 @@ class MainWindow(QMainWindow):
         has_node = getattr(self, "selected_node", None) in getattr(self.model, "nodes", {})
         has_pipe = edge is not None
         enabled = has_pipe or has_node
-        self.g_pipe_elev.setVisible(enabled)
+        self.g_pipe_elev.setVisible(ELEVATION_UI_ENABLED and enabled)
         self.g_pipe_elev.setEnabled(enabled)
         if hasattr(self, "w_node_elev"):
             self.w_node_elev.setVisible(has_node and not has_pipe)
@@ -7640,6 +7770,8 @@ class MainWindow(QMainWindow):
         return warnings
 
     def update_selected_elevation_summary(self):
+        if not ELEVATION_UI_ENABLED:
+            return
         if not hasattr(self, "lbl_detail"):
             return
         nid = getattr(self, "selected_node", None)
@@ -7969,13 +8101,17 @@ class MainWindow(QMainWindow):
             self.cmb_system.setCurrentIndex(0)
             self.cmb_system.setVisible(False)
             try:
-                self.cmb_system.currentTextChanged.disconnect(self.update_master_dependent_combos)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    self.cmb_system.currentTextChanged.disconnect(self.update_master_dependent_combos)
             except Exception:
                 pass
             self.cmb_system.currentTextChanged.connect(self.update_master_dependent_combos)
         if hasattr(self, "cmb_normal_mat"):
             try:
-                self.cmb_normal_mat.currentTextChanged.disconnect(self.update_master_dependent_combos)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    self.cmb_normal_mat.currentTextChanged.disconnect(self.update_master_dependent_combos)
             except Exception:
                 pass
             self.cmb_normal_mat.currentTextChanged.connect(self.update_master_dependent_combos)
@@ -8394,11 +8530,13 @@ class MainWindow(QMainWindow):
         sys_code = self._combo_current_code(self.cmb_system) if hasattr(self, "cmb_system") else ""
         mat_code = self._combo_current_code(self.cmb_normal_mat) if hasattr(self, "cmb_normal_mat") else ""
         if not sys_code or not mat_code or not main_size:
+            if not main_size:
+                self.require_main_size_for_action()
             missing = []
             if not sys_code: missing.append("Hệ")
             if not mat_code: missing.append("Vật liệu")
             if not main_size: missing.append("Ống chính")
-            msg = "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
+            msg = "Vui lòng nhập kích thước ống chính" if not main_size else "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
             try:
                 self.lbl_status.setText("⚠ " + msg)
                 self.statusBar().showMessage(msg)
@@ -15762,11 +15900,13 @@ def _v12_apply_common(self):
     sys_code = self._combo_current_code(self.cmb_system) if hasattr(self, "cmb_system") else ""
     mat_code = self._combo_current_code(self.cmb_normal_mat) if hasattr(self, "cmb_normal_mat") else ""
     if not sys_code or not mat_code or not main_size:
+        if not main_size:
+            self.require_main_size_for_action()
         missing = []
         if not sys_code: missing.append("Hệ")
         if not mat_code: missing.append("Vật liệu")
         if not main_size: missing.append("Ống chính mặc định")
-        msg = "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
+        msg = "Vui lòng nhập kích thước ống chính" if not main_size else "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
         try:
             self.lbl_status.setText("⚠ " + msg)
             self.statusBar().showMessage(msg)
@@ -17524,6 +17664,8 @@ try:
 
     def _nevis_conn_v2_set_start(view, nid: int) -> bool:
         mw = view.mainwin
+        if not mw.require_main_size_for_action():
+            return False
         mw.pending_orphan_connect_node = int(nid)
         mw.orphan_connect_mode = 'target'
         try:
@@ -17551,6 +17693,10 @@ try:
 
     def _nevis_conn_v2_start_command(view) -> bool:
         mw = view.mainwin
+        if not mw.require_main_size_for_action():
+            mw.pending_orphan_connect_node = None
+            mw.orphan_connect_mode = None
+            return False
         mw.pending_orphan_connect_node = None
         mw.orphan_connect_mode = 'start'
         msg = _nevis_conn_v2_msg(
@@ -25087,12 +25233,13 @@ APP_TEXT.setdefault("vi", {}).update({
     "pipe_check_target_pipe": "Ống {id}",
     "pipe_check_target_fitting": "Phụ kiện {id}",
     "pipe_check_target_bom": "Bảng vật tư",
-    "pipe_check_missing_size": "Ống chưa có kích thước.",
-    "pipe_check_material_missing": "Vật liệu {material} không có trong thư viện hiện tại.",
-    "pipe_check_size_missing": "Cỡ {size} của vật liệu {material} không có trong thư viện hiện tại.",
-    "pipe_check_fitting_missing": "Không tìm thấy phụ kiện phù hợp trong thư viện hiện tại.",
-    "pipe_check_bom_mismatch": "Bảng vật tư đang hiển thị có nguy cơ không khớp với bản vẽ hiện tại.",
-    "pipe_check_slope_format": "Độ dốc phải có dạng 1/N.",
+    "pipe_check_missing_size": "Thiếu cỡ ống",
+    "pipe_check_size_missing": "{material}: không có cỡ {size}",
+    "pipe_check_fitting_incomplete": "Fitting thiếu loại/kích thước",
+    "pipe_check_fitting_library_missing": "{ftype} {size}: thiếu thư viện",
+    "pipe_check_fitting_size_missing": "{ftype} {size}: không có trong thư viện",
+    "pipe_check_bom_mismatch": "Bảng vật tư chưa khớp model",
+    "pipe_check_slope_format": "Độ dốc phải có dạng 1/N",
     "pipe_check_empty": "Không phát hiện vấn đề trong dữ liệu ống.",
 })
 APP_TEXT.setdefault("jp", {}).update({
@@ -25115,20 +25262,23 @@ APP_TEXT.setdefault("jp", {}).update({
     "pipe_check_target_pipe": "配管 {id}",
     "pipe_check_target_fitting": "継手 {id}",
     "pipe_check_target_bom": "数量表",
-    "pipe_check_missing_size": "管サイズが設定されていません。",
-    "pipe_check_material_missing": "材質 {material} は現在のライブラリにありません。",
-    "pipe_check_size_missing": "材質 {material} のサイズ {size} は現在のライブラリにありません。",
-    "pipe_check_fitting_missing": "現在のライブラリに適合する継手がありません。",
-    "pipe_check_bom_mismatch": "表示中の数量表が現在の図面と一致しない可能性があります。",
-    "pipe_check_slope_format": "勾配は1/N形式で入力してください。",
+    "pipe_check_missing_size": "管サイズ未設定",
+    "pipe_check_size_missing": "{material}: サイズ{size}なし",
+    "pipe_check_fitting_incomplete": "継手の種類/サイズ未設定",
+    "pipe_check_fitting_library_missing": "{ftype} {size}: ライブラリなし",
+    "pipe_check_fitting_size_missing": "{ftype} {size}: 該当サイズなし",
+    "pipe_check_bom_mismatch": "数量表がモデルと未一致",
+    "pipe_check_slope_format": "勾配は1/N形式",
     "pipe_check_empty": "配管データに問題は見つかりませんでした。",
 })
 
 
 def _nevis_pipe_check_issue(severity: str, check: str, target_kind: str,
                             target_id: object, message: str,
-                            message_args: Optional[Dict[str, object]] = None) -> Dict[str, object]:
+                            message_args: Optional[Dict[str, object]] = None,
+                            code: str = "") -> Dict[str, object]:
     return {
+        "code": str(code or ""),
         "severity": severity,
         "check": check,
         "target_kind": target_kind,
@@ -25171,6 +25321,33 @@ def _nevis_pipe_check_visible_bom_rows(table: object) -> List[List[str]]:
     return rows
 
 
+def _nevis_pipe_check_master_sizes(main_window: object, material: str) -> Optional[Set[str]]:
+    """Return sizes declared by the material DB, or None when it is unavailable."""
+    try:
+        data = getattr(main_window, "_nevis_master_data", None)
+        if not isinstance(data, dict) and hasattr(main_window, "load_nevis_master_data"):
+            data = main_window.load_nevis_master_data()
+        materials = data.get("materials", []) if isinstance(data, dict) else []
+        if not materials:
+            return None
+        material_code = str(material or "").strip()
+        normalized_code = str(main_window.pipe_prefix(material_code) if hasattr(main_window, "pipe_prefix") else material_code)
+        for item in materials:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code", "") or "").strip()
+            if code not in {material_code, normalized_code}:
+                continue
+            return {
+                str(value).strip().split("x", 1)[0]
+                for value in item.get("sizes", []) or []
+                if str(value).strip()
+            }
+        return set()
+    except Exception:
+        return None
+
+
 def build_pipe_quick_check_issues(main_window: object) -> List[Dict[str, object]]:
     """Return only checks supported by the current data, without mutating it."""
     issues: List[Dict[str, object]] = []
@@ -25184,25 +25361,35 @@ def build_pipe_quick_check_issues(main_window: object) -> List[Dict[str, object]
         size = str(getattr(edge, "size", "") or "").strip().split("x", 1)[0]
         if not size:
             issues.append(_nevis_pipe_check_issue(
-                "error", "library", "edge", edge_id, "pipe_check_missing_size"
+                "error", "library", "edge", edge_id, "pipe_check_missing_size", code="E101"
             ))
             continue
 
         if library_index:
             try:
                 material = str(main_window.edge_material(edge) or "").strip()
-                sizes = list(main_window.library_pipe_sizes_for_material(material) or [])
             except Exception:
-                material, sizes = "", []
-            if material and not sizes:
+                material = ""
+            master_sizes = _nevis_pipe_check_master_sizes(main_window, material)
+            if master_sizes is None:
+                try:
+                    library_sizes = {
+                        str(value).strip().split("x", 1)[0]
+                        for value in main_window.library_pipe_sizes_for_material(material) or []
+                        if str(value).strip()
+                    }
+                except Exception:
+                    library_sizes = set()
+                master_sizes = library_sizes if library_sizes else None
+            if material and master_sizes == set():
                 issues.append(_nevis_pipe_check_issue(
                     "error", "library", "edge", edge_id,
-                    "pipe_check_material_missing", {"material": material}
+                    "pipe_check_size_missing", {"size": size, "material": material}, code="E102"
                 ))
-            elif sizes and size not in {str(value).strip() for value in sizes}:
+            elif master_sizes is not None and size not in master_sizes:
                 issues.append(_nevis_pipe_check_issue(
                     "error", "library", "edge", edge_id,
-                    "pipe_check_size_missing", {"size": size, "material": material}
+                    "pipe_check_size_missing", {"size": size, "material": material}, code="E102"
                 ))
 
         # Current Edge stores numeric slope values, not the original input text.
@@ -25226,16 +25413,35 @@ def build_pipe_quick_check_issues(main_window: object) -> List[Dict[str, object]
             size = str(getattr(fitting, "size", "") or "").strip()
             if not ftype or not size:
                 issues.append(_nevis_pipe_check_issue(
-                    "error", "fitting", "node", node_id, "pipe_check_fitting_missing"
+                    "error", "fitting", "node", node_id,
+                    "pipe_check_fitting_incomplete", code="E201"
                 ))
                 continue
             try:
-                path = main_window.matching_library_path(node_id, ftype, size)
+                if hasattr(main_window, "resolve_fitting_library_path_for_jww"):
+                    path = main_window.resolve_fitting_library_path_for_jww(node_id, fitting)
+                else:
+                    path = main_window.matching_library_path(node_id, ftype, size)
             except Exception:
                 path = ""
             if not path:
+                available_sizes = []
+                try:
+                    pipe = main_window.current_pipe_for_node(node_id)
+                    available_sizes = list(main_window.library_sizes(pipe, ftype) or [])
+                except Exception:
+                    pass
+                requested_size = str(size).strip().replace("×", "x").lower()
+                normalized_available = {
+                    str(value).strip().replace("×", "x").lower()
+                    for value in available_sizes
+                }
+                size_missing = bool(normalized_available and requested_size not in normalized_available)
                 issues.append(_nevis_pipe_check_issue(
-                    "error", "fitting", "node", node_id, "pipe_check_fitting_missing"
+                    "error", "fitting", "node", node_id,
+                    "pipe_check_fitting_size_missing" if size_missing else "pipe_check_fitting_library_missing",
+                    {"ftype": ftype, "size": size},
+                    code="E203" if size_missing else "E202",
                 ))
 
     try:
@@ -25307,13 +25513,19 @@ def _nevis_pipe_check_build_ui(self):
     self.table_pipe_check.setSelectionBehavior(QTableWidget.SelectRows)
     self.table_pipe_check.setSelectionMode(QAbstractItemView.SingleSelection)
     self.table_pipe_check.setAlternatingRowColors(True)
-    self.table_pipe_check.setWordWrap(False)
+    self.table_pipe_check.setWordWrap(True)
     self.table_pipe_check.verticalHeader().setVisible(False)
-    self.table_pipe_check.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-    self.table_pipe_check.setColumnWidth(0, 74)
-    self.table_pipe_check.setColumnWidth(1, 128)
-    self.table_pipe_check.setColumnWidth(2, 95)
-    self.table_pipe_check.setColumnWidth(3, 300)
+    header_view = self.table_pipe_check.horizontalHeader()
+    header_view.setMinimumHeight(38)
+    header_view.setMinimumSectionSize(76)
+    header_view.setTextElideMode(Qt.ElideNone)
+    header_view.setSectionResizeMode(QHeaderView.Interactive)
+    header_view.setSectionResizeMode(3, QHeaderView.Stretch)
+    self.table_pipe_check.verticalHeader().setDefaultSectionSize(32)
+    self.table_pipe_check.setColumnWidth(0, 82)
+    self.table_pipe_check.setColumnWidth(1, 140)
+    self.table_pipe_check.setColumnWidth(2, 125)
+    self.table_pipe_check.setColumnWidth(3, 320)
     self.table_pipe_check.itemSelectionChanged.connect(self.highlight_selected_pipe_check_issue)
     root.addWidget(self.table_pipe_check, 1)
 
@@ -25358,9 +25570,13 @@ def _nevis_pipe_check_render(self):
         message_text = _nevis_pipe_check_translate(
             self, str(issue.get("message", "")), issue.get("message_args", {})
         )
+        issue_code = str(issue.get("code", "") or "").strip()
+        if issue_code:
+            message_text = f"[{issue_code}] {message_text}"
         for col, value in enumerate((severity_text, check_text, target_text, message_text)):
             item = QTableWidgetItem(value)
             item.setToolTip(value)
+            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             if col == 0:
                 item.setForeground(QBrush(QColor("#B42318" if severity == "error" else "#B26A00")))
             if col == 0:
@@ -25368,6 +25584,8 @@ def _nevis_pipe_check_render(self):
             self.table_pipe_check.setItem(row_index, col, item)
     self.lbl_pipe_check_empty.setVisible(not issues)
     self.table_pipe_check.setVisible(bool(issues))
+    if issues:
+        self.table_pipe_check.resizeRowsToContents()
 
 
 def _nevis_pipe_check_retranslate_ui(self):
@@ -25393,7 +25611,39 @@ def _nevis_pipe_check_open(self):
     self.set_side_panel_visible("right", True)
     if getattr(self, "_pipe_check_tab_index", -1) >= 0:
         self.tabs.setCurrentIndex(self._pipe_check_tab_index)
+    self.expand_pipe_check_panel()
     self.run_pipe_quick_check()
+
+
+def _nevis_pipe_check_expand_panel(self):
+    try:
+        sizes = self.splitter.sizes()
+        if len(sizes) != 3:
+            return
+        if not hasattr(self, "_pipe_check_previous_right_width"):
+            self._pipe_check_previous_right_width = max(180, sizes[2])
+        target = min(680, max(620, int(self.width() * 0.43)))
+        self.right_shell.setMaximumWidth(720)
+        self.right_shell.setMinimumWidth(360)
+        center = max(320, sum(sizes) - sizes[0] - target)
+        self.splitter.setSizes([sizes[0], center, target])
+    except Exception:
+        pass
+
+
+def _nevis_pipe_check_restore_panel(self):
+    try:
+        sizes = self.splitter.sizes()
+        previous = int(getattr(self, "_pipe_check_previous_right_width", 220))
+        previous = max(160, min(420, previous))
+        self.right_shell.setMinimumWidth(160)
+        self.right_shell.setMaximumWidth(420)
+        center = max(320, sum(sizes) - sizes[0] - previous)
+        self.splitter.setSizes([sizes[0], center, previous])
+        if hasattr(self, "_pipe_check_previous_right_width"):
+            delattr(self, "_pipe_check_previous_right_width")
+    except Exception:
+        pass
 
 
 def _nevis_pipe_check_clear_highlight(self):
@@ -25446,8 +25696,11 @@ def _nevis_pipe_check_close_panel(self):
 
 
 def _nevis_pipe_check_tab_changed(self, index: int):
-    if index != getattr(self, "_pipe_check_tab_index", -1):
+    if index == getattr(self, "_pipe_check_tab_index", -1):
+        self.expand_pipe_check_panel()
+    else:
         self.clear_pipe_check_highlight()
+        self.restore_pipe_check_panel()
 
 
 _NEVIS_PIPE_CHECK_PREV_BUILD_UI = MainWindow._build_ui
@@ -25458,6 +25711,8 @@ MainWindow.close_pipe_check_panel = _nevis_pipe_check_close_panel
 MainWindow.clear_pipe_check_highlight = _nevis_pipe_check_clear_highlight
 MainWindow.highlight_selected_pipe_check_issue = _nevis_pipe_check_highlight_selected
 MainWindow._pipe_check_tab_changed = _nevis_pipe_check_tab_changed
+MainWindow.expand_pipe_check_panel = _nevis_pipe_check_expand_panel
+MainWindow.restore_pipe_check_panel = _nevis_pipe_check_restore_panel
 MainWindow.retranslate_pipe_check_ui = _nevis_pipe_check_retranslate_ui
 
 _NEVIS_PIPE_CHECK_PREV_REFRESH_LANGUAGE = MainWindow.refresh_language_texts
@@ -25476,23 +25731,390 @@ MainWindow.set_side_panel_visible = _nevis_pipe_check_set_side_panel_visible
 
 
 # =============================================================================
+# NEVIS raster reference background - Phase 1 (view-only, session-only)
+# =============================================================================
+def _nevis_render_reference_pdf(path: str, parent=None) -> QPixmap:
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError(
+            "Không thể nạp PDF vì thiếu PyMuPDF (fitz). Ảnh PNG/JPG vẫn có thể sử dụng."
+        ) from exc
+
+    try:
+        with fitz.open(path) as document:
+            if document.page_count < 1:
+                return QPixmap()
+            page = document.load_page(0)
+            scale = 150.0 / 72.0
+            longest = max(float(page.rect.width), float(page.rect.height)) * scale
+            if longest > 6000.0:
+                scale *= 6000.0 / longest
+            rendered = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            pixmap = QPixmap()
+            pixmap.loadFromData(rendered.tobytes("png"), "PNG")
+            return pixmap
+    except Exception as exc:
+        raise RuntimeError(f"Không thể render trang đầu PDF: {exc}") from exc
+
+
+def _nevis_reference_background_item(self):
+    scene = getattr(getattr(self, "preview", None), "scene", None)
+    if scene is None:
+        return None
+    for item in scene.items():
+        if item.data(0) == "nevis_reference_raster_background":
+            return item
+    return None
+
+
+def _nevis_reference_background_status(self, message: str) -> None:
+    try:
+        self.lbl_status.setText(message)
+        self.statusBar().showMessage(message, 8000)
+    except Exception:
+        pass
+
+
+def _nevis_clear_reference_alignment_marker(self) -> None:
+    marker = getattr(self, "_reference_background_align_marker", None)
+    self._reference_background_align_marker = None
+    if marker is None:
+        return
+    try:
+        if marker.scene() is not None:
+            marker.scene().removeItem(marker)
+    except RuntimeError:
+        pass
+
+
+def _nevis_cancel_reference_background_alignment(self, message: str = "Đã hủy căn thẳng") -> None:
+    self._reference_background_aligning = False
+    self._reference_background_align_point_a = None
+    _nevis_clear_reference_alignment_marker(self)
+    button = getattr(self, "btn_align_reference_background", None)
+    if button is not None:
+        button.blockSignals(True)
+        button.setChecked(False)
+        button.blockSignals(False)
+    if message:
+        _nevis_reference_background_status(self, message)
+
+
+def _nevis_start_reference_background_alignment(self, checked: bool = False) -> None:
+    item = _nevis_reference_background_item(self)
+    if not checked:
+        _nevis_cancel_reference_background_alignment(self)
+        return
+    if item is None or not item.isVisible():
+        _nevis_cancel_reference_background_alignment(self, "Vui lòng nạp và hiển thị nền PDF/ảnh")
+        return
+    self._reference_background_aligning = True
+    self._reference_background_align_point_a = None
+    _nevis_clear_reference_alignment_marker(self)
+    _nevis_reference_background_status(self, "Căn thẳng: click điểm A trên nền PDF/ảnh")
+
+
+def _nevis_reference_background_contains_scene_point(item, scene_point) -> bool:
+    try:
+        return bool(item.contains(item.mapFromScene(scene_point)))
+    except Exception:
+        return False
+
+
+def _nevis_handle_reference_background_alignment_click(self, scene_point) -> bool:
+    if not getattr(self, "_reference_background_aligning", False):
+        return False
+    item = _nevis_reference_background_item(self)
+    if item is None or not item.isVisible():
+        _nevis_cancel_reference_background_alignment(self, "Nền PDF/ảnh không còn hiển thị")
+        return True
+    if not _nevis_reference_background_contains_scene_point(item, scene_point):
+        _nevis_reference_background_status(self, "Hãy click điểm nằm trên nền PDF/ảnh")
+        return True
+
+    point_a = getattr(self, "_reference_background_align_point_a", None)
+    if point_a is None:
+        self._reference_background_align_point_a = QPointF(scene_point)
+        _nevis_clear_reference_alignment_marker(self)
+        radius = 7.0
+        marker = self.preview.scene.addEllipse(
+            scene_point.x() - radius,
+            scene_point.y() - radius,
+            radius * 2.0,
+            radius * 2.0,
+            QPen(QColor(220, 70, 40), 2),
+            QBrush(QColor(255, 220, 80, 180)),
+        )
+        marker.setZValue(250)
+        marker.setAcceptedMouseButtons(Qt.NoButton)
+        self._reference_background_align_marker = marker
+        _nevis_reference_background_status(self, "Căn thẳng: click điểm B trên nền PDF/ảnh")
+        return True
+
+    dx = float(scene_point.x() - point_a.x())
+    dy = float(scene_point.y() - point_a.y())
+    if math.hypot(dx, dy) < 2.0:
+        _nevis_reference_background_status(self, "Điểm B quá gần điểm A, hãy chọn lại điểm B")
+        return True
+
+    measured_angle = math.degrees(math.atan2(dy, dx))
+    axis_angle = ((measured_angle + 90.0) % 180.0) - 90.0
+    if abs(axis_angle) <= 45.0:
+        target_angle = 0.0
+    else:
+        target_angle = 90.0 if axis_angle > 0.0 else -90.0
+    correction = target_angle - axis_angle
+    current_rotation = float(getattr(self, "_reference_background_rotation", 0.0) or 0.0)
+    new_rotation = ((current_rotation + correction + 180.0) % 360.0) - 180.0
+    self._reference_background_rotation = new_rotation
+    item.setTransformOriginPoint(item.boundingRect().center())
+    item.setRotation(new_rotation)
+    self.preview.scene.setSceneRect(self.preview.scene.sceneRect().united(item.sceneBoundingRect()))
+    self.lbl_reference_background_angle.setText(f"Góc hiện tại: {new_rotation:.2f}°")
+    _nevis_cancel_reference_background_alignment(self, "")
+    _nevis_reference_background_status(
+        self,
+        f"Đã căn thẳng về {abs(target_angle):.0f}° | Góc nền: {new_rotation:.2f}°",
+    )
+    return True
+
+
+def _nevis_ensure_reference_background(self) -> None:
+    pixmap = getattr(self, "_reference_background_pixmap", None)
+    if pixmap is None or pixmap.isNull():
+        return
+    item = _nevis_reference_background_item(self)
+    if item is None:
+        item = self.preview.scene.addPixmap(pixmap)
+        item.setData(0, "nevis_reference_raster_background")
+        item.setZValue(-150)
+    item.setAcceptedMouseButtons(Qt.NoButton)
+    item.setAcceptHoverEvents(False)
+    item.setFlag(QGraphicsItem.ItemIsSelectable, False)
+    item.setFlag(QGraphicsItem.ItemIsFocusable, False)
+    item.setTransformOriginPoint(item.boundingRect().center())
+    item.setRotation(float(getattr(self, "_reference_background_rotation", 0.0) or 0.0))
+    item.setVisible(bool(self.chk_reference_background_visible.isChecked()))
+    item.setOpacity(self.slider_reference_background_opacity.value() / 100.0)
+    self.preview.scene.setSceneRect(self.preview.scene.sceneRect().united(item.sceneBoundingRect()))
+
+
+def _nevis_open_reference_background(self) -> None:
+    path, _ = QFileDialog.getOpenFileName(
+        self,
+        "Mở nền PDF/ảnh",
+        "",
+        "PDF/Ảnh (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff);;Tất cả (*.*)",
+    )
+    if not path:
+        return
+    try:
+        pixmap = _nevis_render_reference_pdf(path, self) if Path(path).suffix.lower() == ".pdf" else QPixmap(path)
+    except RuntimeError as exc:
+        QMessageBox.warning(self, "Nền PDF/ảnh", str(exc))
+        return
+    if pixmap.isNull():
+        QMessageBox.warning(self, "Nền PDF/ảnh", "Không thể render file nền đã chọn.")
+        return
+    self._reference_background_pixmap = pixmap
+    self._reference_background_path = path
+    self._reference_background_rotation = 0.0
+    self.lbl_reference_background_angle.setText("Góc hiện tại: 0.00°")
+    self.lbl_reference_background_name.setText(Path(path).name)
+    self.chk_reference_background_visible.setChecked(True)
+    self.preview.draw_model()
+    self.preview.fit_view()
+
+
+def _nevis_toggle_reference_background(self, visible: bool) -> None:
+    if not visible and getattr(self, "_reference_background_aligning", False):
+        _nevis_cancel_reference_background_alignment(self, "Đã hủy căn thẳng")
+    item = _nevis_reference_background_item(self)
+    if item is not None:
+        item.setVisible(bool(visible))
+
+
+def _nevis_set_reference_background_opacity(self, value: int) -> None:
+    item = _nevis_reference_background_item(self)
+    if item is not None:
+        item.setOpacity(max(0, min(100, int(value))) / 100.0)
+
+
+def _nevis_clear_reference_background(self) -> None:
+    _nevis_cancel_reference_background_alignment(self, "")
+    item = _nevis_reference_background_item(self)
+    if item is not None:
+        self.preview.scene.removeItem(item)
+    self._reference_background_pixmap = QPixmap()
+    self._reference_background_path = ""
+    self._reference_background_rotation = 0.0
+    self.lbl_reference_background_angle.setText("Góc hiện tại: 0.00°")
+    self.lbl_reference_background_name.setText("Chưa có nền")
+
+
+_NEVIS_REFERENCE_BACKGROUND_PREV_BUILD_UI = MainWindow._build_ui
+def _nevis_reference_background_build_ui(self):
+    result = _NEVIS_REFERENCE_BACKGROUND_PREV_BUILD_UI(self)
+    self._reference_background_pixmap = QPixmap()
+    self._reference_background_path = ""
+    self._reference_background_rotation = 0.0
+    self._reference_background_aligning = False
+    self._reference_background_align_point_a = None
+    self._reference_background_align_marker = None
+    return result
+
+
+_NEVIS_REFERENCE_BACKGROUND_PREV_DRAW_MODEL = PreviewView.draw_model
+def _nevis_reference_background_draw_model(self, *args, **kwargs):
+    result = _NEVIS_REFERENCE_BACKGROUND_PREV_DRAW_MODEL(self, *args, **kwargs)
+    self.mainwin.ensure_reference_background()
+    return result
+
+
+MainWindow._build_ui = _nevis_reference_background_build_ui
+MainWindow.open_reference_background = _nevis_open_reference_background
+MainWindow.toggle_reference_background = _nevis_toggle_reference_background
+MainWindow.set_reference_background_opacity = _nevis_set_reference_background_opacity
+MainWindow.clear_reference_background = _nevis_clear_reference_background
+MainWindow.ensure_reference_background = _nevis_ensure_reference_background
+MainWindow.start_reference_background_alignment = _nevis_start_reference_background_alignment
+MainWindow.cancel_reference_background_alignment = _nevis_cancel_reference_background_alignment
+MainWindow.handle_reference_background_alignment_click = _nevis_handle_reference_background_alignment_click
+PreviewView.draw_model = _nevis_reference_background_draw_model
+
+_NEVIS_REFERENCE_BACKGROUND_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+def _nevis_reference_background_mouse_press(self, event):
+    if getattr(self.mainwin, "_reference_background_aligning", False):
+        if event.button() == Qt.LeftButton:
+            try:
+                pos = event.position().toPoint()
+            except AttributeError:
+                pos = event.pos()
+            self.mainwin.handle_reference_background_alignment_click(self.mapToScene(pos))
+            event.accept()
+            return
+        if event.button() == Qt.RightButton:
+            self.mainwin.cancel_reference_background_alignment()
+            event.accept()
+            return
+    return _NEVIS_REFERENCE_BACKGROUND_PREV_MOUSE_PRESS(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_reference_background_mouse_press
+
+
+# =============================================================================
+# NEVIS runtime performance timers - logging only, no behavior changes
+# =============================================================================
+_NEVIS_RUNTIME_PERF_THRESHOLD_SECONDS = 0.2
+
+
+def _nevis_runtime_perf_details(label: str, owner) -> str:
+    try:
+        if label == "draw_model":
+            return f" items={len(owner.scene.items())}"
+        if label == "draw_background":
+            return f" lines={len(getattr(owner.mainwin, 'jww_background_items', []) or [])}"
+        if label == "_draw_detailed_fittings":
+            return f" items={len(getattr(owner.mainwin.model, 'fittings', {}) or {})}"
+        if label == "update_material_table":
+            return f" items={owner.table_mat.rowCount()}"
+        if label in {"update_quick_preview", "taskpane_preview"}:
+            scene = getattr(owner, "fit_preview_scene", None) or getattr(owner, "preview_scene", None)
+            return f" items={len(scene.items())}" if scene is not None else ""
+    except Exception:
+        pass
+    return ""
+
+
+def _nevis_runtime_perf_wrap(func, label: str):
+    if not callable(func) or getattr(func, "_nevis_runtime_perf_wrapped", False):
+        return func
+
+    @functools.wraps(func)
+    def _wrapped(*args, **kwargs):
+        started_at = time.perf_counter()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            elapsed = time.perf_counter() - started_at
+            if elapsed > _NEVIS_RUNTIME_PERF_THRESHOLD_SECONDS:
+                owner = args[0] if args else None
+                details = _nevis_runtime_perf_details(label, owner) if owner is not None else ""
+                print(f"PERF {label}: {elapsed:.3f}s{details}", flush=True)
+
+    _wrapped._nevis_runtime_perf_wrapped = True
+    return _wrapped
+
+
+def _nevis_runtime_timed_scene_clear(scene) -> None:
+    started_at = time.perf_counter()
+    try:
+        item_count = len(scene.items())
+    except Exception:
+        item_count = 0
+    try:
+        scene.clear()
+    finally:
+        elapsed = time.perf_counter() - started_at
+        if elapsed > _NEVIS_RUNTIME_PERF_THRESHOLD_SECONDS:
+            print(f"PERF scene.clear: {elapsed:.3f}s items={item_count}", flush=True)
+
+
+def _nevis_install_runtime_perf_timers() -> None:
+    targets = [
+        (PreviewView, "draw_model", "draw_model"),
+        (PreviewView, "_draw_jww_background", "draw_background"),
+        (PreviewView, "_draw_detailed_fittings", "_draw_detailed_fittings"),
+        (MainWindow, "select_node", "select_node"),
+        (MainWindow, "update_material_table", "update_material_table"),
+        (MainWindow, "update_selected_library_preview", "update_quick_preview"),
+    ]
+    for cls, attr, label in targets:
+        current = getattr(cls, attr, None)
+        if current is not None:
+            setattr(cls, attr, _nevis_runtime_perf_wrap(current, label))
+
+    taskpane_preview = globals().get("_nevis_v84_draw_preview_exact_taskpane")
+    if taskpane_preview is not None:
+        globals()["_nevis_v84_draw_preview_exact_taskpane"] = _nevis_runtime_perf_wrap(
+            taskpane_preview, "taskpane_preview"
+        )
+
+
+_nevis_install_runtime_perf_timers()
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
     app = QApplication(sys.argv)
     try:
         from nevis_activation_guard import ensure_activation_or_show
-        if not ensure_activation_or_show():
+    except ModuleNotFoundError as ex:
+        if ex.name == "nevis_activation_guard":
+            print(
+                "NEVIS_ACTIVATION_WARNING: nevis_activation_guard.py not found; continuing in dev mode.",
+                file=sys.stderr,
+            )
+        else:
+            QMessageBox.critical(None, "NEVIS Activation", str(ex))
             sys.exit(2)
     except Exception as ex:
         QMessageBox.critical(None, "NEVIS Activation", str(ex))
         sys.exit(2)
+    else:
+        if not ensure_activation_or_show():
+            sys.exit(2)
     # BẢN THƯỜNG / 通常版:
     # Không kiểm tra license.dat để tiện test, copy thư mục, chạy nội bộ.
     # Khi phát hành bản khóa máy, bật lại hàm nevis_license_valid() ở bản license.
     temp = sys.argv[1] if len(sys.argv)>1 else None
     w = MainWindow(temp)
     w.show()
+    w._log_startup_timing("STARTUP_COMPLETE")
     sys.exit(app.exec())
 
 if __name__ == "__main__":
