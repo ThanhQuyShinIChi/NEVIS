@@ -28648,6 +28648,120 @@ MainWindow.set_structural_draw_mode = _nevis_t23a_set_draw_mode_off_deselect
 
 
 # =============================================================================
+# TASK 23b — Resize handle: 8 tay cầm, kéo góc = resize 2 chiều, cạnh = 1 chiều
+#
+# Root cause: _nevis_structural_draw_handles dùng "nw/ne/se/sw/n/s/e/w"
+#             nhưng resize_element() trong structural_transform dùng "tl/tr/br/bl/t/b/r/l"
+#             → resize không bao giờ chạy được.
+# Fix: redefine _nevis_structural_handle_positions + _nevis_structural_constrain_corner
+#      để dùng "tl/tr/br/bl/t/b/l/r" — match với module.
+# Bonus: thêm resize cursor khi hover handle.
+# =============================================================================
+from modules.structural_transform import element_handle_positions as _t23b_elem_handles
+
+_T23B_CURSOR_MAP = {
+    "tl": Qt.SizeFDiagCursor, "br": Qt.SizeFDiagCursor,
+    "tr": Qt.SizeBDiagCursor, "bl": Qt.SizeBDiagCursor,
+    "t":  Qt.SizeVerCursor,   "b":  Qt.SizeVerCursor,
+    "l":  Qt.SizeHorCursor,   "r":  Qt.SizeHorCursor,
+}
+
+# Snap-to-handle label map (tl/tr... naming)
+_T23B_HANDLE_LABELS = {
+    "vi": {
+        "tl": "Góc trên-trái", "t": "Cạnh trên",  "tr": "Góc trên-phải",
+        "l":  "Cạnh trái",                          "r":  "Cạnh phải",
+        "bl": "Góc dưới-trái", "b": "Cạnh dưới",  "br": "Góc dưới-phải",
+    },
+    "jp": {
+        "tl": "左上隅", "t": "上辺",  "tr": "右上隅",
+        "l":  "左辺",               "r":  "右辺",
+        "bl": "左下隅", "b": "下辺", "br": "右下隅",
+    },
+}
+
+
+def _nevis_t23b_handle_positions(element) -> dict:
+    """Return handle positions using tl/tr/br/bl/t/b/l/r naming (matches resize_element)."""
+    return _t23b_elem_handles(element)
+
+
+def _nevis_t23b_constrain_corner(element, handle: str, position) -> tuple:
+    """Shift-constrain: keep aspect ratio when dragging a corner handle."""
+    if handle not in {"tl", "tr", "br", "bl"} or element.width <= EPS or element.length <= EPS:
+        return position
+    positions = _t23b_elem_handles(element)
+    opposite = {"tl": "br", "tr": "bl", "br": "tl", "bl": "tr"}[handle]
+    anchor_x, anchor_y = positions[opposite]
+    delta_x = float(position[0]) - anchor_x
+    delta_y = float(position[1]) - anchor_y
+    scale = max(abs(delta_x) / element.width, abs(delta_y) / element.length)
+    sign_x = -1.0 if delta_x < 0.0 else 1.0
+    sign_y = -1.0 if delta_y < 0.0 else 1.0
+    return anchor_x + sign_x * element.width * scale, anchor_y + sign_y * element.length * scale
+
+
+def _nevis_t23b_draw_handles(view, element) -> None:
+    """Draw 8 resize handles with tl/tr/br/bl/t/b/l/r naming; corners = diamond, edges = square."""
+    handles = _t23b_elem_handles(element)
+    if not handles:
+        return
+    scale = abs(float(view.transform().m11())) or 1.0
+    size = 9.0 / scale
+    half = size / 2.0
+    pen_corner = QPen(QColor(15, 75, 175), 1.5 / scale)
+    brush_corner = QBrush(QColor(40, 120, 230))
+    pen_edge = QPen(QColor(15, 75, 175), 1.0 / scale)
+    brush_edge = QBrush(QColor(130, 175, 240))
+    corners = {"tl", "tr", "br", "bl"}
+    for handle, (x, y) in handles.items():
+        canvas_x, canvas_y = _nevis_real_to_canvas_point(view.mainwin, (x, y))
+        pen = pen_corner if handle in corners else pen_edge
+        brush = brush_corner if handle in corners else brush_edge
+        item = view.scene.addRect(canvas_x - half, canvas_y - half, size, size, pen, brush)
+        item.setZValue(100)
+        item.setData(0, ("structural_handle", (int(element.id), handle)))
+        item.setCursor(QCursor(_T23B_CURSOR_MAP.get(handle, Qt.SizeAllCursor)))
+
+
+_T23B_PREV_MOUSE_MOVE = PreviewView.mouseMoveEvent
+
+
+def _nevis_t23b_mouse_move(self, event):
+    """Add resize cursor when hovering over a handle (not during drag)."""
+    result = _T23B_PREV_MOUSE_MOVE(self, event)
+    # Only change cursor in structural mode, not during active drags
+    if (
+        getattr(self.mainwin, "workspace_mode", "mep") != "structural"
+        or getattr(self, "_structural_drag_start", None) is not None
+        or getattr(self, "_structural_transform", None) is not None
+    ):
+        return result
+    try:
+        view_pos = event.position().toPoint()
+    except AttributeError:
+        view_pos = event.pos()
+    item = self.itemAt(view_pos)
+    data = item.data(0) if item is not None else None
+    if isinstance(data, tuple) and data[0] == "structural_handle":
+        _, (_, handle) = data
+        cursor = _T23B_CURSOR_MAP.get(handle, Qt.SizeAllCursor)
+        self.viewport().setCursor(QCursor(cursor))
+    elif getattr(self.mainwin, "structural_draw_mode", False):
+        self.viewport().setCursor(Qt.CrossCursor)
+    else:
+        self.viewport().setCursor(Qt.OpenHandCursor)
+    return result
+
+
+# Monkey-patch: replace nw/ne/... naming with tl/tr/... naming
+_nevis_structural_handle_positions = _nevis_t23b_handle_positions
+_nevis_structural_constrain_corner = _nevis_t23b_constrain_corner
+_nevis_structural_draw_handles = _nevis_t23b_draw_handles
+PreviewView.mouseMoveEvent = _nevis_t23b_mouse_move
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
