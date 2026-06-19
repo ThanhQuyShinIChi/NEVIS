@@ -29406,6 +29406,68 @@ PreviewView.mouseReleaseEvent = _nevis_t25_release
 
 
 # =============================================================================
+# TASK 25d — Escape / right-click to exit structural draw mode
+# =============================================================================
+
+_T25D_PREV_KEY = PreviewView.keyPressEvent
+
+
+def _nevis_t25d_keyPress(self, event):
+    if event.key() == Qt.Key_Escape:
+        if getattr(self.mainwin, "structural_draw_mode", False):
+            # Cancel in-progress drag
+            self._structural_drag_start = None
+            _nevis_structural_remove_preview(self)
+            _nevis_t17_remove_snap_marker(self)
+            self.mainwin.set_structural_draw_mode(False)
+            event.accept()
+            return
+        if getattr(self.mainwin, "stepped_slab_draw_mode", False):
+            self._stepped_slab_drag_start = None
+            _nevis_stepped_slab_remove_preview(self)
+            self.mainwin.stepped_slab_draw_mode = False
+            event.accept()
+            return
+    return _T25D_PREV_KEY(self, event)
+
+
+PreviewView.keyPressEvent = _nevis_t25d_keyPress
+
+# Right-click also cancels draw mode (standard CAD convention)
+_T25D_PREV_RCLICK = getattr(PreviewView, "mouseReleaseEvent", None)
+
+
+def _nevis_t25d_right_click(self, event):
+    if event.button() == Qt.RightButton:
+        if getattr(self.mainwin, "structural_draw_mode", False):
+            self._structural_drag_start = None
+            _nevis_structural_remove_preview(self)
+            _nevis_t17_remove_snap_marker(self)
+            self.mainwin.set_structural_draw_mode(False)
+            _nevis_t25_apply_highlight(self, False)
+            event.accept()
+            return
+        if getattr(self.mainwin, "stepped_slab_draw_mode", False):
+            self._stepped_slab_drag_start = None
+            _nevis_stepped_slab_remove_preview(self)
+            self.mainwin.stepped_slab_draw_mode = False
+            event.accept()
+            return
+    if _T25D_PREV_RCLICK:
+        return _T25D_PREV_RCLICK(self, event)
+
+
+PreviewView.mouseReleaseEvent = _nevis_t25d_right_click
+
+APP_TEXT.setdefault("vi", {}).update({
+    "draw_hint_structural": "Kéo để vẽ • Escape/Chuột phải: hủy",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "draw_hint_structural": "ドラッグして描画 • Escape/右クリック: キャンセル",
+})
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
