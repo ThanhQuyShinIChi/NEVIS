@@ -29,7 +29,8 @@ from typing import Dict, List, Tuple, Optional, Set
 from modules.elevation_input import validate_node_z_input
 from modules.elevation_display import compute_edge_slope
 from modules.structural_element import StructuralElement
-from modules.structural_geometry import nearest_snap_point, rect_from_two_points, snap_to_grid
+from modules.structural_geometry import nearest_snap_point, snap_to_grid
+from modules.structural_input import rect_from_center_wl, validate_dimension
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
@@ -26110,32 +26111,80 @@ def _nevis_structural_set_draw_mode(self, enabled: bool) -> None:
         self.lbl_status.setText(self.tr("status_wait"))
 
 
-def _nevis_structural_edit_dialog(self, width: float, length: float):
+def _nevis_structural_edit_dialog(self, width: float, length: float, center, element=None):
     dialog = QDialog(self)
     dialog.setWindowTitle("Phần tử kết cấu / 構造要素")
     layout = QFormLayout(dialog)
     type_combo = QComboBox(dialog)
     for element_type, label in _NEVIS_STRUCTURAL_TYPE_LABELS.items():
         type_combo.addItem(label, element_type)
-    width_edit = QLineEdit(str(int(round(width))), dialog)
-    length_edit = QLineEdit(str(int(round(length))), dialog)
+    if element is not None:
+        current_index = type_combo.findData(str(getattr(element, "element_type", "")))
+        if current_index >= 0:
+            type_combo.setCurrentIndex(current_index)
+    width_text = f"{float(width):g}" if element is not None else str(int(round(width)))
+    length_text = f"{float(length):g}" if element is not None else str(int(round(length)))
+    width_edit = QLineEdit(width_text, dialog)
+    length_edit = QLineEdit(length_text, dialog)
+    initial_height = float(getattr(element, "height", 0.0) or 0.0) if element is not None else 0.0
+    height_edit = QLineEdit(f"{initial_height:g}" if initial_height > 0.0 else "100", dialog)
+    initial_radius = float(getattr(element, "arc_radius", 0.0) or 0.0) if element is not None else 0.0
+    arc_checkbox = QCheckBox("Có cung tròn / 円弧あり", dialog)
+    arc_checkbox.setChecked(initial_radius > 0.0)
+    radius_edit = QLineEdit(f"{initial_radius:g}", dialog)
     layout.addRow("Loại / 種類", type_combo)
     layout.addRow("W (mm)", width_edit)
     layout.addRow("L (mm)", length_edit)
+    layout.addRow("H (mm)", height_edit)
+    layout.addRow(arc_checkbox)
+    layout.addRow("C (mm)", radius_edit)
+    radius_label = layout.labelForField(radius_edit)
+    radius_edit.setVisible(arc_checkbox.isChecked())
+    if radius_label is not None:
+        radius_label.setVisible(arc_checkbox.isChecked())
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
     layout.addRow(buttons)
+
+    preview_pen = QPen(QColor(35, 125, 205), 2.0, Qt.DashLine)
+    preview_brush = QBrush(QColor(60, 145, 220, 35))
+    preview_item = self.preview.scene.addPolygon(QPolygonF(), preview_pen, preview_brush)
+    preview_item.setZValue(1001)
+
+    def update_preview() -> None:
+        edited_width, width_error = validate_dimension(width_edit.text().strip(), "W")
+        edited_length, length_error = validate_dimension(length_edit.text().strip(), "L")
+        if width_error or length_error:
+            return
+        points = rect_from_center_wl(center[0], center[1], edited_width, edited_length)
+        preview_item.setPolygon(QPolygonF([QPointF(x, y) for x, y in points]))
+
+    def toggle_radius(checked: bool) -> None:
+        radius_edit.setVisible(checked)
+        if radius_label is not None:
+            radius_label.setVisible(checked)
+        dialog.adjustSize()
+
+    width_edit.textChanged.connect(update_preview)
+    length_edit.textChanged.connect(update_preview)
+    arc_checkbox.toggled.connect(toggle_radius)
+    update_preview()
+
     while dialog.exec() == QDialog.Accepted:
-        try:
-            edited_width = float(width_edit.text().strip())
-            edited_length = float(length_edit.text().strip())
-            if edited_width <= 0.0 or edited_length <= 0.0:
-                raise ValueError
-        except ValueError:
-            QMessageBox.warning(dialog, "Kích thước", "W và L phải là số dương.")
+        edited_width, width_error = validate_dimension(width_edit.text().strip(), "W")
+        edited_length, length_error = validate_dimension(length_edit.text().strip(), "L")
+        edited_height, height_error = validate_dimension(height_edit.text().strip(), "H")
+        edited_radius, radius_error = validate_dimension(radius_edit.text().strip() if arc_checkbox.isChecked() else 0.0, "C")
+        error = width_error or length_error or height_error or radius_error
+        if error:
+            QMessageBox.warning(dialog, "Kích thước", error)
             continue
-        return str(type_combo.currentData()), edited_width, edited_length
+        if preview_item.scene() is not None:
+            preview_item.scene().removeItem(preview_item)
+        return str(type_combo.currentData()), edited_width, edited_length, edited_height, edited_radius
+    if preview_item.scene() is not None:
+        preview_item.scene().removeItem(preview_item)
     return None
 
 
@@ -26145,26 +26194,56 @@ def _nevis_structural_create_from_drag(self, start, end) -> bool:
     if raw_width < EPS or raw_length < EPS:
         self.lbl_status.setText("Vùng kết cấu phải có W và L lớn hơn 0")
         return False
-    result = self._structural_edit_dialog(raw_width, raw_length)
+    center = ((float(start[0]) + float(end[0])) / 2.0, (float(start[1]) + float(end[1])) / 2.0)
+    result = self._structural_edit_dialog(raw_width, raw_length, center)
     if result is None:
         return False
-    element_type, width, length = result
-    direction_x = 1.0 if end[0] >= start[0] else -1.0
-    direction_y = 1.0 if end[1] >= start[1] else -1.0
-    adjusted_end = (start[0] + direction_x * width, start[1] + direction_y * length)
+    element_type, width, length, height, arc_radius = result
     existing = list(getattr(self.model, "structural_elements", []) or [])
     next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
     element = StructuralElement(
         id=next_id,
         element_type=element_type,
         label=_NEVIS_STRUCTURAL_TYPE_LABELS[element_type],
-        points=rect_from_two_points(start, adjusted_end),
+        points=rect_from_center_wl(center[0], center[1], width, length),
         width=width,
         length=length,
+        height=height,
+        arc_radius=arc_radius,
     )
     self.model.structural_elements.append(element)
     self.preview.draw_model()
     self.lbl_status.setText(f"Đã tạo {element.label}: W {width:g} x L {length:g} mm")
+    return True
+
+
+def _nevis_structural_edit_existing(self, element_id: int) -> bool:
+    element = next(
+        (item for item in getattr(self.model, "structural_elements", []) if int(getattr(item, "id", -1)) == int(element_id)),
+        None,
+    )
+    if element is None or not getattr(element, "points", None):
+        return False
+    xs = [float(point[0]) for point in element.points]
+    ys = [float(point[1]) for point in element.points]
+    center = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+    width = float(getattr(element, "width", 0.0) or (max(xs) - min(xs)))
+    length = float(getattr(element, "length", 0.0) or (max(ys) - min(ys)))
+    result = self._structural_edit_dialog(width, length, center, element)
+    if result is None:
+        self.preview.draw_model()
+        return False
+    element_type, width, length, height, arc_radius = result
+    element.element_type = element_type
+    element.label = _NEVIS_STRUCTURAL_TYPE_LABELS[element_type]
+    element.points = rect_from_center_wl(center[0], center[1], width, length)
+    element.width = width
+    element.length = length
+    element.height = height
+    element.arc_radius = arc_radius
+    element.bottom_elevation = element.top_elevation - element.height
+    self.preview.draw_model()
+    self.lbl_status.setText(f"Đã cập nhật {element.label}: W {width:g} x L {length:g} x H {height:g} mm")
     return True
 
 
@@ -26233,6 +26312,13 @@ def _nevis_structural_mouse_press(self, event):
         self._structural_preview_item.setZValue(1000)
         event.accept()
         return
+    if event.button() == Qt.LeftButton:
+        item = self.itemAt(event.position().toPoint() if hasattr(event, "position") else event.pos())
+        data = item.data(0) if item is not None else None
+        if isinstance(data, tuple) and len(data) == 2 and data[0] == "structural_element":
+            self.mainwin._structural_edit_existing(int(data[1]))
+            event.accept()
+            return
     return _NEVIS_STRUCTURAL_PREV_MOUSE_PRESS(self, event)
 
 
@@ -26264,6 +26350,7 @@ MainWindow._build_ui = _nevis_structural_build_ui
 MainWindow.set_structural_draw_mode = _nevis_structural_set_draw_mode
 MainWindow._structural_edit_dialog = _nevis_structural_edit_dialog
 MainWindow._structural_create_from_drag = _nevis_structural_create_from_drag
+MainWindow._structural_edit_existing = _nevis_structural_edit_existing
 PreviewView.draw_model = _nevis_structural_draw_model
 PreviewView.mousePressEvent = _nevis_structural_mouse_press
 PreviewView.mouseMoveEvent = _nevis_structural_mouse_move

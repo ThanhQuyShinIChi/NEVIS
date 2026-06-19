@@ -113,7 +113,7 @@ class StructuralElement:
 
 ---
 
-## TASK 8 — Nhập kích thước trực tiếp (W, L, H, C) `[  ]`
+## TASK 8 — Nhập kích thước trực tiếp (W, L, H, C) `[x]`
 
 **Mục tiêu:** Ngoài kéo chuột, người dùng có thể nhập số liệu chính xác.
 
