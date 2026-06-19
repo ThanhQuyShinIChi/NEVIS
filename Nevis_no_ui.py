@@ -30,10 +30,15 @@ from modules.elevation_input import validate_node_z_input
 from modules.elevation_display import compute_edge_slope
 from modules.structural_element import StructuralElement
 from modules.structural_geometry import grid_points_in_view, nearest_snap_point, rect_from_two_points, snap_to_grid
-from modules.grid_axis import GridAxis, build_axis_intersections, find_nearest_axis_intersection, grid_axis_from_dict, grid_axis_to_dict
+from modules.grid_axis import (
+    GridAxis, axes_from_spacing, build_axis_intersections,
+    find_nearest_axis_intersection, grid_axis_from_dict, grid_axis_to_dict,
+    next_axis_name, rename_axes_prefix, sort_axes_xy,
+)
 from modules.section_view import (
     ElevationMarker, build_standard_markers, compute_ch, compute_fl,
     elements_intersect_cut_line, format_elevation_label,
+    format_beam_label, format_ceiling_ch, format_slab_label,
     section_marker_from_dict, section_marker_to_dict, sort_elements_by_elevation,
 )
 from modules.structural_input import rect_from_center_wl, validate_dimension
@@ -27952,6 +27957,567 @@ def _nevis_install_runtime_perf_timers() -> None:
 
 
 _nevis_install_runtime_perf_timers()
+
+
+# =============================================================================
+# TASK 19 — UX vẽ kết cấu: icon buttons, Escape/RightClick cancel, grid fix
+# =============================================================================
+_NEVIS_T19_STRUCTURAL_TYPES = ["slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling"]
+
+APP_TEXT.setdefault("vi", {}).update({
+    "t19_type_btn_hint": "Chọn loại phần tử rồi bấm Vẽ",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "t19_type_btn_hint": "種別を選んで作図",
+})
+
+_NEVIS_T19_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T19_PREV_REFRESH = MainWindow.refresh_language_texts
+_NEVIS_T19_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+_NEVIS_T19_PREV_SNAP = None  # patched below
+
+
+def _nevis_t19_build_ui(self):
+    result = _NEVIS_T19_PREV_BUILD_UI(self)
+    # Replace the QComboBox type selector with 6 icon buttons (2 rows × 3)
+    if not hasattr(self, "g_structural_workspace"):
+        return result
+    structural_layout = self.g_structural_workspace.layout()
+    # Remove the cmb_structural_type widget from layout (keep the object for compat)
+    structural_layout.removeWidget(self.cmb_structural_type)
+    self.cmb_structural_type.hide()
+    # Build 6-button grid
+    self._type_btn_group = QButtonGroup(self)
+    self._type_btn_group.setExclusive(True)
+    type_grid_widget = QWidget(self.g_structural_workspace)
+    type_grid = QGridLayout(type_grid_widget)
+    type_grid.setContentsMargins(0, 0, 0, 0)
+    type_grid.setSpacing(4)
+    self._type_btns = {}
+    labels = _nevis_structural_type_labels(self)
+    for i, etype in enumerate(_NEVIS_T19_STRUCTURAL_TYPES):
+        btn = QPushButton(labels.get(etype, etype))
+        btn.setCheckable(True)
+        btn.setMinimumHeight(28)
+        btn.setProperty("structural_type", etype)
+        self._type_btn_group.addButton(btn)
+        type_grid.addWidget(btn, i // 3, i % 3)
+        self._type_btns[etype] = btn
+        btn.clicked.connect(lambda checked, et=etype: self._on_type_btn_clicked(et))
+    # Select default
+    default_type = str(getattr(self, "structural_default_type", "slab"))
+    if default_type in self._type_btns:
+        self._type_btns[default_type].setChecked(True)
+    else:
+        next(iter(self._type_btns.values())).setChecked(True)
+    structural_layout.insertWidget(0, type_grid_widget)
+    self._type_btn_grid_widget = type_grid_widget
+    return result
+
+
+def _nevis_t19_on_type_btn_clicked(self, element_type: str) -> None:
+    self.structural_default_type = element_type
+    # Keep combo in sync for any legacy code that reads it
+    idx = self.cmb_structural_type.findData(element_type)
+    if idx >= 0:
+        self.cmb_structural_type.blockSignals(True)
+        self.cmb_structural_type.setCurrentIndex(idx)
+        self.cmb_structural_type.blockSignals(False)
+
+
+def _nevis_t19_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_T19_PREV_REFRESH(self, *args, **kwargs)
+    if hasattr(self, "_type_btns"):
+        labels = _nevis_structural_type_labels(self)
+        for etype, btn in self._type_btns.items():
+            btn.setText(labels.get(etype, etype))
+    return result
+
+
+def _nevis_t19_cancel_draw_drag(view) -> None:
+    """Cancel active draw drag without leaving draw mode."""
+    view._structural_drag_start = None
+    _nevis_t17_remove_snap_marker(view)
+    _nevis_structural_remove_preview(view)
+
+
+def _nevis_t19_mouse_press(self, event):
+    # Escape is a key event — handled via keyPressEvent (patched below)
+    # Right-click while dragging: first try snap (Task 17), then cancel drag
+    if event.button() == Qt.RightButton:
+        drag_active = (
+            getattr(self.mainwin, "structural_draw_mode", False)
+            and getattr(self, "_structural_drag_start", None) is not None
+        )
+        if drag_active:
+            snapped = _nevis_t17_right_click_snap(self, event)
+            if not snapped:
+                # No snap found → cancel the current drag
+                _nevis_t19_cancel_draw_drag(self)
+                event.accept()
+                return
+            event.accept()
+            return
+    return _NEVIS_T19_PREV_MOUSE_PRESS(self, event)
+
+
+def _nevis_t19_key_press(self, event):
+    if event.key() == Qt.Key_Escape:
+        mainwin = self.mainwin
+        if getattr(mainwin, "structural_draw_mode", False):
+            if getattr(self, "_structural_drag_start", None) is not None:
+                _nevis_t19_cancel_draw_drag(self)
+            else:
+                if hasattr(mainwin, "btn_structural_draw"):
+                    mainwin.btn_structural_draw.setChecked(False)
+            event.accept()
+            return
+    _NEVIS_T19_PREV_KEY_PRESS(self, event)
+
+
+_NEVIS_T19_PREV_KEY_PRESS = PreviewView.keyPressEvent
+
+
+# Fix grid checkbox: underlay fallback snap should also respect structural_grid_enabled
+_NEVIS_T19_ORIG_SNAP = _nevis_structural_snap_scene_point
+
+
+def _nevis_t19_snap_scene_point(view, scene_point) -> tuple:
+    x, y = _nevis_canvas_to_real_point(view.mainwin, (scene_point.x(), scene_point.y()))
+    grid_enabled = bool(getattr(view.mainwin, "structural_grid_enabled", True))
+    if (
+        getattr(view.mainwin, "workspace_mode", "mep") == "structural"
+        and grid_enabled
+    ):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 303.0))
+    import math as _math
+    scale = abs(float(view.transform().m11())) or 1.0
+    tol = (10.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    candidates = [
+        _nevis_canvas_to_real_point(view.mainwin, (node.x, node.y))
+        for node in view.mainwin.model.nodes.values()
+    ]
+    node_pt = nearest_snap_point(x, y, candidates, tol)
+    if node_pt is not None:
+        return node_pt
+    # Only snap to underlay grid if grid checkbox is ON
+    if grid_enabled and _nevis_structural_has_visible_underlay(view.mainwin):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 100.0))
+    return x, y
+
+
+MainWindow._build_ui = _nevis_t19_build_ui
+MainWindow._on_type_btn_clicked = _nevis_t19_on_type_btn_clicked
+MainWindow.refresh_language_texts = _nevis_t19_refresh_language
+PreviewView.mousePressEvent = _nevis_t19_mouse_press
+PreviewView.keyPressEvent = _nevis_t19_key_press
+
+# Monkey-patch the snap function used at press/release
+import builtins as _builtins
+_nevis_structural_snap_scene_point = _nevis_t19_snap_scene_point
+
+
+# =============================================================================
+# TASK 20 — Dialog "Thêm trục tọa độ": direction first, auto-name, sort X/Y,
+#            rename prefix batch button
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "grid_axis_rename_prefix": "Đổi prefix hàng loạt",
+    "grid_axis_rename_prefix_title": "Đổi tên prefix trục",
+    "grid_axis_rename_prefix_x": "Prefix mới cho trục X",
+    "grid_axis_rename_prefix_y": "Prefix mới cho trục Y",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "grid_axis_rename_prefix": "プレフィックス一括変更",
+    "grid_axis_rename_prefix_title": "軸プレフィックス変更",
+    "grid_axis_rename_prefix_x": "X軸新プレフィックス",
+    "grid_axis_rename_prefix_y": "Y軸新プレフィックス",
+})
+
+_NEVIS_T20_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T20_PREV_REFRESH = MainWindow.refresh_language_texts
+
+
+def _nevis_t20_build_ui(self):
+    result = _NEVIS_T20_PREV_BUILD_UI(self)
+    if not hasattr(self, "g_grid_axis"):
+        return result
+    axis_layout = self.g_grid_axis.layout()
+    # Add "Rename prefix" button
+    self.btn_grid_axis_rename = QPushButton(self.tr("grid_axis_rename_prefix"))
+    self.btn_grid_axis_rename.clicked.connect(self.rename_axes_prefix_dialog)
+    axis_layout.addWidget(self.btn_grid_axis_rename)
+    return result
+
+
+def _nevis_t20_add_grid_axis(self) -> None:
+    """Redesigned: direction first → auto-name → position."""
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("grid_axis_add_title"))
+    form = QFormLayout(dialog)
+    cmb_dir = QComboBox(dialog)
+    cmb_dir.addItem(self.tr("grid_axis_dir_x"), "X")
+    cmb_dir.addItem(self.tr("grid_axis_dir_y"), "Y")
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    edit_name = QLineEdit(next_axis_name(axes, "X"), dialog)
+
+    def _update_auto_name():
+        direction = cmb_dir.currentData()
+        current_axes = list(getattr(self.model, "grid_axes", []) or [])
+        edit_name.setText(next_axis_name(current_axes, direction))
+
+    cmb_dir.currentIndexChanged.connect(_update_auto_name)
+    edit_pos = QLineEdit("0", dialog)
+    form.addRow(self.tr("grid_axis_dir"), cmb_dir)
+    form.addRow(self.tr("grid_axis_name"), edit_name)
+    form.addRow(self.tr("grid_axis_pos"), edit_pos)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    if dialog.exec() != QDialog.Accepted:
+        return
+    direction = cmb_dir.currentData()
+    name = edit_name.text().strip().upper() or next_axis_name(axes, direction)
+    try:
+        position = float(edit_pos.text().strip())
+    except (ValueError, TypeError):
+        position = 0.0
+    axis = GridAxis(name=name, direction=direction, position=position)
+    axes.append(axis)
+    self.model.grid_axes = sort_axes_xy(axes)
+    _nevis_t14_refresh_axis_list(self)
+    self.preview.draw_model()
+
+
+def _nevis_t20_rename_axes_prefix_dialog(self) -> None:
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("grid_axis_rename_prefix_title"))
+    form = QFormLayout(dialog)
+    edit_x = QLineEdit("X", dialog)
+    edit_y = QLineEdit("Y", dialog)
+    form.addRow(self.tr("grid_axis_rename_prefix_x"), edit_x)
+    form.addRow(self.tr("grid_axis_rename_prefix_y"), edit_y)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    if dialog.exec() != QDialog.Accepted:
+        return
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    prefix_x = edit_x.text().strip().upper() or "X"
+    prefix_y = edit_y.text().strip().upper() or "Y"
+    axes = rename_axes_prefix(axes, "X", prefix_x)
+    axes = rename_axes_prefix(axes, "Y", prefix_y)
+    self.model.grid_axes = sort_axes_xy(axes)
+    _nevis_t14_refresh_axis_list(self)
+    self.preview.draw_model()
+
+
+def _nevis_t20_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_T20_PREV_REFRESH(self, *args, **kwargs)
+    if hasattr(self, "btn_grid_axis_rename"):
+        self.btn_grid_axis_rename.setText(self.tr("grid_axis_rename_prefix"))
+    return result
+
+
+MainWindow._build_ui = _nevis_t20_build_ui
+MainWindow.add_grid_axis = _nevis_t20_add_grid_axis
+MainWindow.rename_axes_prefix_dialog = _nevis_t20_rename_axes_prefix_dialog
+MainWindow.refresh_language_texts = _nevis_t20_refresh_language
+
+
+# =============================================================================
+# TASK 21 — Dialog vẽ phần tử: input cao độ theo loại + canvas label
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "t21_top_elevation": "Mặt trên (SL±mm)",
+    "t21_bottom_elevation": "Đáy (SL±mm)",
+    "t21_ceiling_bottom": "Đáy trần (SL+mm)",
+    "t21_finish_thickness": "Lớp hoàn thiện (mm)",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "t21_top_elevation": "天端 (SL±mm)",
+    "t21_bottom_elevation": "底面 (SL±mm)",
+    "t21_ceiling_bottom": "天井底 (SL+mm)",
+    "t21_finish_thickness": "仕上げ厚 (mm)",
+})
+
+_NEVIS_T21_FINISH_THICKNESS = 40.0
+
+
+def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=None):
+    """Extended dialog with per-type elevation inputs."""
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("structural_title"))
+    layout = QFormLayout(dialog)
+
+    type_combo = QComboBox(dialog)
+    for element_type, label in _nevis_structural_type_labels(self).items():
+        type_combo.addItem(label, element_type)
+    if element is None:
+        default_index = type_combo.findData(str(getattr(self, "structural_default_type", "slab")))
+        if default_index >= 0:
+            type_combo.setCurrentIndex(default_index)
+    if element is not None:
+        current_index = type_combo.findData(str(getattr(element, "element_type", "")))
+        if current_index >= 0:
+            type_combo.setCurrentIndex(current_index)
+
+    width_text = "{:g}".format(float(width)) if element is not None else str(int(round(width)))
+    length_text = "{:g}".format(float(length)) if element is not None else str(int(round(length)))
+    width_edit = QLineEdit(width_text, dialog)
+    length_edit = QLineEdit(length_text, dialog)
+    initial_height = float(getattr(element, "height", 0.0) or 0.0) if element is not None else 0.0
+    height_edit = QLineEdit("{:g}".format(initial_height) if initial_height > 0.0 else "100", dialog)
+    initial_radius = float(getattr(element, "arc_radius", 0.0) or 0.0) if element is not None else 0.0
+    arc_checkbox = QCheckBox(self.tr("structural_has_arc"), dialog)
+    arc_checkbox.setChecked(initial_radius > 0.0)
+    radius_edit = QLineEdit("{:g}".format(initial_radius), dialog)
+
+    # Per-type elevation fields
+    init_top = float(getattr(element, "top_elevation", 0.0) or 0.0) if element is not None else 0.0
+    init_bot = float(getattr(element, "bottom_elevation", 0.0) or 0.0) if element is not None else -500.0
+    init_ceil = float(getattr(element, "top_elevation", 2400.0) or 2400.0) if element is not None else 2400.0
+
+    edit_top_elev = QLineEdit("{:g}".format(init_top), dialog)
+    edit_bot_elev = QLineEdit("{:g}".format(init_bot), dialog)
+    edit_ceil_bottom = QLineEdit("{:g}".format(init_ceil), dialog)
+    lbl_top_elev = QLabel(self.tr("t21_top_elevation"))
+    lbl_bot_elev = QLabel(self.tr("t21_bottom_elevation"))
+    lbl_ceil_bottom = QLabel(self.tr("t21_ceiling_bottom"))
+
+    layout.addRow(self.tr("structural_type_label"), type_combo)
+    layout.addRow("{} (mm)".format(self.tr("structural_width")), width_edit)
+    layout.addRow("{} (mm)".format(self.tr("structural_length")), length_edit)
+    layout.addRow("{} (mm)".format(self.tr("structural_height")), height_edit)
+    layout.addRow(arc_checkbox)
+    layout.addRow("{} (mm)".format(self.tr("structural_radius")), radius_edit)
+    layout.addRow(lbl_top_elev, edit_top_elev)
+    layout.addRow(lbl_bot_elev, edit_bot_elev)
+    layout.addRow(lbl_ceil_bottom, edit_ceil_bottom)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    buttons.button(QDialogButtonBox.Ok).setText(self.tr("structural_confirm"))
+    buttons.button(QDialogButtonBox.Cancel).setText(self.tr("structural_cancel"))
+    layout.addRow(buttons)
+
+    radius_label = layout.labelForField(radius_edit)
+    radius_edit.setVisible(arc_checkbox.isChecked())
+    if radius_label is not None:
+        radius_label.setVisible(arc_checkbox.isChecked())
+
+    def _update_elevation_visibility():
+        etype = type_combo.currentData()
+        show_top = etype in ("slab",)
+        show_bot = etype in ("beam",)
+        show_ceil = etype in ("ceiling",)
+        lbl_top_elev.setVisible(show_top)
+        edit_top_elev.setVisible(show_top)
+        lbl_bot_elev.setVisible(show_bot)
+        edit_bot_elev.setVisible(show_bot)
+        lbl_ceil_bottom.setVisible(show_ceil)
+        edit_ceil_bottom.setVisible(show_ceil)
+        dialog.adjustSize()
+
+    type_combo.currentIndexChanged.connect(_update_elevation_visibility)
+    _update_elevation_visibility()
+
+    preview_pen = QPen(QColor(35, 125, 205), 2.0, Qt.DashLine)
+    preview_brush = QBrush(QColor(60, 145, 220, 35))
+    preview_item = self.preview.scene.addPolygon(QPolygonF(), preview_pen, preview_brush)
+    preview_item.setZValue(1001)
+
+    def update_preview():
+        ew, we = validate_dimension(width_edit.text().strip(), "W")
+        el, le = validate_dimension(length_edit.text().strip(), "L")
+        if we or le:
+            return
+        pts = rect_from_center_wl(center[0], center[1], ew, el)
+        canvas_pts = [_nevis_real_to_canvas_point(self, p) for p in pts]
+        preview_item.setPolygon(QPolygonF([QPointF(x, y) for x, y in canvas_pts]))
+
+    def toggle_radius(checked):
+        radius_edit.setVisible(checked)
+        if radius_label is not None:
+            radius_label.setVisible(checked)
+        dialog.adjustSize()
+
+    width_edit.textChanged.connect(update_preview)
+    length_edit.textChanged.connect(update_preview)
+    arc_checkbox.toggled.connect(toggle_radius)
+    update_preview()
+
+    while dialog.exec() == QDialog.Accepted:
+        ew, we = validate_dimension(width_edit.text().strip(), "W")
+        el, le = validate_dimension(length_edit.text().strip(), "L")
+        eh, he = validate_dimension(height_edit.text().strip(), "H")
+        er, re = validate_dimension(radius_edit.text().strip() if arc_checkbox.isChecked() else "0", "C")
+        if we or le or he or re:
+            QMessageBox.warning(dialog, self.tr("structural_title"), self.tr("structural_invalid_dimension"))
+            continue
+        etype = str(type_combo.currentData())
+        try:
+            top_e = float(edit_top_elev.text().strip())
+        except (ValueError, TypeError):
+            top_e = 0.0
+        try:
+            bot_e = float(edit_bot_elev.text().strip())
+        except (ValueError, TypeError):
+            bot_e = top_e - eh
+        try:
+            ceil_b = float(edit_ceil_bottom.text().strip())
+        except (ValueError, TypeError):
+            ceil_b = 2400.0
+        # Compute elevations per type
+        if etype == "slab":
+            top_elevation = top_e
+            bottom_elevation = top_e - eh
+        elif etype == "beam":
+            bottom_elevation = bot_e
+            top_elevation = bot_e + eh
+        elif etype == "ceiling":
+            top_elevation = ceil_b
+            bottom_elevation = ceil_b - eh
+        else:
+            top_elevation = top_e
+            bottom_elevation = top_e - eh
+        if preview_item.scene() is not None:
+            preview_item.scene().removeItem(preview_item)
+        return etype, ew, el, eh, er, top_elevation, bottom_elevation
+    if preview_item.scene() is not None:
+        preview_item.scene().removeItem(preview_item)
+    return None
+
+
+def _nevis_t21_canvas_label(element, mainwin) -> str:
+    """Generate the small canvas label for an element."""
+    etype = getattr(element, "element_type", "slab")
+    h = float(getattr(element, "height", 0.0) or 0.0)
+    top = float(getattr(element, "top_elevation", 0.0) or 0.0)
+    bot = float(getattr(element, "bottom_elevation", 0.0) or 0.0)
+    w = float(getattr(element, "width", 0.0) or 0.0)
+    finish = _NEVIS_T21_FINISH_THICKNESS
+    fl = compute_fl(0.0, finish_thickness_mm=finish)
+    if etype == "slab":
+        return format_slab_label(top, h)
+    elif etype == "beam":
+        return format_beam_label(bot, w, h)
+    elif etype == "ceiling":
+        return format_ceiling_ch(top, fl)
+    return ""
+
+
+def _nevis_t21_create_from_drag(self, start, end) -> bool:
+    raw_width = abs(float(end[0]) - float(start[0]))
+    raw_length = abs(float(end[1]) - float(start[1]))
+    if raw_width < EPS or raw_length < EPS:
+        self.lbl_status.setText(self.tr("structural_invalid_region"))
+        return False
+    center = ((float(start[0]) + float(end[0])) / 2.0, (float(start[1]) + float(end[1])) / 2.0)
+    result = self._structural_edit_dialog(raw_width, raw_length, center)
+    if result is None:
+        return False
+    if len(result) == 7:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
+    else:
+        element_type, width, length, height, arc_radius = result
+        top_elevation, bottom_elevation = 0.0, -height
+    existing = list(getattr(self.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
+    element = StructuralElement(
+        id=next_id,
+        element_type=element_type,
+        label=_nevis_structural_type_labels(self)[element_type],
+        points=rect_from_center_wl(center[0], center[1], width, length),
+        width=width,
+        length=length,
+        height=height,
+        arc_radius=arc_radius,
+        top_elevation=top_elevation,
+        bottom_elevation=bottom_elevation,
+    )
+    self.save_undo_snapshot("create_structural_element")
+    self.model.structural_elements.append(element)
+    self.selected_structural_id = element.id
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_created").format(
+        label=element.label, width=width, length=length))
+    return True
+
+
+def _nevis_t21_edit_existing(self, element_id: int) -> bool:
+    element = _nevis_structural_find_element(self, element_id)
+    if element is None or not getattr(element, "points", None):
+        return False
+    xs = [float(p[0]) for p in element.points]
+    ys = [float(p[1]) for p in element.points]
+    center = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+    width = float(getattr(element, "width", 0.0) or (max(xs) - min(xs)))
+    length = float(getattr(element, "length", 0.0) or (max(ys) - min(ys)))
+    result = self._structural_edit_dialog(width, length, center, element)
+    if result is None:
+        self.preview.draw_model()
+        return False
+    if len(result) == 7:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
+    else:
+        element_type, width, length, height, arc_radius = result
+        top_elevation = float(getattr(element, "top_elevation", 0.0) or 0.0)
+        bottom_elevation = top_elevation - height
+    self.save_undo_snapshot("edit_structural_element")
+    element.element_type = element_type
+    element.label = _nevis_structural_type_labels(self)[element_type]
+    element.points = rect_from_center_wl(center[0], center[1], width, length)
+    element.width = width
+    element.length = length
+    element.height = height
+    element.arc_radius = arc_radius
+    element.top_elevation = top_elevation
+    element.bottom_elevation = bottom_elevation
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_updated").format(
+        label=element.label, width=width, length=length, height=height))
+    return True
+
+
+# Patch draw_items to show canvas elevation label
+_NEVIS_T21_PREV_DRAW_MODEL = PreviewView.draw_model
+
+
+def _nevis_t21_draw_model(self, *args, **kwargs):
+    result = _NEVIS_T21_PREV_DRAW_MODEL(self, *args, **kwargs)
+    # Overlay elevation labels for all structural elements
+    if getattr(self.mainwin, "workspace_mode", get_default_mode()) != "structural":
+        return result
+    for element in getattr(self.mainwin.model, "structural_elements", []):
+        lbl_text = _nevis_t21_canvas_label(element, self.mainwin)
+        if not lbl_text:
+            continue
+        if len(getattr(element, "points", [])) < 3:
+            continue
+        xs = [p[0] for p in element.points]
+        ys = [p[1] for p in element.points]
+        cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+        canvas_cx, canvas_cy = _nevis_real_to_canvas_point(self.mainwin, (cx, cy))
+        scale = abs(float(self.transform().m11())) or 1.0
+        font = QFont("Segoe UI", int(max(6, 7 / scale)))
+        lbl_item = self.scene.addText(lbl_text, font)
+        lbl_item.setDefaultTextColor(QColor(50, 50, 160))
+        lbl_item.setZValue(15)
+        lbl_item.setAcceptedMouseButtons(Qt.NoButton)
+        tr = lbl_item.boundingRect()
+        # Place below center (below the type label already drawn)
+        lbl_item.setPos(canvas_cx - tr.width() / 2.0, canvas_cy + tr.height() / 2.0)
+    return result
+
+
+MainWindow._structural_edit_dialog = _nevis_t21_edit_dialog
+MainWindow._structural_create_from_drag = _nevis_t21_create_from_drag
+MainWindow._structural_edit_existing = _nevis_t21_edit_existing
+PreviewView.draw_model = _nevis_t21_draw_model
 
 
 # =============================================================================

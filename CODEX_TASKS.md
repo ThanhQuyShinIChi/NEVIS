@@ -412,3 +412,152 @@ class GridAxis:
 **Tọa độ:** `position` là tọa độ canvas (mm). Khi vẽ cần convert sang pixel theo scale hiện tại của canvas.
 
 **Test file:** Không cần test mới (logic đã có ở `test_grid_axis.py`)
+
+---
+
+## TASK 19 — Sửa UX vẽ kết cấu: icon, thoát lệnh, lưới `[ ]`
+
+**Mục tiêu:** Workflow vẽ kết cấu phải chuẩn như phần mềm CAD chuyên nghiệp.
+
+### 19a — Nút vẽ có icon riêng từng loại
+
+Xóa dropdown chọn loại phần tử. Thay bằng **6 nút icon** nằm ngang:
+
+| Nút | Icon gợi ý | Loại |
+|-----|-----------|------|
+| Sàn | hình chữ nhật ngang dày | `slab` |
+| Dầm | hình chữ nhật ngang mỏng có gạch chéo | `beam` |
+| Cột | hình vuông đặc | `column` |
+| Tường RC | hình chữ nhật đứng có gạch chéo | `wall_rc` |
+| Vách LGS | hình chữ nhật đứng có đường đứt | `wall_lgs` |
+| Trần | hình chữ nhật ngang có chấm | `ceiling` |
+
+- Click nút → bật draw mode cho loại đó, nút sáng lên (checked)
+- Click lại hoặc nhấn **Escape** → thoát draw mode
+- Chỉ 1 nút active cùng lúc
+
+### 19b — Thoát lệnh vẽ
+
+- Nhấn **Escape**: hủy hình đang vẽ, thoát draw mode
+- **Click phải** khi đang kéo: hủy hình hiện tại (giữ draw mode để vẽ tiếp)
+- Status bar hiện: `"Đang vẽ [Sàn] — Escape để thoát"` khi đang trong draw mode
+
+### 19c — Checkbox "Bật lưới" phải hoạt động
+
+- Khi tick → hiện lưới chấm mờ trên canvas + snap vào lưới khi click/thả
+- Khi bỏ tick → ẩn lưới, vẽ tự do không snap
+- Lưu trạng thái vào project
+
+**Test file:** Không cần test mới
+
+---
+
+## TASK 20 — Sửa dialog trục tọa độ 通り芯 `[ ]`
+
+**Mục tiêu:** Dialog "Thêm trục" phải đúng thứ tự thao tác, tên tự sinh, hỗ trợ đổi tên hàng loạt.
+
+### 20a — Thứ tự dialog đúng
+
+Dialog "Thêm trục" hiện tại sai thứ tự. Sửa lại:
+
+```
+[Chiều]  ○ X (dọc)   ○ Y (ngang)    ← chọn trước
+[Tên]    X1                          ← tự sinh, user có thể sửa
+[Vị trí (mm)]  0
+[OK]  [Hủy]
+```
+
+- Khi chọn chiều X → tự điền tên = "X" + (số trục X hiện có + 1). VD: đã có X1, X2 → gợi ý "X3"
+- Khi chọn chiều Y → tương tự "Y1", "Y2"...
+- Tên luôn **chữ HOA** (X không phải x)
+
+### 20b — Thứ tự hiển thị danh sách trục
+
+Trong list trục đã có: hiện **X trước, Y sau**, mỗi nhóm sort theo position tăng dần.
+
+Hiện tại bị đảo (Y1 hiện trước X2). Sửa lại.
+
+### 20c — Đổi tên prefix hàng loạt
+
+Thêm nút **"Đổi prefix"** bên cạnh list trục:
+- Dialog hỏi: `Prefix cũ: [X]  →  Prefix mới: [Xr]`
+- Nhấn OK → tất cả trục có tên bắt đầu bằng "X" đổi thành "Xr1", "Xr2"... (giữ số thứ tự)
+- Ví dụ: X1, X2, X3 → Xr1, Xr2, Xr3
+
+**Test file:** `tests/test_grid_axis.py` — thêm:
+- `rename_axes_prefix(axes, old_prefix, new_prefix) -> list[GridAxis]`
+- `auto_axis_name(axes, direction) -> str` — trả về tên gợi ý tiếp theo
+
+---
+
+## TASK 21 — Cao độ SL cho từng loại phần tử kết cấu `[ ]`
+
+**Mục tiêu:** Mỗi phần tử kết cấu phải có cao độ so với SL. Đây là thông tin bắt buộc trong bản vẽ Nhật.
+
+### Khái niệm cần hiểu
+
+```
+SL = 0 (cốt mặt sàn BT thô = ±0 của tầng)
+FL = SL + lớp hoàn thiện (thường 30~50mm)
+CH = đáy trần - FL (chiều cao thông thủy)
+```
+
+### Dialog sau khi vẽ: input khác nhau theo loại
+
+**Sàn (slab):**
+```
+Mặt sàn so với SL:  [±0] mm   ← VD: 0 (bình thường), -200 (sàn WC)
+Độ dày BT:          [150] mm
+→ Hiện: "Mặt sàn = SL±0,  Đáy sàn = SL-150"
+```
+
+**Dầm (beam):**
+```
+Đáy dầm so với SL:  [-500] mm  ← âm = thấp hơn SL
+Cao dầm H:          [600] mm
+Rộng dầm W:         [300] mm
+→ Hiện: "Đáy dầm = SL-500,  Đỉnh dầm = SL+100"
+```
+
+**Cột (column):**
+```
+Chân cột so với SL: [0] mm
+Cao cột:            [2800] mm
+Rộng W × Dài D:     [500] × [500] mm
+```
+
+**Tường RC / Vách LGS:**
+```
+Chân tường so với SL: [0] mm
+Cao tường H:          [2800] mm
+Dày tường:            [200] mm  (RC) / tự tính từ LGS (LGS)
+```
+
+**Trần (ceiling):**
+```
+Đáy trần so với SL:  [-2400] mm  ← âm = dưới SL của tầng trên
+→ Tự tính CH = Đáy trần - FL
+→ Hiện: "CH = 2360mm" (nếu FL = SL+40)
+```
+
+### Hiển thị trên canvas
+
+Mỗi phần tử kết cấu đã vẽ → hiện nhãn nhỏ ở tâm:
+- Sàn: `SL±0 / t150`
+- Dầm: `GL-500 / 300×600`
+- Cột: `500×500`
+- Tường: `W200 / H2800`
+- Trần: `CH=2360`
+
+### Lưu vào model
+
+Các field đã có trong `StructuralElement`:
+- `top_elevation`, `bottom_elevation` → dùng để lưu so với SL
+- `height`, `width`, `length` → kích thước
+
+Chỉ cần cập nhật dialog để điền đúng các field này.
+
+**Test file:** `tests/test_section_view.py` — thêm:
+- `format_slab_label(top_elev, height) -> str`  → `"SL±0 / t150"`
+- `format_beam_label(bottom_elev, h, w) -> str` → `"GL-500 / 300×600"`
+- `format_ceiling_ch(ceiling_bottom, fl) -> str` → `"CH=2360"`
