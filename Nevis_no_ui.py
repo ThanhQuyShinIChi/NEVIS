@@ -26113,6 +26113,18 @@ APP_TEXT.setdefault("vi", {}).update({
     "scale_need_background": "Hãy nạp và hiển thị bản nền.",
     "scale_invalid_points": "Hai điểm phải khác nhau.",
     "scale_done": "Đã căn tỷ lệ 1:{scale:g}",
+    "snap_action": "Bắt điểm",
+    "snap_action_move": "Bắt điểm (di chuyển tâm)",
+    "snap_corner_nw": "góc trên-trái",
+    "snap_corner_ne": "góc trên-phải",
+    "snap_corner_se": "góc dưới-phải",
+    "snap_corner_sw": "góc dưới-trái",
+    "snap_edge_n": "cạnh trên",
+    "snap_edge_e": "cạnh phải",
+    "snap_edge_s": "cạnh dưới",
+    "snap_edge_w": "cạnh trái",
+    "snap_pending_hint": "Click vào điểm trên bản nền để bắt điểm.",
+    "snap_done": "Đã bắt điểm.",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "undo": "元に戻す",
@@ -26165,6 +26177,18 @@ APP_TEXT.setdefault("jp", {}).update({
     "scale_need_background": "背景図を読み込み、表示してください。",
     "scale_invalid_points": "2点は異なる位置を選択してください。",
     "scale_done": "縮尺を1:{scale:g}に設定しました",
+    "snap_action": "スナップ",
+    "snap_action_move": "スナップ（中心移動）",
+    "snap_corner_nw": "左上コーナー",
+    "snap_corner_ne": "右上コーナー",
+    "snap_corner_se": "右下コーナー",
+    "snap_corner_sw": "左下コーナー",
+    "snap_edge_n": "上辺",
+    "snap_edge_e": "右辺",
+    "snap_edge_s": "下辺",
+    "snap_edge_w": "左辺",
+    "snap_pending_hint": "背景図の点をクリックしてスナップしてください。",
+    "snap_done": "スナップしました。",
 })
 
 
@@ -26225,6 +26249,16 @@ def _nevis_structural_event_scene_point(view, event) -> tuple[float, float]:
     except AttributeError:
         view_pos = event.pos()
     return _nevis_structural_snap_scene_point(view, view.mapToScene(view_pos))
+
+
+def _nevis_structural_raw_scene_point(view, event) -> tuple[float, float]:
+    """Raw scene point without any snapping — used during free drag."""
+    try:
+        view_pos = event.position().toPoint()
+    except AttributeError:
+        view_pos = event.pos()
+    scene_pt = view.mapToScene(view_pos)
+    return _nevis_canvas_to_real_point(view.mainwin, (scene_pt.x(), scene_pt.y()))
 
 
 def _nevis_structural_remove_preview(view) -> None:
@@ -26669,7 +26703,6 @@ def _nevis_structural_build_ui(self):
     self.btn_structural_draw.setCheckable(True)
     self.btn_structural_draw.setMinimumHeight(28)
     self.btn_structural_draw.toggled.connect(self.set_structural_draw_mode)
-    self._preview_primary_widgets.append(self.btn_structural_draw)
     self.btn_stepped_slab = QPushButton(self.tr("stepped_slab_command"))
     self.btn_stepped_slab.setMinimumHeight(28)
     self.btn_stepped_slab.clicked.connect(self.start_stepped_slab)
@@ -26776,7 +26809,7 @@ def _nevis_structural_mouse_press(self, event):
             event.accept()
             return
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
-        start = _nevis_structural_event_scene_point(self, event)
+        start = _nevis_structural_raw_scene_point(self, event)
         self._stepped_slab_drag_start = start
         _nevis_stepped_slab_remove_preview(self)
         preview_pen = QPen(QColor(35, 105, 175), 2.0, Qt.DashLine)
@@ -26789,7 +26822,7 @@ def _nevis_structural_mouse_press(self, event):
         event.accept()
         return
     if getattr(self.mainwin, "structural_draw_mode", False) and event.button() == Qt.LeftButton:
-        start = _nevis_structural_event_scene_point(self, event)
+        start = _nevis_structural_raw_scene_point(self, event)
         self._structural_drag_start = start
         _nevis_structural_remove_preview(self)
         preview_pen = QPen(QColor(45, 115, 190), 2.0, Qt.DashLine)
@@ -26798,6 +26831,68 @@ def _nevis_structural_mouse_press(self, event):
         self._structural_preview_item.setZValue(1000)
         event.accept()
         return
+    if event.button() == Qt.RightButton and getattr(self.mainwin, "workspace_mode", get_default_mode()) == "structural":
+        try:
+            view_pos = event.position().toPoint()
+        except AttributeError:
+            view_pos = event.pos()
+        hit = self.itemAt(view_pos)
+        hit_data = hit.data(0) if hit is not None else None
+        if isinstance(hit_data, tuple) and hit_data[0] == "structural_handle":
+            element_id, handle = hit_data[1]
+            _SNAP_HANDLE_LABELS = {
+                "nw": self.mainwin.tr("snap_corner_nw"), "ne": self.mainwin.tr("snap_corner_ne"),
+                "se": self.mainwin.tr("snap_corner_se"), "sw": self.mainwin.tr("snap_corner_sw"),
+                "n": self.mainwin.tr("snap_edge_n"), "e": self.mainwin.tr("snap_edge_e"),
+                "s": self.mainwin.tr("snap_edge_s"), "w": self.mainwin.tr("snap_edge_w"),
+            }
+            menu = QMenu(self)
+            action = menu.addAction(f"{self.mainwin.tr('snap_action')} — {_SNAP_HANDLE_LABELS.get(handle, handle)}")
+            try:
+                chosen = menu.exec(event.globalPosition().toPoint())
+            except AttributeError:
+                chosen = menu.exec(event.globalPos())
+            if chosen is action:
+                self.mainwin._structural_snap_pending = {"element_id": int(element_id), "handle": handle}
+                self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
+            event.accept()
+            return
+        if isinstance(hit_data, tuple) and hit_data[0] == "structural_element":
+            element_id = int(hit_data[1])
+            menu = QMenu(self)
+            action = menu.addAction(self.mainwin.tr("snap_action_move"))
+            try:
+                chosen = menu.exec(event.globalPosition().toPoint())
+            except AttributeError:
+                chosen = menu.exec(event.globalPos())
+            if chosen is action:
+                self.mainwin._structural_snap_pending = {"element_id": element_id, "handle": "move"}
+                self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
+            event.accept()
+            return
+    if event.button() == Qt.LeftButton:
+        snap_pending = getattr(self.mainwin, "_structural_snap_pending", None)
+        if snap_pending is not None:
+            self.mainwin._structural_snap_pending = None
+            target = _nevis_structural_raw_scene_point(self, event)
+            element = _nevis_structural_find_element(self.mainwin, snap_pending["element_id"])
+            if element is not None:
+                self.mainwin.save_undo_snapshot("snap_structural_element")
+                handle = snap_pending["handle"]
+                if handle == "move":
+                    xs = [p[0] for p in element.points]
+                    ys = [p[1] for p in element.points]
+                    cx = (min(xs) + max(xs)) / 2.0
+                    cy = (min(ys) + max(ys)) / 2.0
+                    replacement = move_element(element, target[0] - cx, target[1] - cy)
+                else:
+                    hp = _nevis_structural_handle_positions(element)[handle]
+                    replacement = move_element(element, target[0] - hp[0], target[1] - hp[1])
+                _nevis_structural_replace_element(self.mainwin, replacement)
+                self.draw_model()
+                self.mainwin.lbl_status.setText(self.mainwin.tr("snap_done"))
+            event.accept()
+            return
     if event.button() == Qt.LeftButton:
         item = self.itemAt(event.position().toPoint() if hasattr(event, "position") else event.pos())
         data = item.data(0) if item is not None else None
@@ -26830,7 +26925,7 @@ def _nevis_structural_mouse_press(self, event):
 def _nevis_structural_mouse_move(self, event):
     stepped_start = getattr(self, "_stepped_slab_drag_start", None)
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and stepped_start is not None:
-        end = _nevis_structural_event_scene_point(self, event)
+        end = _nevis_structural_raw_scene_point(self, event)
         item = getattr(self, "_stepped_slab_preview_item", None)
         if item is not None:
             canvas_start = _nevis_real_to_canvas_point(self.mainwin, stepped_start)
@@ -26840,7 +26935,7 @@ def _nevis_structural_mouse_move(self, event):
         return
     start = getattr(self, "_structural_drag_start", None)
     if getattr(self.mainwin, "structural_draw_mode", False) and start is not None:
-        end = _nevis_structural_event_scene_point(self, event)
+        end = _nevis_structural_raw_scene_point(self, event)
         item = getattr(self, "_structural_preview_item", None)
         if item is not None:
             canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
@@ -26879,7 +26974,7 @@ def _nevis_structural_mouse_move(self, event):
 def _nevis_structural_mouse_release(self, event):
     stepped_start = getattr(self, "_stepped_slab_drag_start", None)
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and stepped_start is not None and event.button() == Qt.LeftButton:
-        end = _nevis_structural_event_scene_point(self, event)
+        end = _nevis_structural_raw_scene_point(self, event)
         self._stepped_slab_drag_start = None
         _nevis_stepped_slab_remove_preview(self)
         self.mainwin._create_stepped_slab_from_drag(stepped_start, end)
@@ -26887,7 +26982,7 @@ def _nevis_structural_mouse_release(self, event):
         return
     start = getattr(self, "_structural_drag_start", None)
     if getattr(self.mainwin, "structural_draw_mode", False) and start is not None and event.button() == Qt.LeftButton:
-        end = _nevis_structural_event_scene_point(self, event)
+        end = _nevis_structural_raw_scene_point(self, event)
         self._structural_drag_start = None
         _nevis_structural_remove_preview(self)
         self.mainwin._structural_create_from_drag(start, end)
