@@ -133,7 +133,7 @@ class StructuralElement:
 
 ---
 
-## TASK 9 — Di chuyển và resize phần tử kết cấu `[  ]`
+## TASK 9 — Di chuyển và resize phần tử kết cấu `[x]`
 
 **Mục tiêu:** Sau khi vẽ, người dùng có thể kéo để di chuyển hoặc kéo góc để resize.
 

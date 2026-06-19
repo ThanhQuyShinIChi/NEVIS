@@ -31,6 +31,7 @@ from modules.elevation_display import compute_edge_slope
 from modules.structural_element import StructuralElement
 from modules.structural_geometry import nearest_snap_point, snap_to_grid
 from modules.structural_input import rect_from_center_wl, validate_dimension
+from modules.structural_transform import move_element, resize_element
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
@@ -26211,7 +26212,9 @@ def _nevis_structural_create_from_drag(self, start, end) -> bool:
         height=height,
         arc_radius=arc_radius,
     )
+    self.save_undo_snapshot("create_structural_element")
     self.model.structural_elements.append(element)
+    self.selected_structural_id = element.id
     self.preview.draw_model()
     self.lbl_status.setText(f"Đã tạo {element.label}: W {width:g} x L {length:g} mm")
     return True
@@ -26234,6 +26237,7 @@ def _nevis_structural_edit_existing(self, element_id: int) -> bool:
         self.preview.draw_model()
         return False
     element_type, width, length, height, arc_radius = result
+    self.save_undo_snapshot("edit_structural_element")
     element.element_type = element_type
     element.label = _NEVIS_STRUCTURAL_TYPE_LABELS[element_type]
     element.points = rect_from_center_wl(center[0], center[1], width, length)
@@ -26270,8 +26274,62 @@ def _nevis_structural_draw_items(view) -> None:
         text.setAcceptedMouseButtons(Qt.NoButton)
         text_rect = text.boundingRect()
         text.setPos(item_bounds.center().x() - text_rect.width() / 2.0, item_bounds.center().y() - text_rect.height() / 2.0)
+        if int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(element.id):
+            _nevis_structural_draw_handles(view, element)
     if bounds is not None:
         view.scene.setSceneRect(view.scene.sceneRect().united(bounds.adjusted(-20, -20, 20, 20)))
+
+
+def _nevis_structural_handle_positions(element) -> dict[str, tuple[float, float]]:
+    xs = [float(point[0]) for point in element.points]
+    ys = [float(point[1]) for point in element.points]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    center_x, center_y = (left + right) / 2.0, (top + bottom) / 2.0
+    return {
+        "nw": (left, top), "n": (center_x, top), "ne": (right, top),
+        "e": (right, center_y), "se": (right, bottom), "s": (center_x, bottom),
+        "sw": (left, bottom), "w": (left, center_y),
+    }
+
+
+def _nevis_structural_draw_handles(view, element) -> None:
+    scale = abs(float(view.transform().m11())) or 1.0
+    size = 9.0 / scale
+    pen = QPen(QColor(20, 90, 190), 1.0 / scale)
+    brush = QBrush(QColor(55, 135, 235))
+    for handle, (x, y) in _nevis_structural_handle_positions(element).items():
+        item = view.scene.addRect(x - size / 2.0, y - size / 2.0, size, size, pen, brush)
+        item.setZValue(100)
+        item.setData(0, ("structural_handle", (int(element.id), handle)))
+
+
+def _nevis_structural_find_element(mainwin, element_id: int):
+    return next(
+        (item for item in getattr(mainwin.model, "structural_elements", []) if int(getattr(item, "id", -1)) == int(element_id)),
+        None,
+    )
+
+
+def _nevis_structural_replace_element(mainwin, replacement) -> None:
+    elements = getattr(mainwin.model, "structural_elements", [])
+    for index, item in enumerate(elements):
+        if int(getattr(item, "id", -1)) == int(replacement.id):
+            elements[index] = replacement
+            return
+
+
+def _nevis_structural_constrain_corner(element, handle: str, position) -> tuple[float, float]:
+    if handle not in {"nw", "ne", "se", "sw"} or element.width <= EPS or element.length <= EPS:
+        return position
+    positions = _nevis_structural_handle_positions(element)
+    opposite = {"nw": "se", "ne": "sw", "se": "nw", "sw": "ne"}[handle]
+    anchor_x, anchor_y = positions[opposite]
+    delta_x, delta_y = float(position[0]) - anchor_x, float(position[1]) - anchor_y
+    scale = max(abs(delta_x) / element.width, abs(delta_y) / element.length)
+    sign_x = -1.0 if delta_x < 0.0 else 1.0
+    sign_y = -1.0 if delta_y < 0.0 else 1.0
+    return anchor_x + sign_x * element.width * scale, anchor_y + sign_y * element.length * scale
 
 
 _NEVIS_STRUCTURAL_PREV_BUILD_UI = MainWindow._build_ui
@@ -26279,6 +26337,13 @@ def _nevis_structural_build_ui(self):
     result = _NEVIS_STRUCTURAL_PREV_BUILD_UI(self)
     self.structural_draw_mode = False
     self.structural_grid_mm = 100.0
+    self.selected_structural_id = None
+    self._nevis_redo_stack = []
+    self.act_redo = QAction("Redo", self)
+    self.act_redo.setShortcut("Ctrl+Y")
+    self.act_redo.setEnabled(False)
+    self.act_redo.triggered.connect(self.redo_last_action)
+    self.menu_view.addAction(self.act_redo)
     self.btn_structural_draw = QPushButton("Vẽ kết cấu / 構造要素")
     self.btn_structural_draw.setCheckable(True)
     self.btn_structural_draw.setMinimumHeight(28)
@@ -26315,8 +26380,26 @@ def _nevis_structural_mouse_press(self, event):
     if event.button() == Qt.LeftButton:
         item = self.itemAt(event.position().toPoint() if hasattr(event, "position") else event.pos())
         data = item.data(0) if item is not None else None
-        if isinstance(data, tuple) and len(data) == 2 and data[0] == "structural_element":
-            self.mainwin._structural_edit_existing(int(data[1]))
+        if isinstance(data, tuple) and len(data) == 2 and data[0] in {"structural_element", "structural_handle"}:
+            if data[0] == "structural_handle":
+                element_id, handle = data[1]
+                drag_kind = "resize"
+            else:
+                element_id, handle = int(data[1]), ""
+                drag_kind = "move"
+            element = _nevis_structural_find_element(self.mainwin, int(element_id))
+            if element is None:
+                return
+            self.mainwin.selected_structural_id = int(element_id)
+            self._structural_transform = {
+                "kind": drag_kind,
+                "handle": handle,
+                "start": _nevis_structural_event_scene_point(self, event),
+                "original": copy.deepcopy(element),
+                "moved": False,
+                "undo_saved": False,
+            }
+            self.draw_model()
             event.accept()
             return
     return _NEVIS_STRUCTURAL_PREV_MOUSE_PRESS(self, event)
@@ -26331,6 +26414,31 @@ def _nevis_structural_mouse_move(self, event):
             item.setRect(QRectF(QPointF(*start), QPointF(*end)).normalized())
         event.accept()
         return
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and (event.buttons() & Qt.LeftButton):
+        current = _nevis_structural_event_scene_point(self, event)
+        start = transform["start"]
+        if abs(current[0] - start[0]) < EPS and abs(current[1] - start[1]) < EPS:
+            return
+        if not transform["undo_saved"]:
+            self.mainwin.save_undo_snapshot("transform_structural_element")
+            transform["undo_saved"] = True
+        original = transform["original"]
+        if transform["kind"] == "move":
+            replacement = move_element(original, current[0] - start[0], current[1] - start[1])
+        else:
+            position = current
+            if event.modifiers() & Qt.ShiftModifier:
+                position = _nevis_structural_constrain_corner(original, transform["handle"], position)
+            replacement = resize_element(original, transform["handle"], position)
+            if replacement.width <= EPS or replacement.length <= EPS:
+                event.accept()
+                return
+        _nevis_structural_replace_element(self.mainwin, replacement)
+        transform["moved"] = True
+        self.draw_model()
+        event.accept()
+        return
     return _NEVIS_STRUCTURAL_PREV_MOUSE_MOVE(self, event)
 
 
@@ -26343,7 +26451,90 @@ def _nevis_structural_mouse_release(self, event):
         self.mainwin._structural_create_from_drag(start, end)
         event.accept()
         return
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and event.button() == Qt.LeftButton:
+        self._structural_transform = None
+        if transform["moved"]:
+            element = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
+            if element is not None:
+                self.mainwin.lbl_status.setText(
+                    f"Đã {('di chuyển' if transform['kind'] == 'move' else 'resize')} "
+                    f"{element.label}: W {element.width:g} x L {element.length:g} mm"
+                )
+            self.draw_model()
+        elif transform["kind"] == "move":
+            self.mainwin._structural_edit_existing(self.mainwin.selected_structural_id)
+        event.accept()
+        return
     return _NEVIS_STRUCTURAL_PREV_MOUSE_RELEASE(self, event)
+
+
+_NEVIS_TASK9_PREV_SAVE_UNDO = MainWindow.save_undo_snapshot
+_NEVIS_TASK9_PREV_UNDO = MainWindow.undo_last_action
+
+
+def _nevis_task9_current_snapshot(self, action: str) -> dict[str, object]:
+    return {
+        "action": action,
+        "model": copy.deepcopy(self.model),
+        "selected_node": getattr(self, "selected_node", None),
+        "selected_edge": getattr(self, "selected_edge", None),
+        "selected_bushing_id": getattr(self, "selected_bushing_id", None),
+        "selected_structural_id": getattr(self, "selected_structural_id", None),
+    }
+
+
+def _nevis_task9_update_redo(self) -> None:
+    if hasattr(self, "act_redo"):
+        self.act_redo.setEnabled(bool(getattr(self, "_nevis_redo_stack", [])))
+
+
+def _nevis_task9_save_undo(self, action: str = ""):
+    self._nevis_redo_stack = []
+    result = _NEVIS_TASK9_PREV_SAVE_UNDO(self, action)
+    stack = getattr(self, "_nevis_undo_stack", [])
+    if stack:
+        stack[-1]["selected_structural_id"] = getattr(self, "selected_structural_id", None)
+    _nevis_task9_update_redo(self)
+    return result
+
+
+def _nevis_task9_undo(self):
+    stack = list(getattr(self, "_nevis_undo_stack", []) or [])
+    if not stack or getattr(self, "preview_detail_mode", False):
+        return
+    redo_snapshot = _nevis_task9_current_snapshot(self, "redo")
+    target_structural_id = stack[-1].get("selected_structural_id")
+    result = _NEVIS_TASK9_PREV_UNDO(self)
+    self.selected_structural_id = target_structural_id
+    redo_stack = list(getattr(self, "_nevis_redo_stack", []) or [])
+    redo_stack.append(redo_snapshot)
+    self._nevis_redo_stack = redo_stack[-3:]
+    self.preview.draw_model()
+    _nevis_task9_update_redo(self)
+    return result
+
+
+def _nevis_task9_redo(self):
+    redo_stack = list(getattr(self, "_nevis_redo_stack", []) or [])
+    if not redo_stack or getattr(self, "preview_detail_mode", False):
+        return
+    snapshot = redo_stack.pop()
+    undo_stack = list(getattr(self, "_nevis_undo_stack", []) or [])
+    undo_stack.append(_nevis_task9_current_snapshot(self, "undo_redo"))
+    self._nevis_undo_stack = undo_stack[-int(getattr(self, "_nevis_undo_limit", 3) or 3):]
+    self.undo_snapshot = self._nevis_undo_stack[-1]
+    self._nevis_redo_stack = redo_stack
+    self.model = snapshot["model"]
+    self.selected_node = snapshot.get("selected_node")
+    self.selected_edge = snapshot.get("selected_edge")
+    self.selected_bushing_id = snapshot.get("selected_bushing_id")
+    self.selected_structural_id = snapshot.get("selected_structural_id")
+    self.pending_reducer = None
+    rebuild_flow(self.model)
+    self.apply_common()
+    self.preview.draw_model()
+    _nevis_task9_update_redo(self)
 
 
 MainWindow._build_ui = _nevis_structural_build_ui
@@ -26351,6 +26542,9 @@ MainWindow.set_structural_draw_mode = _nevis_structural_set_draw_mode
 MainWindow._structural_edit_dialog = _nevis_structural_edit_dialog
 MainWindow._structural_create_from_drag = _nevis_structural_create_from_drag
 MainWindow._structural_edit_existing = _nevis_structural_edit_existing
+MainWindow.save_undo_snapshot = _nevis_task9_save_undo
+MainWindow.undo_last_action = _nevis_task9_undo
+MainWindow.redo_last_action = _nevis_task9_redo
 PreviewView.draw_model = _nevis_structural_draw_model
 PreviewView.mousePressEvent = _nevis_structural_mouse_press
 PreviewView.mouseMoveEvent = _nevis_structural_mouse_move
