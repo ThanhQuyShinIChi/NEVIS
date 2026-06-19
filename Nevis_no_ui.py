@@ -435,6 +435,7 @@ class PipeModel:
     parent: Dict[int, int] = field(default_factory=dict)
     model_schema_version: int = 1
     level_datums: Dict[str, LevelDatum] = field(default_factory=dict)
+    structural_elements: List[object] = field(default_factory=list)
 
     def neighbors(self, nid: int) -> List[int]:
         out = []
@@ -7871,6 +7872,7 @@ class MainWindow(QMainWindow):
             "level_datums": {str(k): {"id": d.id, "name": d.name, "elevation_mm": d.elevation_mm, "datum_type": d.datum_type, "floor_index": d.floor_index, "description": d.description} for k, d in getattr(self.model, "level_datums", {}).items()},
             "fittings": {str(k): {"node_id": f.node_id, "ftype": f.ftype, "size": f.size, "manual": f.manual, "excluded": f.excluded, "material_override": f.material_override} for k, f in self.model.fittings.items()},
             "bushings": list(getattr(self.model, "bushings", [])),
+            "structural_elements": [__import__("modules.structural_element", fromlist=["structural_element_to_dict"]).structural_element_to_dict(e) for e in getattr(self.model, "structural_elements", [])],
             "base_node": self.model.base_node,
             "base_nodes": sorted(list(getattr(self.model, "base_nodes", set()))),
             "selected_node": self.selected_node,
@@ -7924,6 +7926,11 @@ class MainWindow(QMainWindow):
             nid = int(k); m.nodes[nid] = node_from_project_data(nid, v)
         for e in data.get("edges", []):
             m.edges.append(edge_from_project_data(e))
+        try:
+            from modules.structural_element import structural_element_from_dict
+            m.structural_elements = [structural_element_from_dict(d) for d in data.get("structural_elements", [])]
+        except Exception:
+            m.structural_elements = []
         for k, d in data.get("level_datums", {}).items():
             try:
                 if not isinstance(d, dict):
