@@ -335,7 +335,7 @@ class Node:
     id: int
     x: float
     y: float
-    z: Optional[float] = None
+    z: float = 0.0
     level_id: str = ""
 
 
@@ -345,7 +345,7 @@ class Edge:
     b: int
     size: str = ""
     material_override: str = ""  # e.g. branch forced to HTVP from a selected fitting
-    slope: Optional[float] = None
+    slope: float = 0.0
     vertical_type: str = "unknown"
     elevation_mode: str = "unknown"
     system_type: str = ""
@@ -359,6 +359,40 @@ class Edge:
     @property
     def key(self) -> str:
         return edge_key(self.a, self.b)
+
+
+def node_from_project_data(node_id: int, data: Dict[str, object]) -> Node:
+    z = data.get("z", 0.0)
+    return Node(
+        int(node_id),
+        float(data["x"]),
+        float(data["y"]),
+        0.0 if z in (None, "") else float(z),
+        str(data.get("level_id", "")),
+    )
+
+
+def edge_from_project_data(data: Dict[str, object]) -> Edge:
+    slope = data.get("slope", 0.0)
+    start_z = data.get("start_z", None)
+    end_z = data.get("end_z", None)
+    slope_percent = data.get("slope_percent", None)
+    return Edge(
+        int(data["a"]),
+        int(data["b"]),
+        str(data.get("size", "65")),
+        str(data.get("material_override", "")),
+        0.0 if slope in (None, "") else float(slope),
+        str(data.get("vertical_type", "unknown")),
+        str(data.get("elevation_mode", "unknown")),
+        str(data.get("system_type", "")),
+        None if data.get("start_level_id", None) in (None, "") else str(data.get("start_level_id", "")),
+        None if data.get("end_level_id", None) in (None, "") else str(data.get("end_level_id", "")),
+        None if start_z in (None, "") else float(start_z),
+        None if end_z in (None, "") else float(end_z),
+        None if slope_percent in (None, "") else float(slope_percent),
+        bool(data.get("elevation_locked", False)),
+    )
 
 
 @dataclass
@@ -7873,29 +7907,9 @@ class MainWindow(QMainWindow):
         m = PipeModel()
         m.model_schema_version = int(data.get("model_schema_version", 1))
         for k, v in data.get("nodes", {}).items():
-            node_z = v.get("z", None)
-            nid = int(k); m.nodes[nid] = Node(nid, float(v["x"]), float(v["y"]), None if node_z is None else float(node_z), str(v.get("level_id", "")))
+            nid = int(k); m.nodes[nid] = node_from_project_data(nid, v)
         for e in data.get("edges", []):
-            edge_slope = e.get("slope", None)
-            edge_start_z = e.get("start_z", None)
-            edge_end_z = e.get("end_z", None)
-            edge_slope_percent = e.get("slope_percent", None)
-            m.edges.append(Edge(
-                int(e["a"]),
-                int(e["b"]),
-                str(e.get("size", "65")),
-                str(e.get("material_override", "")),
-                None if edge_slope is None else float(edge_slope),
-                str(e.get("vertical_type", "unknown")),
-                str(e.get("elevation_mode", "unknown")),
-                str(e.get("system_type", "")),
-                None if e.get("start_level_id", None) in (None, "") else str(e.get("start_level_id", "")),
-                None if e.get("end_level_id", None) in (None, "") else str(e.get("end_level_id", "")),
-                None if edge_start_z in (None, "") else float(edge_start_z),
-                None if edge_end_z in (None, "") else float(edge_end_z),
-                None if edge_slope_percent in (None, "") else float(edge_slope_percent),
-                bool(e.get("elevation_locked", False)),
-            ))
+            m.edges.append(edge_from_project_data(e))
         for k, d in data.get("level_datums", {}).items():
             try:
                 if not isinstance(d, dict):
