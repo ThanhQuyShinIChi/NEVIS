@@ -1,59 +1,67 @@
+"""Move and resize StructuralElement — no Qt dependency."""
 from __future__ import annotations
-
-from dataclasses import replace
-
-from modules.structural_element import StructuralElement
-from modules.structural_geometry import Point, rect_from_two_points
+from modules.structural_element import StructuralElement, structural_element_to_dict, structural_element_from_dict
 
 
-VALID_RESIZE_HANDLES = {"nw", "n", "ne", "e", "se", "s", "sw", "w"}
-HANDLE_ALIASES = {
-    "top_left": "nw",
-    "top": "n",
-    "top_right": "ne",
-    "right": "e",
-    "bottom_right": "se",
-    "bottom": "s",
-    "bottom_left": "sw",
-    "left": "w",
-}
+def move_element(elem: StructuralElement, dx: float, dy: float) -> StructuralElement:
+    """Return a copy of elem with all points translated by (dx, dy)."""
+    d = structural_element_to_dict(elem)
+    d["points"] = [[p[0] + dx, p[1] + dy] for p in elem.points]
+    return structural_element_from_dict(d)
 
 
-def move_element(element: StructuralElement, dx: float, dy: float) -> StructuralElement:
-    offset_x, offset_y = float(dx), float(dy)
-    return replace(
-        element,
-        points=[(float(x) + offset_x, float(y) + offset_y) for x, y in element.points],
-    )
+def resize_element(elem: StructuralElement, handle: str, new_pos: tuple) -> StructuralElement:
+    """Resize element by moving a named handle. handle: 'tl','tr','br','bl','t','r','b','l'."""
+    if not elem.points or len(elem.points) < 4:
+        return elem
+    pts = list(elem.points)
+    x0 = min(p[0] for p in pts)
+    y0 = min(p[1] for p in pts)
+    x1 = max(p[0] for p in pts)
+    y1 = max(p[1] for p in pts)
+    nx, ny = new_pos
+    if handle == "tl":
+        x0, y0 = nx, ny
+    elif handle == "tr":
+        x1, y0 = nx, ny
+    elif handle == "br":
+        x1, y1 = nx, ny
+    elif handle == "bl":
+        x0, y1 = nx, ny
+    elif handle == "t":
+        y0 = ny
+    elif handle == "b":
+        y1 = ny
+    elif handle == "l":
+        x0 = nx
+    elif handle == "r":
+        x1 = nx
+    # Ensure min < max
+    if x0 > x1:
+        x0, x1 = x1, x0
+    if y0 > y1:
+        y0, y1 = y1, y0
+    new_pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    d = structural_element_to_dict(elem)
+    d["points"] = new_pts
+    w = abs(x1 - x0)
+    l = abs(y1 - y0)
+    d["width"] = w
+    d["length"] = l
+    return structural_element_from_dict(d)
 
 
-def resize_element(element: StructuralElement, handle: str, new_pos: Point) -> StructuralElement:
-    handle = str(handle).lower()
-    handle = HANDLE_ALIASES.get(handle, handle)
-    if handle not in VALID_RESIZE_HANDLES:
-        raise ValueError(f"Unknown resize handle: {handle}")
-    if not element.points:
-        return replace(element)
-
-    xs = [float(point[0]) for point in element.points]
-    ys = [float(point[1]) for point in element.points]
-    left, right = min(xs), max(xs)
-    top, bottom = min(ys), max(ys)
-    new_x, new_y = float(new_pos[0]), float(new_pos[1])
-
-    if "w" in handle:
-        left = new_x
-    elif "e" in handle:
-        right = new_x
-    if "n" in handle:
-        top = new_y
-    elif "s" in handle:
-        bottom = new_y
-
-    points = rect_from_two_points((left, top), (right, bottom))
-    return replace(
-        element,
-        points=points,
-        width=abs(right - left),
-        length=abs(bottom - top),
-    )
+def element_handle_positions(elem: StructuralElement) -> dict:
+    """Return dict of handle_name -> (x, y) for an element with 4 corner points."""
+    if not elem.points or len(elem.points) < 4:
+        return {}
+    x0 = min(p[0] for p in elem.points)
+    y0 = min(p[1] for p in elem.points)
+    x1 = max(p[0] for p in elem.points)
+    y1 = max(p[1] for p in elem.points)
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    return {
+        "tl": (x0, y0), "t": (mx, y0), "tr": (x1, y0),
+        "l": (x0, my),                   "r": (x1, my),
+        "bl": (x0, y1), "b": (mx, y1), "br": (x1, y1),
+    }

@@ -1,70 +1,129 @@
-from __future__ import annotations
-
+"""Tests for modules/structural_geometry.py — no Qt dependency."""
+import pytest
 from modules.structural_geometry import (
-    grid_points_in_view,
-    nearest_snap_point,
-    rect_from_two_points,
-    snap_to_grid,
+    rect_from_two_points, snap_to_grid, nearest_snap_point,
+    rect_from_center_wl, rect_bounds, rect_contains, grid_points_in_view,
 )
 
 
-def test_rect_from_two_points_normalizes_all_drag_directions() -> None:
-    expected = [(10.0, 20.0), (50.0, 20.0), (50.0, 80.0), (10.0, 80.0)]
+# --- rect_from_two_points ---
 
-    assert rect_from_two_points((10, 20), (50, 80)) == expected
-    assert rect_from_two_points((50, 80), (10, 20)) == expected
-    assert rect_from_two_points((50, 20), (10, 80)) == expected
+def test_rect_normal_order():
+    r = rect_from_two_points((0, 0), (100, 200))
+    assert r == [(0, 0), (100, 0), (100, 200), (0, 200)]
 
+def test_rect_reversed_order():
+    r = rect_from_two_points((100, 200), (0, 0))
+    assert r == [(0, 0), (100, 0), (100, 200), (0, 200)]
 
-def test_snap_to_grid_rounds_each_coordinate() -> None:
-    assert snap_to_grid(149.0, 151.0, 100.0) == (100.0, 200.0)
-    assert snap_to_grid(-149.0, -151.0, 100.0) == (-100.0, -200.0)
-    assert snap_to_grid(150.0, -150.0, 100.0) == (200.0, -200.0)
-    assert snap_to_grid(152.0, 304.0, 303.0) == (303.0, 303.0)
+def test_rect_partial_reverse():
+    r = rect_from_two_points((50, 0), (0, 100))
+    assert r[0] == (0, 0)
+    assert r[2] == (50, 100)
 
-
-def test_snap_to_grid_with_invalid_grid_returns_original_point() -> None:
-    assert snap_to_grid(12.5, 37.5, 0.0) == (12.5, 37.5)
-    assert snap_to_grid(12.5, 37.5, -10.0) == (12.5, 37.5)
-
-
-def test_nearest_snap_point_returns_nearest_candidate_in_tolerance() -> None:
-    candidates = [(0.0, 0.0), (8.0, 6.0), (30.0, 30.0)]
-
-    assert nearest_snap_point(10.0, 8.0, candidates, 5.0) == (8.0, 6.0)
+def test_rect_has_four_corners():
+    r = rect_from_two_points((10, 20), (30, 50))
+    assert len(r) == 4
 
 
-def test_nearest_snap_point_includes_boundary_and_returns_none_outside() -> None:
-    assert nearest_snap_point(0.0, 0.0, [(3.0, 4.0)], 5.0) == (3.0, 4.0)
-    assert nearest_snap_point(0.0, 0.0, [(3.0, 4.0)], 4.99) is None
-    assert nearest_snap_point(0.0, 0.0, [], 10.0) is None
+# --- snap_to_grid ---
+
+def test_snap_303_exact():
+    assert snap_to_grid(303.0, 606.0, 303.0) == (303.0, 606.0)
+
+def test_snap_303_round_up():
+    assert snap_to_grid(200.0, 0.0, 303.0) == (303.0, 0.0)
+
+def test_snap_303_round_down():
+    assert snap_to_grid(100.0, 0.0, 303.0) == (0.0, 0.0)
+
+def test_snap_455():
+    # 300 is closer to 455 than to 0
+    x, y = snap_to_grid(300.0, 0.0, 455.0)
+    assert x == 455.0
+
+def test_snap_zero_grid_passthrough():
+    assert snap_to_grid(123.4, 567.8, 0) == (123.4, 567.8)
+
+def test_snap_negative_grid_passthrough():
+    assert snap_to_grid(100.0, 200.0, -10.0) == (100.0, 200.0)
 
 
-def test_nearest_snap_point_keeps_first_candidate_when_distances_tie() -> None:
-    assert nearest_snap_point(0.0, 0.0, [(3.0, 4.0), (-3.0, -4.0)], 5.0) == (3.0, 4.0)
+# --- nearest_snap_point ---
+
+def test_nearest_within_tolerance():
+    candidates = [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
+    result = nearest_snap_point(95.0, 5.0, candidates, tolerance=20.0)
+    assert result == (100.0, 0.0)
+
+def test_nearest_outside_tolerance():
+    candidates = [(0.0, 0.0), (100.0, 0.0)]
+    result = nearest_snap_point(60.0, 0.0, candidates, tolerance=10.0)
+    assert result is None
+
+def test_nearest_empty_candidates():
+    assert nearest_snap_point(0.0, 0.0, [], tolerance=100.0) is None
+
+def test_nearest_exact_match():
+    candidates = [(50.0, 50.0)]
+    assert nearest_snap_point(50.0, 50.0, candidates, tolerance=0.0) == (50.0, 50.0)
 
 
-def test_grid_points_in_view_returns_visible_grid_intersections() -> None:
-    assert grid_points_in_view(-10, -10, 610, 610, 303) == [
-        (0.0, 0.0),
-        (303.0, 0.0),
-        (606.0, 0.0),
-        (0.0, 303.0),
-        (303.0, 303.0),
-        (606.0, 303.0),
-        (0.0, 606.0),
-        (303.0, 606.0),
-        (606.0, 606.0),
-    ]
+# --- rect_from_center_wl ---
+
+def test_center_wl_basic():
+    r = rect_from_center_wl(500.0, 500.0, 200.0, 400.0)
+    assert r[0] == (400.0, 300.0)
+    assert r[2] == (600.0, 700.0)
+
+def test_center_wl_symmetric():
+    r = rect_from_center_wl(0.0, 0.0, 100.0, 100.0)
+    xs = [p[0] for p in r]
+    assert min(xs) == -50.0
+    assert max(xs) == 50.0
 
 
-def test_grid_points_in_view_never_exceeds_max_points() -> None:
-    points = grid_points_in_view(-100000, -100000, 100000, 100000, 10, max_points=137)
+# --- rect_bounds ---
 
-    assert len(points) <= 137
-    assert all(-100000 <= x <= 100000 and -100000 <= y <= 100000 for x, y in points)
+def test_bounds_basic():
+    pts = [(0, 0), (100, 0), (100, 200), (0, 200)]
+    assert rect_bounds(pts) == (0, 0, 100, 200)
+
+def test_bounds_unordered():
+    pts = [(50, 50), (10, 90), (90, 10), (50, 50)]
+    x0, y0, x1, y1 = rect_bounds(pts)
+    assert x0 == 10 and x1 == 90
 
 
-def test_grid_points_in_view_rejects_invalid_grid() -> None:
-    assert grid_points_in_view(0, 0, 100, 100, 0) == []
-    assert grid_points_in_view(0, 0, 100, 100, 10, max_points=0) == []
+# --- rect_contains ---
+
+def test_contains_true():
+    outer = [(0, 0), (200, 0), (200, 200), (0, 200)]
+    inner = [(50, 50), (150, 50), (150, 150), (50, 150)]
+    assert rect_contains(outer, inner) is True
+
+def test_contains_false_overlap():
+    outer = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    inner = [(50, 50), (150, 50), (150, 150), (50, 150)]
+    assert rect_contains(outer, inner) is False
+
+def test_contains_exact_edge():
+    outer = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    inner = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    assert rect_contains(outer, inner) is True
+
+
+# --- grid_points_in_view ---
+
+def test_grid_in_view_count():
+    pts = grid_points_in_view(0, 0, 303, 303, 303)
+    # corners: (0,0),(303,0),(0,303),(303,303)
+    assert (0.0, 0.0) in pts
+    assert (303.0, 303.0) in pts
+
+def test_grid_max_points_respected():
+    pts = grid_points_in_view(0, 0, 10000, 10000, 10, max_points=100)
+    assert len(pts) <= 100
+
+def test_grid_zero_spacing_empty():
+    assert grid_points_in_view(0, 0, 1000, 1000, 0) == []

@@ -1,24 +1,37 @@
-from __future__ import annotations
-
+"""Tests for modules/workspace_mode.py — no Qt dependency."""
+import pytest
 from modules.workspace_mode import (
-    deserialize_workspace_mode,
-    get_default_mode,
-    normalize_workspace_mode,
-    serialize_workspace_mode,
+    get_default_mode, serialize_mode, deserialize_mode, mode_display_name,
 )
 
 
-def test_get_default_mode_is_mep() -> None:
+def test_default_mode_is_mep():
     assert get_default_mode() == "mep"
 
+def test_serialize_mep():
+    assert serialize_mode("mep") == "mep"
 
-def test_workspace_mode_round_trip() -> None:
-    for mode in ("mep", "structural"):
-        assert deserialize_workspace_mode(serialize_workspace_mode(mode)) == mode
+def test_serialize_structural():
+    assert serialize_mode("structural") == "structural"
 
+def test_serialize_invalid_falls_back():
+    assert serialize_mode("unknown") == "mep"
 
-def test_legacy_or_invalid_payload_uses_mep() -> None:
-    assert deserialize_workspace_mode({}) == "mep"
-    assert deserialize_workspace_mode(None) == "mep"
-    assert deserialize_workspace_mode({"workspace_mode": "unknown"}) == "mep"
-    assert normalize_workspace_mode(" STRUCTURAL ") == "structural"
+def test_deserialize_valid():
+    assert deserialize_mode("structural") == "structural"
+
+def test_deserialize_invalid():
+    assert deserialize_mode("anything") == "mep"
+
+def test_deserialize_none():
+    assert deserialize_mode(None) == "mep"
+
+def test_deserialize_number():
+    assert deserialize_mode(42) == "mep"
+
+def test_display_name_mep():
+    assert "MEP" in mode_display_name("mep")
+
+def test_display_name_structural():
+    name = mode_display_name("structural")
+    assert "Kết cấu" in name or "structural" in name.lower()

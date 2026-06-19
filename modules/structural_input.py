@@ -1,39 +1,45 @@
+"""Input validation for structural element dimensions — no Qt dependency."""
 from __future__ import annotations
-
-import math
-from typing import Any
-
-from modules.structural_geometry import Point
+from modules.structural_geometry import rect_from_center_wl  # re-export for Nevis_no_ui
 
 
-MAX_STRUCTURAL_DIMENSION_MM = 99999.0
+_MAX_DIM = 99999.0
 
 
-def validate_dimension(value: Any, name: str) -> tuple[float, str]:
-    label = str(name or "Kích thước").strip()
+def validate_dimension(value, name: str = "value") -> tuple:
+    """Validate a dimension field. Returns (float, error_str). error_str is '' on success."""
     try:
-        number = float(value)
+        v = float(value)
     except (TypeError, ValueError):
-        return 0.0, f"{label} phải là một số."
-    if not math.isfinite(number):
-        return number, f"{label} phải là một số hữu hạn."
-    if number > MAX_STRUCTURAL_DIMENSION_MM:
-        return number, f"{label} không được vượt quá {MAX_STRUCTURAL_DIMENSION_MM:g} mm."
-    if label.upper() == "C":
-        if number < 0.0:
-            return number, "C phải lớn hơn hoặc bằng 0."
-    elif number <= 0.0:
-        return number, f"{label} phải lớn hơn 0."
-    return number, ""
+        return (0.0, "{} must be a number".format(name))
+    if v < 0:
+        return (0.0, "{} must be >= 0".format(name))
+    if v > _MAX_DIM:
+        return (0.0, "{} must be <= {} mm".format(name, int(_MAX_DIM)))
+    return (v, "")
 
 
-def rect_from_center_wl(cx: float, cy: float, width: float, length: float) -> list[Point]:
-    half_width = float(width) / 2.0
-    half_length = float(length) / 2.0
-    center_x, center_y = float(cx), float(cy)
-    return [
-        (center_x - half_width, center_y - half_length),
-        (center_x + half_width, center_y - half_length),
-        (center_x + half_width, center_y + half_length),
-        (center_x - half_width, center_y + half_length),
-    ]
+def validate_positive_dimension(value, name: str = "value") -> tuple:
+    """Like validate_dimension but requires value > 0."""
+    v, err = validate_dimension(value, name)
+    if err:
+        return (v, err)
+    if v <= 0:
+        return (0.0, "{} must be > 0".format(name))
+    return (v, "")
+
+
+def validate_element_dimensions(w=None, l=None, h=None, c=None) -> dict:
+    """Validate W/L/H/C fields. Returns dict with 'errors' key and parsed values."""
+    result = {}
+    errors = {}
+    for key, val, positive in [("w", w, True), ("l", l, True), ("h", h, True), ("c", c, False)]:
+        if val is None:
+            continue
+        fn = validate_positive_dimension if positive else validate_dimension
+        parsed, err = fn(val, key.upper())
+        result[key] = parsed
+        if err:
+            errors[key] = err
+    result["errors"] = errors
+    return result

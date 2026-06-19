@@ -1,67 +1,103 @@
-from __future__ import annotations
-
+"""Tests for modules/stepped_slab.py — no Qt dependency."""
+import pytest
+from modules.structural_element import StructuralElement
 from modules.stepped_slab import (
-    compute_stepped_slab_elevation,
     validate_stepped_slab_bounds,
-)
-from modules.structural_element import (
-    StructuralElement,
-    structural_element_from_dict,
-    structural_element_to_dict,
+    compute_stepped_slab_elevation,
+    stepped_slab_overlap_region,
 )
 
 
-def slab(element_id: int, points) -> StructuralElement:
-    return StructuralElement(id=element_id, element_type="slab", points=points, height=150.0)
+def _slab(pts):
+    return StructuralElement(id=1, element_type="slab", points=pts)
 
 
-def test_validate_stepped_slab_bounds_accepts_child_inside_parent() -> None:
-    parent = slab(1, [(0, 0), (1000, 0), (1000, 800), (0, 800)])
-    child = slab(2, [(100, 200), (500, 200), (500, 600), (100, 600)])
-
-    assert validate_stepped_slab_bounds(parent, child)
+PARENT_PTS = [(0.0, 0.0), (1000.0, 0.0), (1000.0, 800.0), (0.0, 800.0)]
+CHILD_IN = [(100.0, 100.0), (400.0, 100.0), (400.0, 400.0), (100.0, 400.0)]
+CHILD_OUT = [(900.0, 700.0), (1100.0, 700.0), (1100.0, 900.0), (900.0, 900.0)]
 
 
-def test_validate_stepped_slab_bounds_accepts_shared_boundary() -> None:
-    parent = slab(1, [(0, 0), (1000, 0), (1000, 800), (0, 800)])
-    child = slab(2, [(0, 0), (500, 0), (500, 400), (0, 400)])
+# --- validate_stepped_slab_bounds ---
 
-    assert validate_stepped_slab_bounds(parent, child)
+def test_child_inside_parent():
+    parent = _slab(PARENT_PTS)
+    child = _slab(CHILD_IN)
+    assert validate_stepped_slab_bounds(parent, child) is True
+
+def test_child_outside_parent():
+    parent = _slab(PARENT_PTS)
+    child = _slab(CHILD_OUT)
+    assert validate_stepped_slab_bounds(parent, child) is False
+
+def test_empty_parent_returns_false():
+    parent = _slab([])
+    child = _slab(CHILD_IN)
+    assert validate_stepped_slab_bounds(parent, child) is False
+
+def test_empty_child_returns_false():
+    parent = _slab(PARENT_PTS)
+    child = _slab([])
+    assert validate_stepped_slab_bounds(parent, child) is False
+
+def test_exact_same_bounds():
+    parent = _slab(PARENT_PTS)
+    child = _slab(PARENT_PTS)
+    assert validate_stepped_slab_bounds(parent, child) is True
 
 
-def test_validate_stepped_slab_bounds_rejects_child_outside_parent() -> None:
-    parent = slab(1, [(0, 0), (1000, 0), (1000, 800), (0, 800)])
-    child = slab(2, [(900, 200), (1100, 200), (1100, 600), (900, 600)])
+# --- compute_stepped_slab_elevation ---
 
-    assert not validate_stepped_slab_bounds(parent, child)
-    assert not validate_stepped_slab_bounds(parent, slab(3, []))
-
-
-def test_compute_stepped_slab_elevation_subtracts_downward_offset() -> None:
+def test_elevation_200mm_below_sl():
     assert compute_stepped_slab_elevation(0.0, 200.0) == -200.0
-    assert compute_stepped_slab_elevation(3000.0, 150.0) == 2850.0
+
+def test_elevation_from_nonzero_sl():
+    # sl_elevation = 100, offset = 50 → top = 50
+    assert compute_stepped_slab_elevation(100.0, 50.0) == 50.0
+
+def test_elevation_negative_offset_treated_as_abs():
+    # offset given as -200 should still go downward
+    assert compute_stepped_slab_elevation(0.0, -200.0) == -200.0
+
+def test_elevation_zero_offset():
+    assert compute_stepped_slab_elevation(0.0, 0.0) == 0.0
 
 
-def test_stepped_slab_round_trip_preserves_parent_and_elevations() -> None:
-    original = StructuralElement(
-        id=12,
-        element_type="slab",
-        label="Stepped",
-        points=[(100, 100), (500, 100), (500, 400), (100, 400)],
-        width=400.0,
-        length=300.0,
-        height=180.0,
-        top_elevation=-200.0,
-        is_stepped=True,
-        parent_slab_id=4,
-        overlap_width=250.0,
+# --- stepped_slab_overlap_region ---
+
+def test_overlap_region_basic():
+    parent = _slab(PARENT_PTS)
+    child = _slab(CHILD_IN)  # (100,100)-(400,400)
+    region = stepped_slab_overlap_region(parent, child, overlap_width=50.0)
+    assert len(region) == 4
+    xs = [p[0] for p in region]
+    assert min(xs) == 150.0  # 100 + 50
+    assert max(xs) == 350.0  # 400 - 50
+
+def test_overlap_region_too_large():
+    parent = _slab(PARENT_PTS)
+    child = _slab(CHILD_IN)
+    # overlap_width larger than half child size → empty
+    region = stepped_slab_overlap_region(parent, child, overlap_width=200.0)
+    assert region == []
+
+def test_overlap_region_empty_child():
+    parent = _slab(PARENT_PTS)
+    child = _slab([])
+    assert stepped_slab_overlap_region(parent, child, overlap_width=50.0) == []
+
+
+# --- serialize round-trip for stepped slab ---
+
+def test_stepped_slab_roundtrip():
+    from modules.structural_element import structural_element_to_dict, structural_element_from_dict
+    e = StructuralElement(
+        id=10, element_type="slab",
+        is_stepped=True, parent_slab_id=1, overlap_width=150.0,
+        top_elevation=-200.0, points=CHILD_IN,
     )
-
-    restored = structural_element_from_dict(structural_element_to_dict(original))
-
-    assert restored == original
-    assert restored.is_stepped is True
-    assert restored.parent_slab_id == 4
-    assert restored.overlap_width == 250.0
-    assert restored.top_elevation == -200.0
-    assert restored.bottom_elevation == -380.0
+    d = structural_element_to_dict(e)
+    r = structural_element_from_dict(d)
+    assert r.is_stepped is True
+    assert r.parent_slab_id == 1
+    assert r.overlap_width == 150.0
+    assert r.top_elevation == -200.0

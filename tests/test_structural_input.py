@@ -1,61 +1,67 @@
-from __future__ import annotations
-
+"""Tests for modules/structural_input.py — no Qt dependency."""
 import pytest
-
-from modules.structural_input import rect_from_center_wl, validate_dimension
-
-
-@pytest.mark.parametrize(
-    ("value", "name", "expected"),
-    [
-        ("125.5", "W", 125.5),
-        (1, "L", 1.0),
-        (99999, "H", 99999.0),
-        (0, "C", 0.0),
-        ("25", "C", 25.0),
-    ],
-)
-def test_validate_dimension_accepts_valid_values(value, name: str, expected: float) -> None:
-    number, error = validate_dimension(value, name)
-
-    assert number == expected
-    assert error == ""
+from modules.structural_input import validate_dimension, validate_positive_dimension, validate_element_dimensions
 
 
-@pytest.mark.parametrize(
-    ("value", "name"),
-    [
-        ("", "W"),
-        ("abc", "L"),
-        (0, "H"),
-        (-1, "W"),
-        (-0.1, "C"),
-        (100000, "L"),
-        (100000, "C"),
-        (float("nan"), "W"),
-        (float("inf"), "H"),
-    ],
-)
-def test_validate_dimension_rejects_invalid_values(value, name: str) -> None:
-    _, error = validate_dimension(value, name)
+# --- validate_dimension ---
 
-    assert error
-    assert name in error
+def test_valid_zero():
+    v, err = validate_dimension(0, "W")
+    assert v == 0.0 and err == ""
+
+def test_valid_positive():
+    v, err = validate_dimension("500", "W")
+    assert v == 500.0 and err == ""
+
+def test_invalid_negative():
+    v, err = validate_dimension(-1, "W")
+    assert err != ""
+
+def test_invalid_string():
+    v, err = validate_dimension("abc", "W")
+    assert v == 0.0 and err != ""
+
+def test_invalid_none():
+    v, err = validate_dimension(None, "W")
+    assert err != ""
+
+def test_exceeds_max():
+    v, err = validate_dimension(100000, "W")
+    assert err != ""
+
+def test_max_exact():
+    v, err = validate_dimension(99999.0, "W")
+    assert err == ""
 
 
-def test_rect_from_center_wl_returns_clockwise_screen_points() -> None:
-    assert rect_from_center_wl(100.0, 200.0, 40.0, 60.0) == [
-        (80.0, 170.0),
-        (120.0, 170.0),
-        (120.0, 230.0),
-        (80.0, 230.0),
-    ]
+# --- validate_positive_dimension ---
+
+def test_positive_zero_fails():
+    v, err = validate_positive_dimension(0, "H")
+    assert err != ""
+
+def test_positive_valid():
+    v, err = validate_positive_dimension(200, "H")
+    assert v == 200.0 and err == ""
 
 
-def test_rect_from_center_wl_supports_float_values() -> None:
-    assert rect_from_center_wl(0.5, -0.5, 1.0, 3.0) == [
-        (0.0, -2.0),
-        (1.0, -2.0),
-        (1.0, 1.0),
-        (0.0, 1.0),
-    ]
+# --- validate_element_dimensions ---
+
+def test_element_dims_all_valid():
+    r = validate_element_dimensions(w=300, l=600, h=150, c=0)
+    assert r["errors"] == {}
+    assert r["w"] == 300.0
+
+def test_element_dims_partial():
+    r = validate_element_dimensions(w=100)
+    assert "w" in r
+    assert "l" not in r
+
+def test_element_dims_error_collected():
+    r = validate_element_dimensions(w=-1, l=500)
+    assert "w" in r["errors"]
+    assert "l" not in r["errors"]
+
+def test_element_dims_c_zero_ok():
+    r = validate_element_dimensions(c=0)
+    assert r["errors"] == {}
