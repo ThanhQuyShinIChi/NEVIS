@@ -220,7 +220,7 @@ class StructuralElement:
 
 ---
 
-## TASK 12 — Grid snap + hiển thị lưới `[  ]`
+## TASK 12 — Grid snap + hiển thị lưới `[x]`
 
 **Mục tiêu:** Vẽ kết cấu bắt điểm vào lưới cố định, không giật, chuẩn xác.
 

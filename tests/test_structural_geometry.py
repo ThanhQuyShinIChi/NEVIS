@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from modules.structural_geometry import (
+    grid_points_in_view,
     nearest_snap_point,
     rect_from_two_points,
     snap_to_grid,
@@ -19,6 +20,7 @@ def test_snap_to_grid_rounds_each_coordinate() -> None:
     assert snap_to_grid(149.0, 151.0, 100.0) == (100.0, 200.0)
     assert snap_to_grid(-149.0, -151.0, 100.0) == (-100.0, -200.0)
     assert snap_to_grid(150.0, -150.0, 100.0) == (200.0, -200.0)
+    assert snap_to_grid(152.0, 304.0, 303.0) == (303.0, 303.0)
 
 
 def test_snap_to_grid_with_invalid_grid_returns_original_point() -> None:
@@ -40,3 +42,29 @@ def test_nearest_snap_point_includes_boundary_and_returns_none_outside() -> None
 
 def test_nearest_snap_point_keeps_first_candidate_when_distances_tie() -> None:
     assert nearest_snap_point(0.0, 0.0, [(3.0, 4.0), (-3.0, -4.0)], 5.0) == (3.0, 4.0)
+
+
+def test_grid_points_in_view_returns_visible_grid_intersections() -> None:
+    assert grid_points_in_view(-10, -10, 610, 610, 303) == [
+        (0.0, 0.0),
+        (303.0, 0.0),
+        (606.0, 0.0),
+        (0.0, 303.0),
+        (303.0, 303.0),
+        (606.0, 303.0),
+        (0.0, 606.0),
+        (303.0, 606.0),
+        (606.0, 606.0),
+    ]
+
+
+def test_grid_points_in_view_never_exceeds_max_points() -> None:
+    points = grid_points_in_view(-100000, -100000, 100000, 100000, 10, max_points=137)
+
+    assert len(points) <= 137
+    assert all(-100000 <= x <= 100000 and -100000 <= y <= 100000 for x, y in points)
+
+
+def test_grid_points_in_view_rejects_invalid_grid() -> None:
+    assert grid_points_in_view(0, 0, 100, 100, 0) == []
+    assert grid_points_in_view(0, 0, 100, 100, 10, max_points=0) == []

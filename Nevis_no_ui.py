@@ -29,7 +29,7 @@ from typing import Dict, List, Tuple, Optional, Set
 from modules.elevation_input import validate_node_z_input
 from modules.elevation_display import compute_edge_slope
 from modules.structural_element import StructuralElement
-from modules.structural_geometry import nearest_snap_point, rect_from_two_points, snap_to_grid
+from modules.structural_geometry import grid_points_in_view, nearest_snap_point, rect_from_two_points, snap_to_grid
 from modules.structural_input import rect_from_center_wl, validate_dimension
 from modules.structural_transform import move_element, resize_element
 from modules.stepped_slab import compute_stepped_slab_elevation, validate_stepped_slab_bounds
@@ -26091,6 +26091,9 @@ APP_TEXT.setdefault("vi", {}).update({
     "workspace_structural_group": "Kết cấu",
     "workspace_draw": "Vẽ",
     "workspace_delete": "Xóa",
+    "structural_grid_label": "Lưới",
+    "structural_grid_enabled": "Bật lưới",
+    "structural_grid_custom": "Tùy chỉnh",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "undo": "元に戻す",
@@ -26133,6 +26136,9 @@ APP_TEXT.setdefault("jp", {}).update({
     "workspace_structural_group": "構造",
     "workspace_draw": "作図",
     "workspace_delete": "削除",
+    "structural_grid_label": "グリッド",
+    "structural_grid_enabled": "グリッド表示",
+    "structural_grid_custom": "任意",
 })
 
 
@@ -26152,6 +26158,11 @@ def _nevis_structural_has_visible_underlay(mainwin) -> bool:
 
 def _nevis_structural_snap_scene_point(view, scene_point) -> tuple[float, float]:
     x, y = float(scene_point.x()), float(scene_point.y())
+    if (
+        getattr(view.mainwin, "workspace_mode", get_default_mode()) == "structural"
+        and bool(getattr(view.mainwin, "structural_grid_enabled", True))
+    ):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 303.0))
     scale = abs(float(view.transform().m11())) or 1.0
     tolerance_scene = 10.0 / scale
     candidates = [(node.x, node.y) for node in view.mainwin.model.nodes.values()]
@@ -26496,6 +26507,29 @@ def _nevis_structural_draw_items(view) -> None:
         view.scene.setSceneRect(view.scene.sceneRect().united(bounds.adjusted(-20, -20, 20, 20)))
 
 
+def _nevis_draw_structural_grid(view) -> None:
+    mainwin = view.mainwin
+    if (
+        getattr(mainwin, "workspace_mode", get_default_mode()) != "structural"
+        or not bool(getattr(mainwin, "structural_grid_enabled", True))
+    ):
+        return
+    visible = view.mapToScene(view.viewport().rect()).boundingRect()
+    points = grid_points_in_view(
+        visible.left(), visible.top(), visible.right(), visible.bottom(),
+        getattr(mainwin, "structural_grid_mm", 303.0),
+    )
+    scale = abs(float(view.transform().m11())) or 1.0
+    radius = 1.25 / scale
+    pen = QPen(Qt.NoPen)
+    brush = QBrush(QColor(120, 130, 142, 90))
+    for x, y in points:
+        item = view.scene.addEllipse(x - radius, y - radius, radius * 2.0, radius * 2.0, pen, brush)
+        item.setZValue(-100)
+        item.setData(0, "structural_grid_point")
+        item.setAcceptedMouseButtons(Qt.NoButton)
+
+
 def _nevis_structural_handle_positions(element) -> dict[str, tuple[float, float]]:
     xs = [float(point[0]) for point in element.points]
     ys = [float(point[1]) for point in element.points]
@@ -26554,7 +26588,8 @@ def _nevis_structural_build_ui(self):
     self.structural_draw_mode = False
     self.stepped_slab_draw_mode = False
     self.pending_stepped_slab = None
-    self.structural_grid_mm = 100.0
+    self.structural_grid_mm = 303.0
+    self.structural_grid_enabled = True
     self.selected_structural_id = None
     self._nevis_redo_stack = []
     self.act_redo = QAction(self.tr("redo"), self)
@@ -26599,6 +26634,25 @@ def _nevis_structural_build_ui(self):
     for element_type, label in _nevis_structural_type_labels(self).items():
         self.cmb_structural_type.addItem(label, element_type)
     structural_layout.addWidget(self.cmb_structural_type)
+    grid_row = QHBoxLayout()
+    self.chk_structural_grid = QCheckBox(self.tr("structural_grid_enabled"))
+    self.chk_structural_grid.setChecked(True)
+    self.lbl_structural_grid = QLabel(self.tr("structural_grid_label"))
+    self.cmb_structural_grid = QComboBox(self.g_structural_workspace)
+    for label, value in (("303 mm", 303.0), ("455 mm", 455.0), ("910 mm", 910.0)):
+        self.cmb_structural_grid.addItem(label, value)
+    self.cmb_structural_grid.addItem(self.tr("structural_grid_custom"), "custom")
+    self.edit_structural_grid = QLineEdit("303", self.g_structural_workspace)
+    self.edit_structural_grid.setMaximumWidth(75)
+    self.edit_structural_grid.setVisible(False)
+    grid_row.addWidget(self.chk_structural_grid)
+    grid_row.addWidget(self.lbl_structural_grid)
+    grid_row.addWidget(self.cmb_structural_grid)
+    grid_row.addWidget(self.edit_structural_grid)
+    structural_layout.addLayout(grid_row)
+    self.chk_structural_grid.toggled.connect(self.update_structural_grid_settings)
+    self.cmb_structural_grid.currentIndexChanged.connect(self.update_structural_grid_settings)
+    self.edit_structural_grid.editingFinished.connect(self.update_structural_grid_settings)
     structural_buttons = QHBoxLayout()
     self.btn_workspace_draw = QPushButton(self.tr("workspace_draw"))
     self.btn_workspace_delete = QPushButton(self.tr("workspace_delete"))
@@ -26618,9 +26672,18 @@ def _nevis_structural_build_ui(self):
 
 
 _NEVIS_STRUCTURAL_PREV_DRAW_MODEL = PreviewView.draw_model
+_NEVIS_STRUCTURAL_PREV_WHEEL_EVENT = PreviewView.wheelEvent
 def _nevis_structural_draw_model(self, *args, **kwargs):
     result = _NEVIS_STRUCTURAL_PREV_DRAW_MODEL(self, *args, **kwargs)
+    _nevis_draw_structural_grid(self)
     _nevis_structural_draw_items(self)
+    return result
+
+
+def _nevis_structural_wheel_event(self, event):
+    result = _NEVIS_STRUCTURAL_PREV_WHEEL_EVENT(self, event)
+    if getattr(self.mainwin, "workspace_mode", get_default_mode()) == "structural":
+        self.draw_model()
     return result
 
 
@@ -26846,6 +26909,9 @@ def _nevis_structural_refresh_language(self, *args, **kwargs):
         self.g_structural_workspace.setTitle(self.tr("workspace_structural_group"))
         self.btn_workspace_draw.setText(self.tr("workspace_draw"))
         self.btn_workspace_delete.setText(self.tr("workspace_delete"))
+        self.chk_structural_grid.setText(self.tr("structural_grid_enabled"))
+        self.lbl_structural_grid.setText(self.tr("structural_grid_label"))
+        self.cmb_structural_grid.setItemText(3, self.tr("structural_grid_custom"))
         current_type = self.cmb_structural_type.currentData()
         self.cmb_structural_type.clear()
         for element_type, label in _nevis_structural_type_labels(self).items():
@@ -26912,6 +26978,26 @@ def _nevis_delete_selected_structural_element(self) -> None:
     _nevis_update_stepped_slab_button(self)
 
 
+def _nevis_update_structural_grid_settings(self, *args) -> None:
+    if not hasattr(self, "cmb_structural_grid"):
+        return
+    self.structural_grid_enabled = bool(self.chk_structural_grid.isChecked())
+    value = self.cmb_structural_grid.currentData()
+    custom = value == "custom"
+    self.edit_structural_grid.setVisible(custom)
+    if custom:
+        try:
+            candidate = float(self.edit_structural_grid.text().strip())
+            if math.isfinite(candidate) and candidate > 0.0:
+                self.structural_grid_mm = candidate
+        except (TypeError, ValueError):
+            pass
+    else:
+        self.structural_grid_mm = float(value)
+    if hasattr(self, "preview"):
+        self.preview.draw_model()
+
+
 MainWindow._build_ui = _nevis_structural_build_ui
 MainWindow.set_structural_draw_mode = _nevis_structural_set_draw_mode
 MainWindow._structural_edit_dialog = _nevis_structural_edit_dialog
@@ -26923,11 +27009,13 @@ MainWindow._create_stepped_slab_from_drag = _nevis_create_stepped_slab_from_drag
 MainWindow.set_workspace_mode = _nevis_set_workspace_mode
 MainWindow.start_workspace_structural_draw = _nevis_start_workspace_structural_draw
 MainWindow.delete_selected_structural_element = _nevis_delete_selected_structural_element
+MainWindow.update_structural_grid_settings = _nevis_update_structural_grid_settings
 MainWindow.save_undo_snapshot = _nevis_task9_save_undo
 MainWindow.undo_last_action = _nevis_task9_undo
 MainWindow.redo_last_action = _nevis_task9_redo
 MainWindow.refresh_language_texts = _nevis_structural_refresh_language
 PreviewView.draw_model = _nevis_structural_draw_model
+PreviewView.wheelEvent = _nevis_structural_wheel_event
 PreviewView.mousePressEvent = _nevis_structural_mouse_press
 PreviewView.mouseMoveEvent = _nevis_structural_mouse_move
 PreviewView.mouseReleaseEvent = _nevis_structural_mouse_release

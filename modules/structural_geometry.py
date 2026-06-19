@@ -43,3 +43,32 @@ def nearest_snap_point(
             nearest = point
             nearest_distance = distance
     return nearest
+
+
+def grid_points_in_view(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    grid_mm: float,
+    max_points: int = 2000,
+) -> list[Point]:
+    grid = float(grid_mm)
+    limit = int(max_points)
+    if not math.isfinite(grid) or grid <= 0.0 or limit <= 0:
+        return []
+    left, right = sorted((float(x0), float(x1)))
+    top, bottom = sorted((float(y0), float(y1)))
+    ix0, ix1 = math.ceil(left / grid), math.floor(right / grid)
+    iy0, iy1 = math.ceil(top / grid), math.floor(bottom / grid)
+    if ix1 < ix0 or iy1 < iy0:
+        return []
+    count_x, count_y = ix1 - ix0 + 1, iy1 - iy0 + 1
+    stride = max(1, math.ceil(math.sqrt((count_x * count_y) / limit)))
+    points: list[Point] = []
+    for iy in range(iy0, iy1 + 1, stride):
+        for ix in range(ix0, ix1 + 1, stride):
+            points.append((ix * grid, iy * grid))
+            if len(points) >= limit:
+                return points
+    return points
