@@ -28007,7 +28007,7 @@ def _nevis_t19_build_ui(self):
         btn.setMinimumHeight(28)
         btn.setProperty("structural_type", etype)
         self._type_btn_group.addButton(btn)
-        type_grid.addWidget(btn, i // 3, i % 3)
+        type_grid.addWidget(btn, i // 2, i % 2)
         self._type_btns[etype] = btn
         btn.clicked.connect(lambda checked, et=etype: self._on_type_btn_clicked(et))
     # Select default
@@ -28770,7 +28770,7 @@ PreviewView.mouseMoveEvent = _nevis_t23b_mouse_move
 # =============================================================================
 # TASK 23c — Panel kết cấu thu hẹp 180px, ẩn tab Vật tư + Kiểm tra ống
 # =============================================================================
-_T23C_PANEL_WIDTH_STRUCTURAL = 180
+_T23C_PANEL_WIDTH_STRUCTURAL = 220
 _T23C_PANEL_WIDTH_MEP = 450   # giá trị gốc
 
 
