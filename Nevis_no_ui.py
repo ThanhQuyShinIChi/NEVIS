@@ -48,7 +48,7 @@ from modules.workspace_mode import deserialize_workspace_mode, get_default_mode,
 from modules.scale_calibration import canvas_to_real, compute_scale, real_to_canvas
 
 try:
-    from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
+    from PySide6.QtCore import Qt, QPointF, QRectF, QTimer, QLineF
     from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QIcon, QPolygonF, QRawFont
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QFileDialog, QMessageBox,
@@ -29248,6 +29248,161 @@ def _nevis_t24c_update_grid_settings(self) -> None:
 
 
 MainWindow.update_structural_grid_settings = _nevis_t24c_update_grid_settings
+
+
+# =============================================================================
+# TASK 25 — Post-draw UX: auto-exit draw mode + hover cursor (move/resize)
+#            + edge-snap highlight (yellow flash when edges align)
+# =============================================================================
+
+# --- 25a: Auto-exit draw mode after element is created ---
+_T25_PREV_CREATE = MainWindow._structural_create_from_drag
+
+
+def _nevis_t25_create_from_drag(self, start, end) -> bool:
+    result = _T25_PREV_CREATE(self, start, end)
+    if result:
+        # Exit draw mode so user can immediately select/resize the new element
+        self.set_structural_draw_mode(False)
+    return result
+
+
+MainWindow._structural_create_from_drag = _nevis_t25_create_from_drag
+
+
+# --- 25b: Hover cursor — center=SizeAll (move), edge=resize ---
+_T25_PREV_MOUSE_MOVE = PreviewView.mouseMoveEvent
+_T25_SNAP_THRESH_PX = 8  # pixels on screen
+
+
+def _nevis_t25_mouse_move(self, event):
+    result = _T25_PREV_MOUSE_MOVE(self, event)
+    # Only update cursor in select mode (not during draw/drag)
+    if getattr(self.mainwin, "structural_draw_mode", False):
+        return result
+    if event.buttons() != Qt.NoButton:
+        return result
+    # Hit-test: find element under cursor
+    pos = event.position() if hasattr(event, "position") else event.posF()
+    scene_pos = self.mapToScene(int(pos.x()), int(pos.y()))
+    elem_id = getattr(self.mainwin, "selected_structural_id", None)
+    element = _nevis_structural_find_element(self.mainwin, elem_id) if elem_id is not None else None
+    if element is None or not element.points:
+        self.viewport().setCursor(QCursor(Qt.ArrowCursor))
+        return result
+    handles = _nevis_structural_handle_positions(element)
+    if not handles:
+        return result
+    # Scale: screen px per scene unit
+    scale = abs(float(self.transform().m11())) or 1.0
+    thresh = _T25_SNAP_THRESH_PX / scale
+    sx, sy = scene_pos.x(), scene_pos.y()
+    # Check handle proximity
+    _cursor_map = {
+        "tl": Qt.SizeFDiagCursor, "br": Qt.SizeFDiagCursor,
+        "tr": Qt.SizeBDiagCursor, "bl": Qt.SizeBDiagCursor,
+        "t":  Qt.SizeVerCursor,   "b":  Qt.SizeVerCursor,
+        "l":  Qt.SizeHorCursor,   "r":  Qt.SizeHorCursor,
+    }
+    for hname, (hx, hy) in handles.items():
+        if abs(sx - hx) <= thresh and abs(sy - hy) <= thresh:
+            self.viewport().setCursor(QCursor(_cursor_map.get(hname, Qt.ArrowCursor)))
+            return result
+    # Check if inside element bounding box → move cursor
+    xs = [p[0] for p in element.points]
+    ys = [p[1] for p in element.points]
+    if xs and ys and min(xs) <= sx <= max(xs) and min(ys) <= sy <= max(ys):
+        self.viewport().setCursor(QCursor(Qt.SizeAllCursor))
+    else:
+        self.viewport().setCursor(QCursor(Qt.ArrowCursor))
+    return result
+
+
+PreviewView.mouseMoveEvent = _nevis_t25_mouse_move
+
+
+# --- 25c: Edge-snap highlight — yellow tint when dragged edge aligns ---
+_T25_SNAP_TOL_MM = 50.0  # real mm tolerance for edge alignment
+
+
+def _nevis_t25_find_snap_edge(mainwin, moving_elem, handle, scene_pos):
+    """Return (snapped_pos, aligned) tuple. aligned=True triggers highlight."""
+    if not moving_elem or not moving_elem.points:
+        return scene_pos, False
+    tol = _T25_SNAP_TOL_MM
+    sx, sy = scene_pos
+    best_dist = tol
+    snapped = scene_pos
+    aligned = False
+    for elem in getattr(mainwin.model, "structural_elements", []):
+        if elem.id == moving_elem.id or not elem.points:
+            continue
+        xs = [p[0] for p in elem.points]
+        ys = [p[1] for p in elem.points]
+        ex0, ex1 = min(xs), max(xs)
+        ey0, ey1 = min(ys), max(ys)
+        # X alignment (left/right handles or all)
+        if handle in ("tl", "bl", "l"):
+            for ex in (ex0, ex1):
+                if abs(sx - ex) < best_dist:
+                    best_dist = abs(sx - ex); snapped = (ex, sy); aligned = True
+        elif handle in ("tr", "br", "r"):
+            for ex in (ex0, ex1):
+                if abs(sx - ex) < best_dist:
+                    best_dist = abs(sx - ex); snapped = (ex, sy); aligned = True
+        # Y alignment
+        if handle in ("tl", "tr", "t"):
+            for ey in (ey0, ey1):
+                if abs(sy - ey) < best_dist:
+                    best_dist = abs(sy - ey); snapped = (snapped[0], ey); aligned = True
+        elif handle in ("bl", "br", "b"):
+            for ey in (ey0, ey1):
+                if abs(sy - ey) < best_dist:
+                    best_dist = abs(sy - ey); snapped = (snapped[0], ey); aligned = True
+    return snapped, aligned
+
+
+def _nevis_t25_apply_highlight(view, aligned: bool) -> None:
+    """Tint the viewport yellow when edges are aligned."""
+    if aligned:
+        view.setStyleSheet("QGraphicsView { background: #FFFDE7; }")
+    else:
+        view.setStyleSheet("")
+
+
+# Patch the resize mouse-move to add highlight when edge aligns
+_T25_PREV_RESIZE_MOVE = PreviewView.mouseMoveEvent
+
+
+def _nevis_t25_resize_highlight_move(self, event):
+    result = _T25_PREV_RESIZE_MOVE(self, event)
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and (event.buttons() & Qt.LeftButton):
+        handle = transform.get("handle")
+        elem = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
+        if elem and handle:
+            pos = event.position() if hasattr(event, "position") else event.posF()
+            sp = self.mapToScene(int(pos.x()), int(pos.y()))
+            _, aligned = _nevis_t25_find_snap_edge(
+                self.mainwin, elem, handle, (sp.x(), sp.y()))
+            _nevis_t25_apply_highlight(self, aligned)
+    else:
+        _nevis_t25_apply_highlight(self, False)
+    return result
+
+
+PreviewView.mouseMoveEvent = _nevis_t25_resize_highlight_move
+
+# Clear highlight on release
+_T25_PREV_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_t25_release(self, event):
+    _nevis_t25_apply_highlight(self, False)
+    return _T25_PREV_RELEASE(self, event)
+
+
+PreviewView.mouseReleaseEvent = _nevis_t25_release
 
 
 # =============================================================================
