@@ -197,3 +197,58 @@ class StructuralElement:
 - Gypsum board: 12.5mm hoặc 15mm, thường 2 lớp ở vách chống cháy
 - 軽天 (keiten) ceiling: thanh C-channel treo từ slab, khoảng cách 303mm hoặc 455mm
 - SL = Structural Level = mặt trên sàn BT hoàn thiện = cốt ±0 của tầng
+
+---
+
+## TASK 11 — Mode switch MEP / Kết cấu `[x]`
+
+**Mục tiêu:** Chuyển đổi giữa 2 workspace rõ ràng, panel và toolbar thay đổi theo mode.
+
+**Yêu cầu:**
+1. Thêm 2 nút lớn ở đầu panel trái: **"MEP / Đường ống"** và **"Kết cấu"**
+2. Khi bật mode Kết cấu:
+   - Panel trái ẩn toàn bộ section MEP (thiết lập chung, vật liệu, cụm ống)
+   - Hiện section kết cấu: danh sách loại phần tử (Sàn/Dầm/Cột/Tường RC/Vách LGS/Trần), nút "Vẽ", nút "Xóa"
+   - JWW/Thao tác section ở dưới canvas ẩn đi
+3. Khi bật mode MEP: trở về giao diện hiện tại, ẩn section kết cấu
+4. Mode mặc định: MEP
+5. Lưu mode hiện tại vào project file, restore khi mở lại
+
+**Test file:** `tests/test_workspace_mode.py` (pure logic)
+- `get_default_mode()` → `"mep"`
+- Mode serialize/deserialize trong project payload
+
+---
+
+## TASK 12 — Grid snap + hiển thị lưới `[  ]`
+
+**Mục tiêu:** Vẽ kết cấu bắt điểm vào lưới cố định, không giật, chuẩn xác.
+
+**Yêu cầu:**
+1. Lưới mặc định: 303mm (1尺 Nhật). Cho phép chọn: 303 / 455 / 910 / tùy chỉnh mm
+2. Hiện lưới mờ trên canvas khi ở mode Kết cấu (chấm xám nhạt, không che bản nền)
+3. Khi vẽ hoặc kéo phần tử: snap tọa độ vào điểm lưới gần nhất
+4. Checkbox "Bật lưới" để tắt/bật
+5. Lưới tự scale theo zoom
+
+**Test file:** `tests/test_structural_geometry.py` (bổ sung)
+- `snap_to_grid(x, y, grid_mm) -> tuple` đã có — bổ sung test thêm
+- `grid_points_in_view(x0, y0, x1, y1, grid_mm, max_points=2000) -> list` — không vượt quá max_points
+
+---
+
+## TASK 13 — Căn tỷ lệ bản nền `[  ]`
+
+**Mục tiêu:** Người dùng click 2 điểm trên bản nền PDF/JWW, nhập khoảng cách thực → tự tính scale.
+
+**Yêu cầu:**
+1. Nút **"Căn tỷ lệ"** trên toolbar canvas (hiện ở cả 2 mode)
+2. Khi bấm: hướng dẫn "Click điểm 1..." → "Click điểm 2..." → dialog nhập khoảng cách thực (mm)
+3. Tính `scale = distance_real / distance_canvas` → lưu vào model
+4. Hiện tỷ lệ hiện tại ở góc canvas (ví dụ "1:50")
+5. Scale áp dụng cho tất cả tọa độ khi vẽ kết cấu
+
+**Test file:** `tests/test_scale_calibration.py`
+- `compute_scale(p1, p2, real_distance_mm) -> float`
+- `canvas_to_real(x, y, scale, origin) -> tuple`
+- `real_to_canvas(x, y, scale, origin) -> tuple`

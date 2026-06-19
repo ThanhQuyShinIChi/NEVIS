@@ -33,6 +33,7 @@ from modules.structural_geometry import nearest_snap_point, rect_from_two_points
 from modules.structural_input import rect_from_center_wl, validate_dimension
 from modules.structural_transform import move_element, resize_element
 from modules.stepped_slab import compute_stepped_slab_elevation, validate_stepped_slab_bounds
+from modules.workspace_mode import deserialize_workspace_mode, get_default_mode, serialize_workspace_mode
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
@@ -7872,6 +7873,7 @@ class MainWindow(QMainWindow):
             "version": 54,
             "model_schema_version": max(2, int(getattr(self.model, "model_schema_version", 1) or 1)),
             "lang": self.lang,
+            "workspace_mode": serialize_workspace_mode(getattr(self, "workspace_mode", get_default_mode()))["workspace_mode"],
             "nodes": {str(k): {"x": v.x, "y": v.y, "z": v.z, "level_id": v.level_id} for k, v in self.model.nodes.items()},
             "edges": [{"a": e.a, "b": e.b, "size": e.size, "material_override": e.material_override, "slope": e.slope, "vertical_type": e.vertical_type, "elevation_mode": e.elevation_mode, "system_type": e.system_type, "start_level_id": e.start_level_id, "end_level_id": e.end_level_id, "start_z": e.start_z, "end_z": e.end_z, "slope_percent": e.slope_percent, "elevation_locked": bool(e.elevation_locked)} for e in self.model.edges],
             "level_datums": {str(k): {"id": d.id, "name": d.name, "elevation_mm": d.elevation_mm, "datum_type": d.datum_type, "floor_index": d.floor_index, "description": d.description} for k, d in getattr(self.model, "level_datums", {}).items()},
@@ -7999,6 +8001,7 @@ class MainWindow(QMainWindow):
         self.preview_detail_mode = bool(st.get("detail_mode", False))
         if hasattr(self, "btn_detail_preview"):
             self.btn_detail_preview.setChecked(self.preview_detail_mode)
+        self.set_workspace_mode(deserialize_workspace_mode(data))
         self.current_project_path = path
         self.clear_measurements()
         self.refresh_all()
@@ -26083,6 +26086,11 @@ APP_TEXT.setdefault("vi", {}).update({
     "stepped_slab_outside": "Vùng giật cấp phải nằm trong sàn chính.",
     "stepped_slab_created": "Đã tạo sàn giật cấp: cao độ {elevation:g} mm",
     "stepped_slab_label": "Sàn giật cấp",
+    "workspace_mep": "MEP / Đường ống",
+    "workspace_structural": "Kết cấu",
+    "workspace_structural_group": "Kết cấu",
+    "workspace_draw": "Vẽ",
+    "workspace_delete": "Xóa",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "undo": "元に戻す",
@@ -26120,6 +26128,11 @@ APP_TEXT.setdefault("jp", {}).update({
     "stepped_slab_outside": "段差スラブは主スラブ内に配置してください。",
     "stepped_slab_created": "段差スラブを作成: 高さ {elevation:g} mm",
     "stepped_slab_label": "段差スラブ",
+    "workspace_mep": "MEP / 配管",
+    "workspace_structural": "構造",
+    "workspace_structural_group": "構造",
+    "workspace_draw": "作図",
+    "workspace_delete": "削除",
 })
 
 
@@ -26306,6 +26319,10 @@ def _nevis_structural_edit_dialog(self, width: float, length: float, center, ele
     type_combo = QComboBox(dialog)
     for element_type, label in _nevis_structural_type_labels(self).items():
         type_combo.addItem(label, element_type)
+    if element is None:
+        default_index = type_combo.findData(str(getattr(self, "structural_default_type", "slab")))
+        if default_index >= 0:
+            type_combo.setCurrentIndex(default_index)
     if element is not None:
         current_index = type_combo.findData(str(getattr(element, "element_type", "")))
         if current_index >= 0:
@@ -26555,6 +26572,45 @@ def _nevis_structural_build_ui(self):
     self.btn_stepped_slab.clicked.connect(self.start_stepped_slab)
     self._preview_primary_widgets.append(self.btn_stepped_slab)
     _nevis_update_stepped_slab_button(self)
+
+    left_layout = self.left_scroll.widget().layout()
+    self.workspace_switch = QWidget(self.left_scroll.widget())
+    switch_layout = QHBoxLayout(self.workspace_switch)
+    switch_layout.setContentsMargins(0, 0, 0, 0)
+    switch_layout.setSpacing(6)
+    self.btn_workspace_mep = QPushButton(self.tr("workspace_mep"))
+    self.btn_workspace_structural = QPushButton(self.tr("workspace_structural"))
+    self.workspace_mode_group = QButtonGroup(self)
+    self.workspace_mode_group.setExclusive(True)
+    for button in (self.btn_workspace_mep, self.btn_workspace_structural):
+        button.setCheckable(True)
+        button.setMinimumHeight(40)
+        button.setStyleSheet("font-weight:700; font-size:12px;")
+        self.workspace_mode_group.addButton(button)
+        switch_layout.addWidget(button)
+    self.btn_workspace_mep.clicked.connect(lambda checked: checked and self.set_workspace_mode("mep"))
+    self.btn_workspace_structural.clicked.connect(lambda checked: checked and self.set_workspace_mode("structural"))
+    left_layout.insertWidget(1, self.workspace_switch)
+
+    self.g_structural_workspace = QGroupBox(self.tr("workspace_structural_group"))
+    structural_layout = QVBoxLayout(self.g_structural_workspace)
+    structural_layout.setContentsMargins(8, 14, 8, 8)
+    self.cmb_structural_type = QComboBox(self.g_structural_workspace)
+    for element_type, label in _nevis_structural_type_labels(self).items():
+        self.cmb_structural_type.addItem(label, element_type)
+    structural_layout.addWidget(self.cmb_structural_type)
+    structural_buttons = QHBoxLayout()
+    self.btn_workspace_draw = QPushButton(self.tr("workspace_draw"))
+    self.btn_workspace_delete = QPushButton(self.tr("workspace_delete"))
+    self.btn_workspace_draw.setMinimumHeight(34)
+    self.btn_workspace_delete.setMinimumHeight(34)
+    self.btn_workspace_draw.clicked.connect(self.start_workspace_structural_draw)
+    self.btn_workspace_delete.clicked.connect(self.delete_selected_structural_element)
+    structural_buttons.addWidget(self.btn_workspace_draw)
+    structural_buttons.addWidget(self.btn_workspace_delete)
+    structural_layout.addLayout(structural_buttons)
+    left_layout.insertWidget(2, self.g_structural_workspace)
+    self.set_workspace_mode(get_default_mode())
     self._preview_toolbar_compact = None
     self._preview_toolbar_narrow = None
     self._set_preview_toolbar_compact(False, False)
@@ -26784,9 +26840,76 @@ def _nevis_structural_refresh_language(self, *args, **kwargs):
         self.act_redo.setText(self.tr("redo"))
     if hasattr(self, "btn_stepped_slab"):
         self.btn_stepped_slab.setText(self.tr("stepped_slab_command"))
+    if hasattr(self, "btn_workspace_mep"):
+        self.btn_workspace_mep.setText(self.tr("workspace_mep"))
+        self.btn_workspace_structural.setText(self.tr("workspace_structural"))
+        self.g_structural_workspace.setTitle(self.tr("workspace_structural_group"))
+        self.btn_workspace_draw.setText(self.tr("workspace_draw"))
+        self.btn_workspace_delete.setText(self.tr("workspace_delete"))
+        current_type = self.cmb_structural_type.currentData()
+        self.cmb_structural_type.clear()
+        for element_type, label in _nevis_structural_type_labels(self).items():
+            self.cmb_structural_type.addItem(label, element_type)
+        current_index = self.cmb_structural_type.findData(current_type)
+        self.cmb_structural_type.setCurrentIndex(max(0, current_index))
     if hasattr(self, "preview"):
         self.preview.draw_model()
     return result
+
+
+def _nevis_set_workspace_mode(self, mode: str) -> None:
+    mode = deserialize_workspace_mode({"workspace_mode": mode})
+    self.workspace_mode = mode
+    structural = mode == "structural"
+    if hasattr(self, "btn_workspace_mep"):
+        self.btn_workspace_mep.blockSignals(True)
+        self.btn_workspace_structural.blockSignals(True)
+        self.btn_workspace_mep.setChecked(not structural)
+        self.btn_workspace_structural.setChecked(structural)
+        self.btn_workspace_mep.blockSignals(False)
+        self.btn_workspace_structural.blockSignals(False)
+    for widget_name in ("g_common", "g_sel"):
+        widget = getattr(self, widget_name, None)
+        if widget is not None:
+            widget.setVisible(not structural)
+    if hasattr(self, "g_structural_workspace"):
+        self.g_structural_workspace.setVisible(structural)
+    if hasattr(self, "g_jww"):
+        self.g_jww.setVisible(not structural)
+    if hasattr(self, "btn_structural_draw"):
+        self.btn_structural_draw.setVisible(structural)
+    if hasattr(self, "btn_stepped_slab"):
+        self.btn_stepped_slab.setVisible(structural)
+    if not structural:
+        if hasattr(self, "btn_structural_draw") and self.btn_structural_draw.isChecked():
+            self.btn_structural_draw.setChecked(False)
+        self.stepped_slab_draw_mode = False
+        self.pending_stepped_slab = None
+        if hasattr(self, "preview"):
+            self.preview.setDragMode(QGraphicsView.ScrollHandDrag)
+            self.preview.viewport().setCursor(Qt.OpenHandCursor)
+    if hasattr(self, "preview"):
+        self.preview.draw_model()
+
+
+def _nevis_start_workspace_structural_draw(self) -> None:
+    self.structural_default_type = str(self.cmb_structural_type.currentData() or "slab")
+    self.btn_structural_draw.setChecked(True)
+
+
+def _nevis_delete_selected_structural_element(self) -> None:
+    element_id = getattr(self, "selected_structural_id", None)
+    if element_id is None:
+        return
+    elements = list(getattr(self.model, "structural_elements", []) or [])
+    remaining = [item for item in elements if int(getattr(item, "id", -1)) != int(element_id)]
+    if len(remaining) == len(elements):
+        return
+    self.save_undo_snapshot("delete_structural_element")
+    self.model.structural_elements = remaining
+    self.selected_structural_id = None
+    self.preview.draw_model()
+    _nevis_update_stepped_slab_button(self)
 
 
 MainWindow._build_ui = _nevis_structural_build_ui
@@ -26797,6 +26920,9 @@ MainWindow._structural_edit_existing = _nevis_structural_edit_existing
 MainWindow.start_stepped_slab = _nevis_start_stepped_slab
 MainWindow._stepped_slab_parameters_dialog = _nevis_stepped_slab_parameters_dialog
 MainWindow._create_stepped_slab_from_drag = _nevis_create_stepped_slab_from_drag
+MainWindow.set_workspace_mode = _nevis_set_workspace_mode
+MainWindow.start_workspace_structural_draw = _nevis_start_workspace_structural_draw
+MainWindow.delete_selected_structural_element = _nevis_delete_selected_structural_element
 MainWindow.save_undo_snapshot = _nevis_task9_save_undo
 MainWindow.undo_last_action = _nevis_task9_undo
 MainWindow.redo_last_action = _nevis_task9_redo
