@@ -151,7 +151,7 @@ class StructuralElement:
 
 ---
 
-## TASK 10 — Sàn giật cấp (stepped slab) `[  ]`
+## TASK 10 — Sàn giật cấp (stepped slab) `[x]`
 
 **Mục tiêu:** Tạo sàn giật cấp bên trong vùng sàn chính.
 
