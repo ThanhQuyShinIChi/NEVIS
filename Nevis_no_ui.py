@@ -28863,6 +28863,381 @@ PreviewView.wheelEvent = _nevis_t23e_wheel_event
 
 
 # =============================================================================
+# TASK 24a — Properties Panel (panel thuộc tính bên phải, 220px)
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "prop_title":        "Thuộc tính",
+    "prop_no_selection": "Chưa chọn đối tượng",
+    "prop_label_lbl":    "Nhãn",
+    "prop_width":        "Rộng W",
+    "prop_length":       "Dài L",
+    "prop_height":       "Cao / Dày H",
+    "prop_top_elev":     "Mặt trên (SL±mm)",
+    "prop_bot_elev":     "Đáy (SL±mm)",
+    "prop_ceil_bot":     "Đáy trần (SL+mm)",
+    "prop_update":       "Cập nhật",
+    "prop_delete":       "Xóa",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "prop_title":        "属性",
+    "prop_no_selection": "未選択",
+    "prop_label_lbl":    "ラベル",
+    "prop_width":        "幅 W",
+    "prop_length":       "奥行 L",
+    "prop_height":       "高さ / 厚さ H",
+    "prop_top_elev":     "天端 (SL±mm)",
+    "prop_bot_elev":     "底面 (SL±mm)",
+    "prop_ceil_bot":     "天井底 (SL+mm)",
+    "prop_update":       "更新",
+    "prop_delete":       "削除",
+})
+
+_T24A_ELEV_FIELDS_BY_TYPE = {
+    "slab":     ("top",),
+    "beam":     ("bot",),
+    "column":   ("top",),
+    "wall_rc":  ("top",),
+    "wall_lgs": ("top",),
+    "ceiling":  ("ceil",),
+}
+
+_T24A_PREV_BUILD_UI = MainWindow._build_ui
+
+
+def _nevis_t24a_build_ui(self):
+    result = _T24A_PREV_BUILD_UI(self)
+    if not hasattr(self, "tabs"):
+        return result
+    # Build properties widget
+    tab = QWidget()
+    vlay = QVBoxLayout(tab)
+    vlay.setContentsMargins(8, 8, 8, 8)
+    vlay.setSpacing(6)
+
+    self._prop_lbl_status = QLabel(self.tr("prop_no_selection"))
+    self._prop_lbl_status.setStyleSheet("color:#555; font-style:italic; font-size:11px;")
+    self._prop_lbl_status.setWordWrap(True)
+    vlay.addWidget(self._prop_lbl_status)
+
+    sep = QFrame()
+    sep.setFrameShape(QFrame.HLine)
+    sep.setStyleSheet("color:#CCC;")
+    vlay.addWidget(sep)
+
+    # Scrollable form
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QScrollArea.NoFrame)
+    form_container = QWidget()
+    form = QFormLayout(form_container)
+    form.setContentsMargins(0, 0, 0, 0)
+    form.setSpacing(5)
+
+    self._prop_cmb_type = QComboBox(form_container)
+    for etype, label in _nevis_structural_type_labels(self).items():
+        self._prop_cmb_type.addItem(label, etype)
+    form.addRow(self.tr("structural_type_label"), self._prop_cmb_type)
+
+    self._prop_edit_label = QLineEdit(form_container)
+    form.addRow(self.tr("prop_label_lbl"), self._prop_edit_label)
+
+    self._prop_edit_width  = QLineEdit(form_container)
+    self._prop_edit_length = QLineEdit(form_container)
+    self._prop_edit_height = QLineEdit(form_container)
+    form.addRow("{} (mm)".format(self.tr("prop_width")),  self._prop_edit_width)
+    form.addRow("{} (mm)".format(self.tr("prop_length")), self._prop_edit_length)
+    form.addRow("{} (mm)".format(self.tr("prop_height")), self._prop_edit_height)
+
+    self._prop_lbl_top_elev  = QLabel("{} (mm)".format(self.tr("prop_top_elev")))
+    self._prop_edit_top_elev = QLineEdit(form_container)
+    form.addRow(self._prop_lbl_top_elev, self._prop_edit_top_elev)
+
+    self._prop_lbl_bot_elev  = QLabel("{} (mm)".format(self.tr("prop_bot_elev")))
+    self._prop_edit_bot_elev = QLineEdit(form_container)
+    form.addRow(self._prop_lbl_bot_elev, self._prop_edit_bot_elev)
+
+    self._prop_lbl_ceil = QLabel("{} (mm)".format(self.tr("prop_ceil_bot")))
+    self._prop_edit_ceil = QLineEdit(form_container)
+    form.addRow(self._prop_lbl_ceil, self._prop_edit_ceil)
+
+    scroll.setWidget(form_container)
+    vlay.addWidget(scroll, 1)
+
+    # Action buttons
+    btn_row = QHBoxLayout()
+    self._prop_btn_update = QPushButton(self.tr("prop_update"))
+    self._prop_btn_delete = QPushButton(self.tr("prop_delete"))
+    self._prop_btn_delete.setStyleSheet("color:#C62828;")
+    btn_row.addWidget(self._prop_btn_update)
+    btn_row.addWidget(self._prop_btn_delete)
+    vlay.addLayout(btn_row)
+
+    # Wire signals
+    self._prop_cmb_type.currentIndexChanged.connect(
+        lambda: _t24a_update_field_visibility(self))
+    self._prop_btn_update.clicked.connect(lambda: _t24a_apply_update(self))
+    self._prop_btn_delete.clicked.connect(self._structural_delete_selected_and_refresh)
+
+    # Initially hide form until something is selected
+    form_container.setVisible(False)
+    self._prop_form_container = form_container
+    self._prop_btn_update.setVisible(False)
+    self._prop_btn_delete.setVisible(False)
+
+    self._prop_tab_index = self.tabs.addTab(tab, self.tr("prop_title"))
+    return result
+
+
+def _t24a_update_field_visibility(mainwin) -> None:
+    etype = str(mainwin._prop_cmb_type.currentData() or "slab")
+    show = _T24A_ELEV_FIELDS_BY_TYPE.get(etype, ("top",))
+    mainwin._prop_lbl_top_elev.setVisible("top" in show)
+    mainwin._prop_edit_top_elev.setVisible("top" in show)
+    mainwin._prop_lbl_bot_elev.setVisible("bot" in show)
+    mainwin._prop_edit_bot_elev.setVisible("bot" in show)
+    mainwin._prop_lbl_ceil.setVisible("ceil" in show)
+    mainwin._prop_edit_ceil.setVisible("ceil" in show)
+
+
+def _t24a_update_properties_panel(mainwin) -> None:
+    """Refresh the properties panel from the currently selected element."""
+    if not hasattr(mainwin, "_prop_lbl_status"):
+        return
+    elem_id = getattr(mainwin, "selected_structural_id", None)
+    element = _nevis_structural_find_element(mainwin, elem_id) if elem_id is not None else None
+    if element is None:
+        mainwin._prop_lbl_status.setText(mainwin.tr("prop_no_selection"))
+        mainwin._prop_form_container.setVisible(False)
+        mainwin._prop_btn_update.setVisible(False)
+        mainwin._prop_btn_delete.setVisible(False)
+        return
+    mainwin._prop_lbl_status.setText(
+        "{} — ID {}".format(
+            _nevis_structural_type_labels(mainwin).get(element.element_type, element.element_type),
+            element.id,
+        )
+    )
+    mainwin._prop_form_container.setVisible(True)
+    mainwin._prop_btn_update.setVisible(True)
+    mainwin._prop_btn_delete.setVisible(True)
+    # Fill values
+    idx = mainwin._prop_cmb_type.findData(element.element_type)
+    if idx >= 0:
+        mainwin._prop_cmb_type.blockSignals(True)
+        mainwin._prop_cmb_type.setCurrentIndex(idx)
+        mainwin._prop_cmb_type.blockSignals(False)
+    mainwin._prop_edit_label.setText(str(getattr(element, "label", "") or ""))
+    mainwin._prop_edit_width.setText("{:g}".format(float(getattr(element, "width", 0.0) or 0.0)))
+    mainwin._prop_edit_length.setText("{:g}".format(float(getattr(element, "length", 0.0) or 0.0)))
+    mainwin._prop_edit_height.setText("{:g}".format(float(getattr(element, "height", 0.0) or 0.0)))
+    mainwin._prop_edit_top_elev.setText("{:g}".format(float(getattr(element, "top_elevation", 0.0) or 0.0)))
+    mainwin._prop_edit_bot_elev.setText("{:g}".format(float(getattr(element, "bottom_elevation", 0.0) or 0.0)))
+    mainwin._prop_edit_ceil.setText("{:g}".format(float(getattr(element, "top_elevation", 2400.0) or 2400.0)))
+    _t24a_update_field_visibility(mainwin)
+
+
+def _t24a_apply_update(mainwin) -> None:
+    """Read form values and apply to the selected element."""
+    elem_id = getattr(mainwin, "selected_structural_id", None)
+    element = _nevis_structural_find_element(mainwin, elem_id) if elem_id is not None else None
+    if element is None:
+        return
+    etype = str(mainwin._prop_cmb_type.currentData() or element.element_type)
+    show = _T24A_ELEV_FIELDS_BY_TYPE.get(etype, ("top",))
+    def _float(edit, default=0.0):
+        try:
+            return float(edit.text().strip())
+        except (ValueError, TypeError):
+            return default
+    new_w = _float(mainwin._prop_edit_width, element.width)
+    new_l = _float(mainwin._prop_edit_length, element.length)
+    new_h = _float(mainwin._prop_edit_height, element.height)
+    if "top" in show:
+        top_e = _float(mainwin._prop_edit_top_elev, element.top_elevation)
+        bot_e = top_e - new_h
+    elif "bot" in show:
+        bot_e = _float(mainwin._prop_edit_bot_elev, element.bottom_elevation)
+        top_e = bot_e + new_h
+    elif "ceil" in show:
+        top_e = _float(mainwin._prop_edit_ceil, element.top_elevation)
+        bot_e = top_e - new_h
+    else:
+        top_e = element.top_elevation
+        bot_e = element.bottom_elevation
+    mainwin.save_undo_snapshot("prop_update_structural")
+    element.element_type  = etype
+    element.label         = mainwin._prop_edit_label.text().strip() or element.label
+    element.width         = max(new_w, 1.0)
+    element.length        = max(new_l, 1.0)
+    element.height        = max(new_h, 0.0)
+    element.top_elevation = top_e
+    element.bottom_elevation = bot_e
+    from modules.structural_input import rect_from_center_wl
+    xs = [p[0] for p in element.points]
+    ys = [p[1] for p in element.points]
+    if xs and ys:
+        cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+        element.points = rect_from_center_wl(cx, cy, element.width, element.length)
+    mainwin.preview.draw_model()
+    mainwin.lbl_status.setText(mainwin.tr("structural_updated").format(
+        label=element.label, width=element.width, length=element.length, height=element.height))
+
+
+def _nevis_t24a_structural_delete_and_refresh(self) -> None:
+    _nevis_delete_selected_structural_element(self)
+    self.selected_structural_id = None
+    self.preview.draw_model()
+
+
+MainWindow._build_ui = _nevis_t24a_build_ui
+MainWindow._structural_delete_selected_and_refresh = _nevis_t24a_structural_delete_and_refresh
+
+# Hook into draw_model to refresh panel
+_T24A_PREV_DRAW_MODEL = PreviewView.draw_model
+
+
+def _nevis_t24a_draw_model(self, *args, **kwargs):
+    result = _T24A_PREV_DRAW_MODEL(self, *args, **kwargs)
+    if getattr(self.mainwin, "workspace_mode", "mep") == "structural":
+        _t24a_update_properties_panel(self.mainwin)
+    return result
+
+
+PreviewView.draw_model = _nevis_t24a_draw_model
+
+# Patch set_workspace_mode to show/hide properties tab
+_T24A_PREV_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t24a_set_workspace_mode(self, mode: str) -> None:
+    _T24A_PREV_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "mep") == "structural"
+    tabs = getattr(self, "tabs", None)
+    if tabs is None:
+        return
+    pc_idx = getattr(self, "_prop_tab_index", -1)
+    if pc_idx >= 0:
+        _t23c_set_tab_visible(tabs, pc_idx, structural)
+    if structural and pc_idx >= 0:
+        tabs.setCurrentIndex(pc_idx)
+
+
+MainWindow.set_workspace_mode = _nevis_t24a_set_workspace_mode
+
+
+# =============================================================================
+# TASK 24b — Tooltip kích thước realtime khi kéo vẽ / resize
+# =============================================================================
+_T24B_PREV_MOUSE_MOVE    = PreviewView.mouseMoveEvent
+_T24B_PREV_MOUSE_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_t24b_mouse_move(self, event):
+    result = _T24B_PREV_MOUSE_MOVE(self, event)
+    # Show dimension tooltip during draw drag
+    start = getattr(self, "_structural_drag_start", None)
+    if start is not None and getattr(self.mainwin, "structural_draw_mode", False):
+        end = _nevis_structural_raw_scene_point(self, event)
+        w = abs(float(end[0]) - float(start[0]))
+        h = abs(float(end[1]) - float(start[1]))
+        QToolTip.showText(
+            QCursor.pos(),
+            "W: {:.0f} mm\nL: {:.0f} mm".format(w, h),
+            self,
+        )
+        return result
+    # Show tooltip during resize drag
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and (event.buttons() & Qt.LeftButton):
+        elem = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
+        if elem is not None:
+            QToolTip.showText(
+                QCursor.pos(),
+                "W: {:.0f} mm\nL: {:.0f} mm".format(
+                    float(getattr(elem, "width", 0.0) or 0.0),
+                    float(getattr(elem, "length", 0.0) or 0.0),
+                ),
+                self,
+            )
+        return result
+    QToolTip.hideText()
+    return result
+
+
+def _nevis_t24b_mouse_release(self, event):
+    QToolTip.hideText()
+    return _T24B_PREV_MOUSE_RELEASE(self, event)
+
+
+PreviewView.mouseMoveEvent    = _nevis_t24b_mouse_move
+PreviewView.mouseReleaseEvent = _nevis_t24b_mouse_release
+
+
+# =============================================================================
+# TASK 24c — Lưới chấm mờ bằng drawBackground (thay thế scene-dot approach)
+# =============================================================================
+
+def _nevis_t24c_draw_background(self, painter, rect):
+    """Override QGraphicsView.drawBackground: draw dotted grid in scene coords."""
+    super(PreviewView, self).drawBackground(painter, rect)
+    if getattr(self.mainwin, "workspace_mode", "mep") != "structural":
+        return
+    if not bool(getattr(self.mainwin, "structural_grid_enabled", True)):
+        return
+    grid_mm = float(getattr(self.mainwin, "structural_grid_mm", 303.0) or 303.0)
+    drawing_scale = float(getattr(self.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    spacing = grid_mm / drawing_scale  # scene units per grid line
+    if spacing < 0.5:
+        return
+    # Guard against absurdly fine grid (> 2000 lines visible)
+    visible_w = rect.width()
+    visible_h = rect.height()
+    if visible_w / spacing > 2000 or visible_h / spacing > 2000:
+        return
+    pen = QPen(QColor(165, 175, 188, 75))
+    pen.setStyle(Qt.DotLine)
+    pen.setCosmetic(True)  # 1px regardless of zoom
+    painter.setPen(pen)
+    import math as _math
+    x_start = _math.floor(rect.left() / spacing) * spacing
+    y_start = _math.floor(rect.top()  / spacing) * spacing
+    x = x_start
+    while x <= rect.right() + spacing:
+        painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
+        x += spacing
+    y = y_start
+    while y <= rect.bottom() + spacing:
+        painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
+        y += spacing
+
+
+PreviewView.drawBackground = _nevis_t24c_draw_background
+
+
+# Suppress old scene-dot grid so we don't double-draw
+def _nevis_t24c_draw_structural_grid_noop(view) -> None:
+    pass  # replaced by drawBackground above
+
+
+_nevis_draw_structural_grid = _nevis_t24c_draw_structural_grid_noop
+
+
+# Wire chk_structural_grid toggle to also invalidate the scene background
+_T24C_PREV_UPDATE_GRID = MainWindow.update_structural_grid_settings
+
+
+def _nevis_t24c_update_grid_settings(self) -> None:
+    _T24C_PREV_UPDATE_GRID(self)
+    if hasattr(self, "preview"):
+        self.preview.scene.invalidate(
+            self.preview.sceneRect(), QGraphicsScene.BackgroundLayer
+        )
+
+
+MainWindow.update_structural_grid_settings = _nevis_t24c_update_grid_settings
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
