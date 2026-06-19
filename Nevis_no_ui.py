@@ -29583,9 +29583,16 @@ def _nevis_t26_stepped_slab_dialog(mainwin, width: float, length: float) -> tupl
     return sp_offset.value(), sp_thick.value(), sp_over.value()
 
 
+def _nevis_t26_clip_to_parent(parent, sx, sy, ex, ey):
+    """Clip child rect to stay within parent bounds. Returns (sx, sy, ex, ey) clipped."""
+    from modules.structural_geometry import rect_bounds
+    px0, py0, px1, py1 = rect_bounds(parent.points)
+    return (max(sx, px0), max(sy, py0), min(ex, px1), min(ey, py1))
+
+
 def _nevis_t26_create_stepped_slab(mainwin, start, end) -> bool:
-    from modules.stepped_slab import validate_stepped_slab_bounds, compute_stepped_slab_elevation
-    from modules.stepped_slab import stepped_slab_overlap_region
+    from modules.stepped_slab import compute_stepped_slab_elevation
+    from modules.structural_element import StructuralElement
 
     parent = _nevis_structural_find_element(mainwin, getattr(mainwin, "_stepped_slab_parent_id", -1))
     if parent is None:
@@ -29594,15 +29601,10 @@ def _nevis_t26_create_stepped_slab(mainwin, start, end) -> bool:
 
     sx, sy = min(start[0], end[0]), min(start[1], end[1])
     ex, ey = max(start[0], end[0]), max(start[1], end[1])
+    # Clip to parent bounds automatically
+    sx, sy, ex, ey = _nevis_t26_clip_to_parent(parent, sx, sy, ex, ey)
     raw_w, raw_l = ex - sx, ey - sy
-    if raw_w < 1.0 and raw_l < 1.0:
-        return False
-
-    # Validate child is inside parent
-    child_pts = [(sx, sy), (ex, sy), (ex, ey), (sx, ey)]
-    from modules.structural_element import StructuralElement
-    child_tmp = StructuralElement(id=0, element_type="slab", points=child_pts, width=raw_w, length=raw_l)
-    if not validate_stepped_slab_bounds(parent, child_tmp):
+    if raw_w < 1.0 or raw_l < 1.0:
         mainwin.lbl_status.setText(mainwin.tr("stepped_slab_outside"))
         return False
 
@@ -29651,6 +29653,15 @@ def _nevis_t26_mouse_release(self, event):
             self._stepped_slab_drag_start = None
             _nevis_t17_remove_snap_marker(self)
             _nevis_structural_remove_preview(self)
+            # Remove previews
+            for attr in ("_stepped_preview_item", "_stepped_parent_highlight"):
+                it = getattr(self, attr, None)
+                if it is not None:
+                    try:
+                        self.scene.removeItem(it)
+                    except RuntimeError:
+                        pass
+                    setattr(self, attr, None)
             _nevis_t26_create_stepped_slab(self.mainwin, start, end)
             self.mainwin.stepped_slab_draw_mode = False
             event.accept()
@@ -29689,7 +29700,18 @@ def _nevis_t26_mouse_move(self, event):
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and (event.buttons() & Qt.LeftButton):
         start = getattr(self, "_stepped_slab_drag_start", None)
         if start is not None:
-            end = _nevis_structural_event_scene_point(self, event)
+            end_raw = _nevis_structural_event_scene_point(self, event)
+            # Constrain end point to parent slab bounds
+            parent_id = getattr(self.mainwin, "_stepped_slab_parent_id", -1)
+            parent = _nevis_structural_find_element(self.mainwin, parent_id)
+            if parent and parent.points:
+                from modules.structural_geometry import rect_bounds
+                px0, py0, px1, py1 = rect_bounds(parent.points)
+                ex = max(px0, min(end_raw[0], px1))
+                ey = max(py0, min(end_raw[1], py1))
+                end = (ex, ey)
+            else:
+                end = end_raw
             canvas_s = _nevis_real_to_canvas_point(self.mainwin, start)
             canvas_e = _nevis_real_to_canvas_point(self.mainwin, end)
             rect = QRectF(QPointF(*canvas_s), QPointF(*canvas_e)).normalized()
@@ -29699,19 +29721,30 @@ def _nevis_t26_mouse_move(self, event):
                 brush = QBrush(QColor(75, 125, 180, 60))
                 self._stepped_preview_item = self.scene.addRect(rect, pen, brush)
                 self._stepped_preview_item.setZValue(50)
+                # Highlight parent boundary in orange while dragging
+                if parent and parent.points:
+                    from modules.structural_geometry import rect_bounds
+                    bx0, by0, bx1, by1 = rect_bounds(parent.points)
+                    cs = _nevis_real_to_canvas_point(self.mainwin, (bx0, by0))
+                    ce = _nevis_real_to_canvas_point(self.mainwin, (bx1, by1))
+                    pr = QRectF(QPointF(*cs), QPointF(*ce)).normalized()
+                    p_pen = QPen(QColor(210, 100, 0), 2.0, Qt.SolidLine)
+                    self._stepped_parent_highlight = self.scene.addRect(pr, p_pen, QBrush(Qt.NoBrush))
+                    self._stepped_parent_highlight.setZValue(49)
             else:
                 try:
                     item.setRect(rect)
                 except RuntimeError:
                     self._stepped_preview_item = None
     elif not getattr(self.mainwin, "stepped_slab_draw_mode", False):
-        item = getattr(self, "_stepped_preview_item", None)
-        if item is not None:
-            try:
-                self.scene.removeItem(item)
-            except RuntimeError:
-                pass
-            self._stepped_preview_item = None
+        for attr in ("_stepped_preview_item", "_stepped_parent_highlight"):
+            it = getattr(self, attr, None)
+            if it is not None:
+                try:
+                    self.scene.removeItem(it)
+                except RuntimeError:
+                    pass
+                setattr(self, attr, None)
     return result
 
 
