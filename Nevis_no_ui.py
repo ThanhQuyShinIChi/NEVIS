@@ -26651,6 +26651,21 @@ def _nevis_structural_draw_items(view) -> None:
         item = view.scene.addPolygon(polygon, pen, brush)
         item.setZValue(12)
         item.setData(0, ("structural_element", int(element.id)))
+        # Draw overlap zone for stepped slabs
+        if bool(getattr(element, "is_stepped", False)):
+            from modules.stepped_slab import stepped_slab_overlap_region
+            ovw = float(getattr(element, "overlap_width", 0.0) or 0.0)
+            if ovw > 0:
+                ov_pts = stepped_slab_overlap_region(element, element, ovw)
+                if ov_pts:
+                    ov_canvas = [_nevis_real_to_canvas_point(view.mainwin, p) for p in ov_pts]
+                    ov_poly = QPolygonF([QPointF(x, y) for x, y in ov_canvas])
+                    ov_pen = QPen(QColor(220, 140, 0), 1.5, Qt.DotLine)
+                    ov_brush = QBrush(QColor(255, 200, 0, 40))
+                    ov_item = view.scene.addPolygon(ov_poly, ov_pen, ov_brush)
+                    ov_item.setZValue(13)
+                    ov_item.setAcceptedMouseButtons(Qt.NoButton)
+                    ov_item.setData(0, "structural_overlap_zone")
         item_bounds = item.sceneBoundingRect()
         bounds = item_bounds if bounds is None else bounds.united(item_bounds)
         if bool(getattr(element, "is_stepped", False)):
@@ -29465,6 +29480,242 @@ APP_TEXT.setdefault("vi", {}).update({
 APP_TEXT.setdefault("jp", {}).update({
     "draw_hint_structural": "ドラッグして描画 • Escape/右クリック: キャンセル",
 })
+
+
+# =============================================================================
+# TASK 26 — Stepped Slab UI (sàn giật cấp / 段差スラブ)
+#   Button in structural panel → select parent slab → drag child region
+#   → dialog (offset/thickness/overlap) → create StructuralElement(is_stepped=True)
+# =============================================================================
+
+APP_TEXT.setdefault("vi", {}).update({
+    "stepped_slab_command":       "Sàn giật cấp",
+    "stepped_slab_title":         "Sàn giật cấp",
+    "stepped_slab_offset":        "Lệch SL (mm)",
+    "stepped_slab_thickness":     "Dày BT (mm)",
+    "stepped_slab_overlap":       "Chồng lấn (mm)",
+    "stepped_slab_draw_hint":     "Kéo vùng con bên trong sàn chính.",
+    "stepped_slab_select_parent": "Chọn sàn chính trước.",
+    "stepped_slab_outside":       "Vùng giật cấp phải nằm trong sàn chính.",
+    "stepped_slab_created":       "Đã tạo sàn giật cấp: lệch {offset:g} mm",
+    "stepped_slab_label":         "Sàn giật cấp",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "stepped_slab_command":       "段差スラブ",
+    "stepped_slab_title":         "段差スラブ作成",
+    "stepped_slab_offset":        "SL差 (mm)",
+    "stepped_slab_thickness":     "コンクリート厚 (mm)",
+    "stepped_slab_overlap":       "重ね幅 (mm)",
+    "stepped_slab_draw_hint":     "主スラブ内に子領域を描画",
+    "stepped_slab_select_parent": "まず主スラブを選択してください",
+    "stepped_slab_outside":       "段差スラブは主スラブ内に配置してください",
+    "stepped_slab_created":       "段差スラブ作成: 差 {offset:g} mm",
+    "stepped_slab_label":         "段差スラブ",
+})
+
+_T26_PREV_BUILD_UI = MainWindow._build_ui
+
+
+def _nevis_t26_build_ui(self):
+    result = _T26_PREV_BUILD_UI(self)
+    # Add "段差スラブ" button to the structural workspace group
+    grp = getattr(self, "g_structural_workspace", None)
+    if grp is None:
+        return result
+    layout = grp.layout()
+    btn = QPushButton(self.tr("stepped_slab_command"))
+    btn.setFixedHeight(24)
+    btn.setStyleSheet("font-size:11px; padding:0 4px; background:#e8f0fe; color:#1a3a6b;")
+    btn.setToolTip(self.tr("stepped_slab_draw_hint"))
+    btn.clicked.connect(self._on_stepped_slab_btn_clicked)
+    self._btn_stepped_slab = btn
+    layout.addWidget(btn)
+    return result
+
+
+MainWindow._build_ui = _nevis_t26_build_ui
+
+
+def _nevis_t26_on_stepped_slab_btn_clicked(self) -> None:
+    """Enter stepped-slab draw mode: require a parent slab to be selected first."""
+    elem_id = getattr(self, "selected_structural_id", None)
+    parent = _nevis_structural_find_element(self, elem_id) if elem_id is not None else None
+    if parent is None or getattr(parent, "element_type", "") != "slab":
+        self.lbl_status.setText(self.tr("stepped_slab_select_parent"))
+        return
+    self._stepped_slab_parent_id = int(elem_id)
+    self.stepped_slab_draw_mode = True
+    self.structural_draw_mode = False
+    self.lbl_status.setText(self.tr("stepped_slab_draw_hint"))
+
+
+MainWindow._on_stepped_slab_btn_clicked = _nevis_t26_on_stepped_slab_btn_clicked
+
+
+def _nevis_t26_stepped_slab_dialog(mainwin, width: float, length: float) -> tuple | None:
+    """Show dialog: offset, thickness, overlap_width. Returns (offset, thickness, overlap) or None."""
+    dlg = QDialog(mainwin)
+    dlg.setWindowTitle(mainwin.tr("stepped_slab_title"))
+    dlg.setMinimumWidth(280)
+    form = QFormLayout(dlg)
+    form.setContentsMargins(12, 12, 12, 12)
+    form.setSpacing(8)
+
+    sp_offset = QDoubleSpinBox(); sp_offset.setRange(1, 9999); sp_offset.setValue(50); sp_offset.setSuffix(" mm")
+    sp_thick  = QDoubleSpinBox(); sp_thick.setRange(1, 9999);  sp_thick.setValue(150);  sp_thick.setSuffix(" mm")
+    sp_over   = QDoubleSpinBox(); sp_over.setRange(0, 9999);   sp_over.setValue(60);   sp_over.setSuffix(" mm")
+
+    form.addRow(mainwin.tr("stepped_slab_offset"),    sp_offset)
+    form.addRow(mainwin.tr("stepped_slab_thickness"), sp_thick)
+    form.addRow(mainwin.tr("stepped_slab_overlap"),   sp_over)
+
+    info = QLabel(f"W={width:.0f} mm  L={length:.0f} mm")
+    info.setStyleSheet("color:#666; font-size:10px;")
+    form.addRow(info)
+
+    btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    btn_box.accepted.connect(dlg.accept)
+    btn_box.rejected.connect(dlg.reject)
+    form.addRow(btn_box)
+
+    if dlg.exec() != QDialog.Accepted:
+        return None
+    return sp_offset.value(), sp_thick.value(), sp_over.value()
+
+
+def _nevis_t26_create_stepped_slab(mainwin, start, end) -> bool:
+    from modules.stepped_slab import validate_stepped_slab_bounds, compute_stepped_slab_elevation
+    from modules.stepped_slab import stepped_slab_overlap_region
+
+    parent = _nevis_structural_find_element(mainwin, getattr(mainwin, "_stepped_slab_parent_id", -1))
+    if parent is None:
+        mainwin.lbl_status.setText(mainwin.tr("stepped_slab_select_parent"))
+        return False
+
+    sx, sy = min(start[0], end[0]), min(start[1], end[1])
+    ex, ey = max(start[0], end[0]), max(start[1], end[1])
+    raw_w, raw_l = ex - sx, ey - sy
+    if raw_w < 1.0 and raw_l < 1.0:
+        return False
+
+    # Validate child is inside parent
+    child_pts = [(sx, sy), (ex, sy), (ex, ey), (sx, ey)]
+    from modules.structural_element import StructuralElement
+    child_tmp = StructuralElement(id=0, element_type="slab", points=child_pts, width=raw_w, length=raw_l)
+    if not validate_stepped_slab_bounds(parent, child_tmp):
+        mainwin.lbl_status.setText(mainwin.tr("stepped_slab_outside"))
+        return False
+
+    result = _nevis_t26_stepped_slab_dialog(mainwin, raw_w, raw_l)
+    if result is None:
+        return False
+    offset_mm, thickness_mm, overlap_mm = result
+
+    parent_top = float(getattr(parent, "top_elevation", 0.0) or 0.0)
+    top_elev = compute_stepped_slab_elevation(parent_top, offset_mm)
+    bot_elev = top_elev - thickness_mm
+
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(e, "id", 0)) for e in elements), default=0) + 1
+    stepped = StructuralElement(
+        id=next_id,
+        element_type="slab",
+        label=mainwin.tr("stepped_slab_label"),
+        points=child_pts,
+        width=raw_w,
+        length=raw_l,
+        height=thickness_mm,
+        top_elevation=top_elev,
+        bottom_elevation=bot_elev,
+        is_stepped=True,
+        parent_slab_id=int(parent.id),
+        overlap_width=overlap_mm,
+    )
+    mainwin.save_undo_snapshot("create_stepped_slab")
+    mainwin.model.structural_elements.append(stepped)
+    mainwin.selected_structural_id = stepped.id
+    mainwin.preview.draw_model()
+    mainwin.lbl_status.setText(mainwin.tr("stepped_slab_created").format(offset=offset_mm))
+    return True
+
+
+# Patch mouseReleaseEvent to handle stepped slab draw mode
+_T26_PREV_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_t26_mouse_release(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        start = getattr(self, "_stepped_slab_drag_start", None)
+        if start is not None:
+            end = _nevis_structural_event_scene_point(self, event)
+            self._stepped_slab_drag_start = None
+            _nevis_t17_remove_snap_marker(self)
+            _nevis_structural_remove_preview(self)
+            _nevis_t26_create_stepped_slab(self.mainwin, start, end)
+            self.mainwin.stepped_slab_draw_mode = False
+            event.accept()
+            return
+    return _T26_PREV_RELEASE(self, event)
+
+
+PreviewView.mouseReleaseEvent = _nevis_t26_mouse_release
+
+# Patch mousePressEvent: start drag for stepped slab mode
+_T26_PREV_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_t26_mouse_press(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        self._stepped_slab_drag_start = _nevis_structural_event_scene_point(self, event)
+        event.accept()
+        return
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.RightButton:
+        self._stepped_slab_drag_start = None
+        _nevis_structural_remove_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        event.accept()
+        return
+    return _T26_PREV_PRESS(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_t26_mouse_press
+
+# Patch mouseMoveEvent: show preview rectangle
+_T26_PREV_MOVE = PreviewView.mouseMoveEvent
+
+
+def _nevis_t26_mouse_move(self, event):
+    result = _T26_PREV_MOVE(self, event)
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and (event.buttons() & Qt.LeftButton):
+        start = getattr(self, "_stepped_slab_drag_start", None)
+        if start is not None:
+            end = _nevis_structural_event_scene_point(self, event)
+            canvas_s = _nevis_real_to_canvas_point(self.mainwin, start)
+            canvas_e = _nevis_real_to_canvas_point(self.mainwin, end)
+            rect = QRectF(QPointF(*canvas_s), QPointF(*canvas_e)).normalized()
+            item = getattr(self, "_stepped_preview_item", None)
+            if item is None:
+                pen = QPen(QColor(55, 95, 145), 1.5, Qt.DashLine)
+                brush = QBrush(QColor(75, 125, 180, 60))
+                self._stepped_preview_item = self.scene.addRect(rect, pen, brush)
+                self._stepped_preview_item.setZValue(50)
+            else:
+                try:
+                    item.setRect(rect)
+                except RuntimeError:
+                    self._stepped_preview_item = None
+    elif not getattr(self.mainwin, "stepped_slab_draw_mode", False):
+        item = getattr(self, "_stepped_preview_item", None)
+        if item is not None:
+            try:
+                self.scene.removeItem(item)
+            except RuntimeError:
+                pass
+            self._stepped_preview_item = None
+    return result
+
+
+PreviewView.mouseMoveEvent = _nevis_t26_mouse_move
 
 
 # =============================================================================
