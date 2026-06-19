@@ -21,7 +21,7 @@ Task 1–5 đã hoàn thành. 104 tests pass. Không sửa các file elevation.
 
 ---
 
-## TASK 6 — Data model cho StructuralElement `[x]`
+## TASK 6 — Data model cho StructuralElement `[  ]`
 
 **Mục tiêu:** Định nghĩa dataclass cho các phần tử kết cấu, lưu/load được trong file project.
 
@@ -84,7 +84,7 @@ class StructuralElement:
 
 ---
 
-## TASK 7 — Vẽ Rectangle trên canvas (công cụ vẽ kết cấu) `[x]`
+## TASK 7 — Vẽ Rectangle trên canvas (công cụ vẽ kết cấu) `[  ]`
 
 **Mục tiêu:** Người dùng click-drag trên canvas để vẽ hình chữ nhật đại diện cho phần tử kết cấu.
 
@@ -113,7 +113,7 @@ class StructuralElement:
 
 ---
 
-## TASK 8 — Nhập kích thước trực tiếp (W, L, H, C) `[x]`
+## TASK 8 — Nhập kích thước trực tiếp (W, L, H, C) `[  ]`
 
 **Mục tiêu:** Ngoài kéo chuột, người dùng có thể nhập số liệu chính xác.
 
@@ -133,7 +133,7 @@ class StructuralElement:
 
 ---
 
-## TASK 9 — Di chuyển và resize phần tử kết cấu `[x]`
+## TASK 9 — Di chuyển và resize phần tử kết cấu `[  ]`
 
 **Mục tiêu:** Sau khi vẽ, người dùng có thể kéo để di chuyển hoặc kéo góc để resize.
 
@@ -151,7 +151,7 @@ class StructuralElement:
 
 ---
 
-## TASK 10 — Sàn giật cấp (stepped slab) `[x]`
+## TASK 10 — Sàn giật cấp (stepped slab) `[  ]`
 
 **Mục tiêu:** Tạo sàn giật cấp bên trong vùng sàn chính.
 
@@ -200,7 +200,7 @@ class StructuralElement:
 
 ---
 
-## TASK 11 — Mode switch MEP / Kết cấu `[x]`
+## TASK 11 — Mode switch MEP / Kết cấu `[  ]`
 
 **Mục tiêu:** Chuyển đổi giữa 2 workspace rõ ràng, panel và toolbar thay đổi theo mode.
 
@@ -220,7 +220,7 @@ class StructuralElement:
 
 ---
 
-## TASK 12 — Grid snap + hiển thị lưới `[x]`
+## TASK 12 — Grid snap + hiển thị lưới `[  ]`
 
 **Mục tiêu:** Vẽ kết cấu bắt điểm vào lưới cố định, không giật, chuẩn xác.
 
@@ -237,7 +237,7 @@ class StructuralElement:
 
 ---
 
-## TASK 13 — Căn tỷ lệ bản nền `[x]`
+## TASK 13 — Căn tỷ lệ bản nền `[  ]`
 
 **Mục tiêu:** Người dùng click 2 điểm trên bản nền PDF/JWW, nhập khoảng cách thực → tự tính scale.
 
@@ -252,3 +252,163 @@ class StructuralElement:
 - `compute_scale(p1, p2, real_distance_mm) -> float`
 - `canvas_to_real(x, y, scale, origin) -> tuple`
 - `real_to_canvas(x, y, scale, origin) -> tuple`
+
+---
+
+## TASK 14 — Trục tọa độ 通り芯 (Toori-shin) `[  ]`
+
+**Mục tiêu:** Hệ lưới trục chuẩn Nhật hiển thị trên canvas, snap kết cấu vào giao điểm trục.
+
+**Yêu cầu:**
+
+1. Tạo `modules/grid_axis.py`:
+```python
+@dataclass
+class GridAxis:
+    name: str          # "X1", "X2", "Y1", "Y2"...
+    direction: str     # "X" (dọc) hoặc "Y" (ngang)
+    position: float    # tọa độ canvas (mm)
+```
+
+2. UI nhập trục (trong panel Kết cấu):
+   - Danh sách trục X: tên + khoảng cách (mm). Ví dụ: X1=0, X2=3640, X3=7280
+   - Danh sách trục Y: tương tự
+   - Nút "Thêm trục", "Xóa trục"
+
+3. Hiển thị trên canvas:
+   - Đường trục màu đỏ mờ (opacity 40%), nét đứt
+   - Nhãn tên trục (X1, X2...) ở đầu đường, font nhỏ màu đỏ
+   - Hiện khi ở mode Kết cấu, ẩn khi mode MEP
+
+4. Snap vào giao điểm trục khi vẽ/kéo phần tử kết cấu (tolerance 15px)
+
+5. Lưu/load trục trong file project
+
+**Test file:** `tests/test_grid_axis.py`
+- Round-trip serialize/deserialize GridAxis
+- `find_nearest_axis_intersection(x, y, axes, tolerance) -> tuple | None`
+- `build_axis_intersections(x_axes, y_axes) -> list[tuple]`
+
+---
+
+## TASK 15 — Mặt cắt với cao trình GL/SL/FL/CH `[  ]`
+
+**Mục tiêu:** Cửa sổ mặt cắt nổi hiển thị kết cấu và cao trình chuẩn Nhật.
+
+**Hệ ký hiệu cao trình:**
+| Ký hiệu | Ý nghĩa |
+|---------|---------|
+| GL | Ground Level — mặt đất tự nhiên |
+| SL | Structural Level — mặt sàn BT thô = ±0 |
+| FL | Finish Level — mặt sàn hoàn thiện = SL + lớp hoàn thiện |
+| CH | Clear Height — từ FL lên đến đáy trần thạch cao |
+
+**Yêu cầu:**
+
+1. Nút **"Mặt cắt"** trên toolbar canvas (cả 2 mode)
+2. Khi bấm: vẽ đường cắt trên mặt bằng (click 2 điểm)
+3. Cửa sổ mặt cắt nổi hiện ra:
+   - Trục đứng bên trái hiện ký hiệu: `GL`, `SL ±0`, `SL+xxx`, `SL-xxx`, `FL`, `CH↕`
+   - Phần tử kết cấu (sàn/dầm/tường) hiện đúng vị trí cao độ
+   - Đường ống MEP nếu cắt qua cũng hiện (màu khác)
+4. Tự động tính và hiện:
+   - FL = SL + finish_thickness (mặc định 30mm, chỉnh được)
+   - CH = đáy trần (ceiling bottom_elevation) - FL
+   - Hiện số CH bằng mũi tên 2 đầu ↕ kèm giá trị mm
+
+**Test file:** `tests/test_section_view.py`
+- `compute_fl(sl, finish_thickness) -> float`
+- `compute_ch(ceiling_bottom, fl) -> float`
+- `elements_intersect_cut_line(elements, p1, p2) -> list`
+- `sort_elements_by_elevation(elements) -> list`
+
+---
+
+## TASK 16 — Vẽ kết cấu mượt (bỏ auto-snap khi kéo) `[  ]`
+
+**Mục tiêu:** Khi kéo chuột vẽ sàn/dầm/cột không bị giật. Hiện tại snap vào lưới mỗi pixel → giật.
+
+**Yêu cầu:**
+
+1. Trong `mouseMoveEvent` của canvas khi đang vẽ kết cấu (draw mode):
+   - **KHÔNG** snap tọa độ khi đang kéo → cứ để chuột chạy tự do mượt mà
+   - Chỉ dùng tọa độ canvas thô (không qua `snap_to_grid`)
+
+2. Trong `mouseReleaseEvent` (khi thả chuột):
+   - **Lúc này mới** snap điểm cuối vào lưới gần nhất
+   - Gọi `snap_to_grid(x, y, grid_mm)` từ `modules.structural_geometry`
+
+3. Điểm đầu (click lần đầu / `mousePressEvent`):
+   - Snap ngay vào lưới khi click
+
+4. Preview rubber-band (hình chữ nhật tạm khi kéo):
+   - Vẫn vẽ theo tọa độ chuột thực, không snap → nhìn mượt
+
+**Tìm trong Nevis_no_ui.py:**
+- Grep `mouseMoveEvent` gần từ khóa `structural` hoặc `draw_rect`
+- Grep `snap_to_grid` để tìm chỗ đang gọi — comment out hoặc chuyển sang `mouseReleaseEvent`
+
+**Test file:** Không cần test mới (logic snap đã có test ở `test_structural_geometry.py`)
+
+---
+
+## TASK 17 — Snap thủ công bằng chuột phải `[  ]`
+
+**Mục tiêu:** Khi đang vẽ kết cấu, click chuột phải vào góc/cạnh của phần tử kết cấu khác hoặc đường nền → bắt điểm chính xác.
+
+**Workflow:**
+
+1. Đang trong draw mode (đang kéo vẽ)
+2. User click chuột phải (**không phải trái**)
+3. Hệ thống tìm điểm snap gần nhất trong bán kính 20px:
+   - Góc của các `StructuralElement` đã vẽ (lấy từ `element.points`)
+   - Giao điểm trục tọa độ X/Y (nếu có `grid_axes`)
+4. Nếu tìm thấy → **gán điểm đó** làm điểm hiện tại (thay tọa độ chuột)
+5. Hiện dấu chấm tròn xanh nhỏ để báo "đã bắt điểm"
+
+**Tìm trong Nevis_no_ui.py:**
+- Grep `contextMenuEvent` hoặc `RightButton` trong canvas
+- Thêm logic snap vào đó, gọi `nearest_snap_point(x, y, candidates, tolerance=20)` từ `modules.structural_geometry`
+- `candidates` = tất cả `points` của mọi `StructuralElement` trong `self.model.structural_elements`
+
+**Test file:** Không cần test mới (logic đã có ở `test_structural_geometry.py`)
+
+---
+
+## TASK 18 — Hiển thị trục tọa độ 通り芯 trên canvas `[  ]`
+
+**Mục tiêu:** Vẽ đường trục X1/X2/Y1/Y2 lên canvas như bản vẽ Nhật.
+
+**Yêu cầu:**
+
+1. Trong `paintEvent` hoặc hàm vẽ canvas của mode Kết cấu:
+   - Lấy danh sách trục từ `getattr(self.model, "grid_axes", [])`
+   - Mỗi `GridAxis` có: `name`, `direction` ("X" hoặc "Y"), `position` (tọa độ canvas mm)
+
+2. Vẽ từng trục:
+   - **Trục X** (direction="X"): đường thẳng đứng từ trên xuống dưới toàn canvas
+   - **Trục Y** (direction="Y"): đường nằm ngang toàn canvas
+   - Màu: đỏ mờ, opacity 40% — `QColor(220, 50, 50, 100)`
+   - Nét đứt: `Qt.DashLine`
+   - Độ dày: 1px
+
+3. Nhãn tên trục (X1, X2, Y1...):
+   - Vị trí: đầu trên của trục X, đầu trái của trục Y
+   - Font nhỏ, màu đỏ đậm `QColor(180, 0, 0)`
+   - Kích thước chữ: 10pt
+
+4. Ẩn khi mode MEP, hiện khi mode Kết cấu
+
+5. Lưu/load `grid_axes` vào project:
+   - `_project_payload()`: thêm `"grid_axes": [grid_axis_to_dict(a) for a in getattr(self.model, "grid_axes", [])]`
+   - `open_project()`: `self.model.grid_axes = [grid_axis_from_dict(d) for d in data.get("grid_axes", [])]`
+   - Import: `from modules.grid_axis import GridAxis, grid_axis_to_dict, grid_axis_from_dict`
+
+6. UI nhập trục đơn giản (trong panel Kết cấu):
+   - Nút **"+ Thêm trục X"** → dialog hỏi tên (X1) và vị trí (mm)
+   - Nút **"+ Thêm trục Y"** → tương tự
+   - List hiện các trục đã có, click để xóa
+
+**Tọa độ:** `position` là tọa độ canvas (mm). Khi vẽ cần convert sang pixel theo scale hiện tại của canvas.
+
+**Test file:** Không cần test mới (logic đã có ở `test_grid_axis.py`)
