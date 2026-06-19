@@ -29794,6 +29794,292 @@ PreviewView.mouseMoveEvent = _nevis_t26_mouse_move
 
 
 # =============================================================================
+# TASK 27 — Polygon stepped slab + auto-merge same-param regions
+# =============================================================================
+
+APP_TEXT.setdefault("vi", {}).update({
+    "stepped_poly_hint":   "Bấm từng điểm • Double-click/Enter: đóng hình • Escape: hủy",
+    "stepped_poly_min":    "Cần ít nhất 3 điểm.",
+    "stepped_poly_merge":  "Đã gộp {n} vùng giật cấp thành 1 đa giác.",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "stepped_poly_hint":   "クリックで点を追加 • ダブルクリック/Enter: 閉じる • Escape: キャンセル",
+    "stepped_poly_min":    "最低3点が必要です。",
+    "stepped_poly_merge":  "{n}つの段差領域を1つのポリゴンに統合しました。",
+})
+
+# Switch stepped slab mode from rect-drag to polygon-click
+# The button now enters polygon mode; each left-click adds a vertex,
+# double-click or Enter closes and creates the element.
+
+_T27_POLY_PREVIEW_ITEMS = "_stepped_poly_preview_items"
+_T27_POLY_POINTS        = "_stepped_poly_points"
+_T27_POLY_LINE_ITEMS    = "_stepped_poly_line_items"
+_T27_POLY_CLOSE_ITEM    = "_stepped_poly_close_line"
+
+
+def _nevis_t27_clear_poly_preview(view):
+    for attr in (_T27_POLY_PREVIEW_ITEMS, _T27_POLY_LINE_ITEMS, _T27_POLY_CLOSE_ITEM):
+        items = getattr(view, attr, None)
+        if items is None:
+            continue
+        lst = items if isinstance(items, list) else [items]
+        for it in lst:
+            try:
+                view.scene.removeItem(it)
+            except RuntimeError:
+                pass
+        setattr(view, attr, None)
+    setattr(view, _T27_POLY_POINTS, [])
+
+
+def _nevis_t27_update_poly_preview(view):
+    pts = getattr(view, _T27_POLY_POINTS, [])
+    # Remove old line items
+    old = getattr(view, _T27_POLY_LINE_ITEMS, None) or []
+    for it in old:
+        try:
+            view.scene.removeItem(it)
+        except RuntimeError:
+            pass
+    lines = []
+    pen = QPen(QColor(55, 95, 145), 1.5, Qt.DashLine)
+    dot_pen = QPen(QColor(55, 95, 145), 1.0)
+    dot_brush = QBrush(QColor(55, 95, 145))
+    for i, pt in enumerate(pts):
+        cx, cy = _nevis_real_to_canvas_point(view.mainwin, pt)
+        dot = view.scene.addEllipse(cx - 4, cy - 4, 8, 8, dot_pen, dot_brush)
+        dot.setZValue(52)
+        lines.append(dot)
+        if i > 0:
+            px, py = _nevis_real_to_canvas_point(view.mainwin, pts[i - 1])
+            line = view.scene.addLine(px, py, cx, cy, pen)
+            line.setZValue(51)
+            lines.append(line)
+    # Closing line (first→last) in lighter pen
+    close_pen = QPen(QColor(55, 95, 145, 100), 1.0, Qt.DotLine)
+    old_close = getattr(view, _T27_POLY_CLOSE_ITEM, None)
+    if old_close is not None:
+        try:
+            view.scene.removeItem(old_close)
+        except RuntimeError:
+            pass
+    close_item = None
+    if len(pts) >= 3:
+        p0x, p0y = _nevis_real_to_canvas_point(view.mainwin, pts[0])
+        plx, ply = _nevis_real_to_canvas_point(view.mainwin, pts[-1])
+        close_item = view.scene.addLine(plx, ply, p0x, p0y, close_pen)
+        close_item.setZValue(51)
+    setattr(view, _T27_POLY_LINE_ITEMS, lines)
+    setattr(view, _T27_POLY_CLOSE_ITEM, close_item)
+
+
+def _nevis_t27_try_merge(mainwin, new_elem):
+    """Union new_elem with any existing stepped slabs on same parent with same params.
+    Returns the final element (merged or original) and removes merged originals."""
+    try:
+        from shapely.geometry import Polygon as _SPoly
+        from shapely.ops import unary_union as _union
+    except ImportError:
+        return new_elem
+    existing = list(getattr(mainwin.model, "structural_elements", []) or [])
+    candidates = [
+        e for e in existing
+        if e.id != new_elem.id
+        and bool(getattr(e, "is_stepped", False))
+        and int(getattr(e, "parent_slab_id", -1)) == int(getattr(new_elem, "parent_slab_id", -2))
+        and abs(float(getattr(e, "top_elevation", 0)) - float(getattr(new_elem, "top_elevation", 0))) < 1.0
+        and abs(float(getattr(e, "height", 0)) - float(getattr(new_elem, "height", 0))) < 1.0
+        and abs(float(getattr(e, "overlap_width", 0)) - float(getattr(new_elem, "overlap_width", 0))) < 1.0
+        and len(getattr(e, "points", [])) >= 3
+    ]
+    if not candidates:
+        return new_elem
+    # Build union polygon
+    polys = [_SPoly(e.points) for e in candidates if _SPoly(e.points).is_valid]
+    polys.append(_SPoly(new_elem.points) if len(new_elem.points) >= 3 else None)
+    polys = [p for p in polys if p is not None and p.is_valid]
+    merged = _union(polys)
+    if merged.is_empty or not hasattr(merged, "exterior"):
+        return new_elem
+    # Extract merged polygon coords
+    merged_pts = [(round(x, 1), round(y, 1)) for x, y in list(merged.exterior.coords)[:-1]]
+    from modules.structural_element import StructuralElement, structural_element_to_dict, structural_element_from_dict
+    d = structural_element_to_dict(new_elem)
+    d["points"] = merged_pts
+    d["width"] = merged.bounds[2] - merged.bounds[0]
+    d["length"] = merged.bounds[3] - merged.bounds[1]
+    merged_elem = structural_element_from_dict(d)
+    # Remove old candidates from model
+    ids_to_remove = {e.id for e in candidates}
+    mainwin.model.structural_elements = [
+        e for e in mainwin.model.structural_elements if e.id not in ids_to_remove
+    ]
+    n = len(candidates)
+    if n > 0:
+        mainwin.lbl_status.setText(mainwin.tr("stepped_poly_merge").format(n=n + 1))
+    return merged_elem
+
+
+# Patch _nevis_t26_create_stepped_slab to call merge after creation
+_T27_PREV_CREATE = _nevis_t26_create_stepped_slab
+
+
+def _nevis_t27_create_stepped_slab(mainwin, start_or_pts, end=None) -> bool:
+    """Handles both rect-drag (start, end) and polygon-click (list of pts, None)."""
+    from modules.stepped_slab import compute_stepped_slab_elevation
+    from modules.structural_element import StructuralElement
+
+    parent = _nevis_structural_find_element(mainwin, getattr(mainwin, "_stepped_slab_parent_id", -1))
+    if parent is None:
+        mainwin.lbl_status.setText(mainwin.tr("stepped_slab_select_parent"))
+        return False
+
+    if end is None:
+        # Polygon mode: start_or_pts is a list of real-world (x, y) points
+        raw_pts = list(start_or_pts)
+        if len(raw_pts) < 3:
+            mainwin.lbl_status.setText(mainwin.tr("stepped_poly_min"))
+            return False
+        from shapely.geometry import Polygon as _P
+        sp = _P(raw_pts)
+        bounds = sp.bounds  # (minx, miny, maxx, maxy)
+        raw_w = bounds[2] - bounds[0]
+        raw_l = bounds[3] - bounds[1]
+        child_pts = raw_pts
+    else:
+        # Rect mode (legacy): delegate to original
+        return _T27_PREV_CREATE(mainwin, start_or_pts, end)
+
+    result = _nevis_t26_stepped_slab_dialog(mainwin, raw_w, raw_l)
+    if result is None:
+        return False
+    offset_mm, thickness_mm, overlap_mm = result
+
+    parent_top = float(getattr(parent, "top_elevation", 0.0) or 0.0)
+    top_elev = compute_stepped_slab_elevation(parent_top, offset_mm)
+    bot_elev = top_elev - thickness_mm
+
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(e, "id", 0)) for e in elements), default=0) + 1
+    stepped = StructuralElement(
+        id=next_id,
+        element_type="slab",
+        label=mainwin.tr("stepped_slab_label"),
+        points=child_pts,
+        width=raw_w,
+        length=raw_l,
+        height=thickness_mm,
+        top_elevation=top_elev,
+        bottom_elevation=bot_elev,
+        is_stepped=True,
+        parent_slab_id=int(parent.id),
+        overlap_width=overlap_mm,
+    )
+    mainwin.save_undo_snapshot("create_stepped_slab")
+    mainwin.model.structural_elements.append(stepped)
+    # Auto-merge with same-param stepped slabs
+    merged = _nevis_t27_try_merge(mainwin, stepped)
+    if merged is not stepped:
+        mainwin.model.structural_elements = [
+            e if e.id != stepped.id else merged
+            for e in mainwin.model.structural_elements
+        ]
+    mainwin.selected_structural_id = merged.id
+    mainwin.preview.draw_model()
+    mainwin.lbl_status.setText(mainwin.tr("stepped_slab_created").format(offset=offset_mm))
+    return True
+
+
+# Patch mousePressEvent to handle polygon-click mode (single click = add point)
+_T27_PREV_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_t27_mouse_press(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        pt = _nevis_t26_raw_scene_point(self, event)
+        pts = getattr(self, _T27_POLY_POINTS, None)
+        if pts is None:
+            setattr(self, _T27_POLY_POINTS, [])
+            pts = getattr(self, _T27_POLY_POINTS)
+        pts.append(pt)
+        _t26_log(f"T27 POLY: added point {pt}, total={len(pts)}")
+        _nevis_t27_update_poly_preview(self)
+        event.accept()
+        return
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.RightButton:
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        event.accept()
+        return
+    return _T27_PREV_PRESS(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_t27_mouse_press
+
+
+# Double-click closes the polygon
+_T27_PREV_DCLICK = getattr(PreviewView, "mouseDoubleClickEvent", None)
+
+
+def _nevis_t27_double_click(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        pts = list(getattr(self, _T27_POLY_POINTS, []) or [])
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        if len(pts) >= 3:
+            _nevis_t27_create_stepped_slab(self.mainwin, pts, None)
+        else:
+            self.mainwin.lbl_status.setText(self.mainwin.tr("stepped_poly_min"))
+        event.accept()
+        return
+    if _T27_PREV_DCLICK:
+        return _T27_PREV_DCLICK(self, event)
+
+
+PreviewView.mouseDoubleClickEvent = _nevis_t27_double_click
+
+
+# Enter key also closes polygon
+_T27_PREV_KEY = PreviewView.keyPressEvent
+
+
+def _nevis_t27_key_press(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+        pts = list(getattr(self, _T27_POLY_POINTS, []) or [])
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        if len(pts) >= 3:
+            _nevis_t27_create_stepped_slab(self.mainwin, pts, None)
+        else:
+            self.mainwin.lbl_status.setText(self.mainwin.tr("stepped_poly_min"))
+        event.accept()
+        return
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.key() == Qt.Key_Escape:
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        event.accept()
+        return
+    return _T27_PREV_KEY(self, event)
+
+
+PreviewView.keyPressEvent = _nevis_t27_key_press
+
+# Update status hint when mode starts
+_T27_PREV_BTN_CLICK = MainWindow._on_stepped_slab_btn_clicked
+
+
+def _nevis_t27_btn_click(self):
+    _T27_PREV_BTN_CLICK(self)
+    if getattr(self, "stepped_slab_draw_mode", False):
+        self.lbl_status.setText(self.tr("stepped_poly_hint"))
+        setattr(self.preview, _T27_POLY_POINTS, [])
+
+
+MainWindow._on_stepped_slab_btn_clicked = _nevis_t27_btn_click
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
