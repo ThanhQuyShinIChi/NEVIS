@@ -26794,9 +26794,10 @@ def _nevis_structural_build_ui(self):
     _nevis_update_stepped_slab_button(self)
 
     left_layout = self.left_scroll.widget().layout()
-    self.workspace_switch = QWidget(self.left_scroll.widget())
+    # Workspace toggle — lives OUTSIDE the scroll area so it's always visible
+    self.workspace_switch = QWidget(self.left_shell)
     switch_layout = QHBoxLayout(self.workspace_switch)
-    switch_layout.setContentsMargins(0, 0, 0, 0)
+    switch_layout.setContentsMargins(4, 4, 4, 4)
     switch_layout.setSpacing(6)
     self.btn_workspace_mep = QPushButton(self.tr("workspace_mep"))
     self.btn_workspace_structural = QPushButton(self.tr("workspace_structural"))
@@ -26804,13 +26805,17 @@ def _nevis_structural_build_ui(self):
     self.workspace_mode_group.setExclusive(True)
     for button in (self.btn_workspace_mep, self.btn_workspace_structural):
         button.setCheckable(True)
-        button.setMinimumHeight(40)
+        button.setMinimumHeight(36)
         button.setStyleSheet("font-weight:700; font-size:12px;")
         self.workspace_mode_group.addButton(button)
         switch_layout.addWidget(button)
     self.btn_workspace_mep.clicked.connect(lambda checked: checked and self.set_workspace_mode("mep"))
     self.btn_workspace_structural.clicked.connect(lambda checked: checked and self.set_workspace_mode("structural"))
-    left_layout.insertWidget(1, self.workspace_switch)
+    # Insert above the scroll area (index 0 in left_shell_layout)
+    _lsl = self.left_shell.layout()
+    _lsl.insertWidget(0, self.workspace_switch)
+    _lsl.setStretch(0, 0)  # workspace_switch: fixed height
+    _lsl.setStretch(1, 1)  # left_scroll: expand
 
     self.g_structural_workspace = QGroupBox(self.tr("workspace_structural_group"))
     structural_layout = QVBoxLayout(self.g_structural_workspace)
