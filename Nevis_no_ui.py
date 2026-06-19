@@ -31,7 +31,11 @@ from modules.elevation_display import compute_edge_slope
 from modules.structural_element import StructuralElement
 from modules.structural_geometry import grid_points_in_view, nearest_snap_point, rect_from_two_points, snap_to_grid
 from modules.grid_axis import GridAxis, build_axis_intersections, find_nearest_axis_intersection, grid_axis_from_dict, grid_axis_to_dict
-from modules.section_view import compute_ch, compute_fl, elements_intersect_cut_line, sort_elements_by_elevation
+from modules.section_view import (
+    ElevationMarker, build_standard_markers, compute_ch, compute_fl,
+    elements_intersect_cut_line, format_elevation_label,
+    section_marker_from_dict, section_marker_to_dict, sort_elements_by_elevation,
+)
 from modules.structural_input import rect_from_center_wl, validate_dimension
 from modules.structural_transform import move_element, resize_element
 from modules.stepped_slab import compute_stepped_slab_elevation, validate_stepped_slab_bounds
@@ -26268,6 +26272,74 @@ def _nevis_structural_raw_scene_point(view, event) -> tuple[float, float]:
     return _nevis_canvas_to_real_point(view.mainwin, (scene_pt.x(), scene_pt.y()))
 
 
+def _nevis_structural_right_snap_or_snap(view, event) -> tuple[float, float]:
+    """At release: use manually-snapped point (Task 17) if available, else grid-snap."""
+    pending = getattr(view, "_structural_right_snap", None)
+    if pending is not None:
+        view._structural_right_snap = None
+        _nevis_t17_remove_snap_marker(view)
+        return pending
+    return _nevis_structural_event_scene_point(view, event)
+
+
+def _nevis_t17_snap_candidates(view) -> list[tuple[float, float]]:
+    """Collect all snap candidates: element corners + axis intersections."""
+    candidates: list[tuple[float, float]] = []
+    for elem in getattr(view.mainwin.model, "structural_elements", []):
+        for pt in getattr(elem, "points", []):
+            candidates.append((float(pt[0]), float(pt[1])))
+    axes = list(getattr(view.mainwin.model, "grid_axes", []) or [])
+    x_axes = [a for a in axes if a.direction == "X"]
+    y_axes = [a for a in axes if a.direction == "Y"]
+    for xa in x_axes:
+        for ya in y_axes:
+            candidates.append((xa.position, ya.position))
+    return candidates
+
+
+def _nevis_t17_remove_snap_marker(view) -> None:
+    marker = getattr(view, "_t17_snap_marker", None)
+    view._t17_snap_marker = None
+    if marker is not None and marker.scene() is not None:
+        marker.scene().removeItem(marker)
+
+
+def _nevis_t17_right_click_snap(view, event) -> bool:
+    """Handle right-click snap during active draw drag. Returns True if handled."""
+    drag_active = (
+        getattr(view.mainwin, "structural_draw_mode", False)
+        and getattr(view, "_structural_drag_start", None) is not None
+    )
+    if not drag_active:
+        return False
+    raw = _nevis_structural_raw_scene_point(view, event)
+    scale = abs(float(view.transform().m11())) or 1.0
+    tolerance_real = (20.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    candidates = _nevis_t17_snap_candidates(view)
+    snapped = nearest_snap_point(raw[0], raw[1], candidates, tolerance_real)
+    if snapped is None:
+        return False
+    view._structural_right_snap = snapped
+    # Update preview rectangle
+    start = view._structural_drag_start
+    item = getattr(view, "_structural_preview_item", None)
+    if item is not None:
+        canvas_start = _nevis_real_to_canvas_point(view.mainwin, start)
+        canvas_end = _nevis_real_to_canvas_point(view.mainwin, snapped)
+        item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+    # Show green snap indicator
+    _nevis_t17_remove_snap_marker(view)
+    cx, cy = _nevis_real_to_canvas_point(view.mainwin, snapped)
+    r = 6.0 / scale
+    marker = view.scene.addEllipse(
+        cx - r, cy - r, r * 2, r * 2,
+        QPen(QColor(20, 170, 80), 2.0 / scale), QBrush(Qt.NoBrush),
+    )
+    marker.setZValue(1500)
+    view._t17_snap_marker = marker
+    return True
+
+
 def _nevis_structural_remove_preview(view) -> None:
     item = getattr(view, "_structural_preview_item", None)
     view._structural_preview_item = None
@@ -26816,7 +26888,7 @@ def _nevis_structural_mouse_press(self, event):
             event.accept()
             return
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
-        start = _nevis_structural_raw_scene_point(self, event)
+        start = _nevis_structural_event_scene_point(self, event)
         self._stepped_slab_drag_start = start
         _nevis_stepped_slab_remove_preview(self)
         preview_pen = QPen(QColor(35, 105, 175), 2.0, Qt.DashLine)
@@ -26829,13 +26901,16 @@ def _nevis_structural_mouse_press(self, event):
         event.accept()
         return
     if getattr(self.mainwin, "structural_draw_mode", False) and event.button() == Qt.LeftButton:
-        start = _nevis_structural_raw_scene_point(self, event)
+        start = _nevis_structural_event_scene_point(self, event)
         self._structural_drag_start = start
         _nevis_structural_remove_preview(self)
         preview_pen = QPen(QColor(45, 115, 190), 2.0, Qt.DashLine)
         canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
         self._structural_preview_item = self.scene.addRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_start)), preview_pen)
         self._structural_preview_item.setZValue(1000)
+        event.accept()
+        return
+    if event.button() == Qt.RightButton and _nevis_t17_right_click_snap(self, event):
         event.accept()
         return
     if event.button() == Qt.RightButton and getattr(self.mainwin, "workspace_mode", get_default_mode()) == "structural":
@@ -26981,7 +27056,7 @@ def _nevis_structural_mouse_move(self, event):
 def _nevis_structural_mouse_release(self, event):
     stepped_start = getattr(self, "_stepped_slab_drag_start", None)
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and stepped_start is not None and event.button() == Qt.LeftButton:
-        end = _nevis_structural_raw_scene_point(self, event)
+        end = _nevis_structural_event_scene_point(self, event)
         self._stepped_slab_drag_start = None
         _nevis_stepped_slab_remove_preview(self)
         self.mainwin._create_stepped_slab_from_drag(stepped_start, end)
@@ -26989,8 +27064,9 @@ def _nevis_structural_mouse_release(self, event):
         return
     start = getattr(self, "_structural_drag_start", None)
     if getattr(self.mainwin, "structural_draw_mode", False) and start is not None and event.button() == Qt.LeftButton:
-        end = _nevis_structural_raw_scene_point(self, event)
+        end = _nevis_structural_right_snap_or_snap(self, event)
         self._structural_drag_start = None
+        _nevis_t17_remove_snap_marker(self)
         _nevis_structural_remove_preview(self)
         self.mainwin._structural_create_from_drag(start, end)
         event.accept()
@@ -27628,7 +27704,8 @@ def _nevis_t15_handle_cut_click(mainwin, scene_point) -> bool:
 
 def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
     elements = list(getattr(mainwin.model, "structural_elements", []) or [])
-    cut_elements = elements_intersect_cut_line(elements, p1, p2)
+    cut_x = (p1[0] + p2[0]) / 2.0
+    cut_elements = elements_intersect_cut_line(elements, cut_x)
     cut_elements = sort_elements_by_elevation(cut_elements)
 
     finish_thickness = 30.0
@@ -27661,7 +27738,7 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
         except (ValueError, TypeError):
             ft = 30.0
         sl = 0.0
-        fl = compute_fl(sl, ft)
+        fl = compute_fl(sl, finish_thickness_mm=ft)
 
         # Find elevation range
         all_elev = [sl, fl]
@@ -27671,7 +27748,7 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
         ceiling_elements = [e for e in cut_elements if getattr(e, "element_type", "") == "ceiling"]
         if ceiling_elements:
             ceil_bottom = min(float(getattr(e, "bottom_elevation", 0.0) or 0.0) for e in ceiling_elements)
-            ch = compute_ch(ceil_bottom, fl)
+            ch = compute_ch(fl, ceil_bottom)
             all_elev.append(ceil_bottom)
         else:
             ch = None

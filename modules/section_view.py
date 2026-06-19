@@ -1,62 +1,90 @@
+"""Section view elevation labels (GL/SL/FL/CH) — no Qt dependency."""
 from __future__ import annotations
-
-import math
-
-
-def compute_fl(sl: float, finish_thickness: float) -> float:
-    """Finish Level = Structural Level + finish layer thickness."""
-    return float(sl) + float(finish_thickness)
+from dataclasses import dataclass, field
 
 
-def compute_ch(ceiling_bottom: float, fl: float) -> float:
-    """Clear Height = ceiling bottom elevation - Finish Level."""
-    return float(ceiling_bottom) - float(fl)
+@dataclass
+class ElevationMarker:
+    """One elevation marker line in a section view."""
+    label: str          # "GL", "SL", "FL", "CH", or custom
+    elevation_mm: float # relative to SL=0
+    color: str = "#000000"
+    line_style: str = "solid"  # "solid" | "dashed"
 
 
-def _segment_intersects_rect(p1: tuple[float, float], p2: tuple[float, float],
-                              xs: list[float], ys: list[float]) -> bool:
-    """Check if segment p1-p2 intersects the bounding box defined by xs, ys."""
-    if not xs or not ys:
-        return False
-    left, right = min(xs), max(xs)
-    top, bottom = min(ys), max(ys)
-    ax, ay = float(p1[0]), float(p1[1])
-    bx, by = float(p2[0]), float(p2[1])
+# Standard Japanese construction elevation relationships
+# GL: Ground Level (mặt đất)
+# SL: Structural Level = ±0 (mặt trên sàn BT thô)
+# FL: Finish Level = SL + hoàn thiện (thường 30-50mm)
+# CH: Clear Height = from FL to bottom of ceiling (軽天)
 
-    def _on_left(px, py): return (bx - ax) * (py - ay) - (by - ay) * (px - ax)
-
-    corners = [(left, top), (right, top), (right, bottom), (left, bottom)]
-    signs = [_on_left(cx, cy) for cx, cy in corners]
-    if all(s > 0 for s in signs) or all(s < 0 for s in signs):
-        return False
-
-    # Check if the segment crosses the rectangle's x and y extents
-    min_x_seg, max_x_seg = min(ax, bx), max(ax, bx)
-    min_y_seg, max_y_seg = min(ay, by), max(ay, by)
-    if max_x_seg < left or min_x_seg > right:
-        return False
-    if max_y_seg < top or min_y_seg > bottom:
-        return False
-    return True
+def compute_fl(sl_elevation: float, finish_thickness_mm: float = 40.0) -> float:
+    """FL = SL + finish_thickness."""
+    return sl_elevation + finish_thickness_mm
 
 
-def elements_intersect_cut_line(elements, p1: tuple[float, float], p2: tuple[float, float]) -> list:
-    """Return elements whose bounding box intersects the cut line segment p1-p2."""
+def compute_ch(fl_elevation: float, ceiling_bottom_elevation: float) -> float:
+    """CH = ceiling_bottom_elevation - FL (positive means ceiling is above FL)."""
+    return ceiling_bottom_elevation - fl_elevation
+
+
+def format_elevation_label(label: str, elevation_mm: float, sl_zero: float = 0.0) -> str:
+    """Format elevation as 'SL±0', 'SL+xxx', 'SL-xxx' etc."""
+    delta = elevation_mm - sl_zero
+    if abs(delta) < 0.5:
+        return "SL±0"
+    elif delta > 0:
+        return "SL+{}".format(int(round(delta)))
+    else:
+        return "SL{}".format(int(round(delta)))
+
+
+def build_standard_markers(gl_mm: float, sl_mm: float = 0.0,
+                            finish_thickness: float = 40.0,
+                            ceiling_bottom: float = None,
+                            ceiling_finish: float = 12.5) -> list:
+    """Build standard GL/SL/FL/CH marker list for a section view."""
+    markers = [
+        ElevationMarker("GL", gl_mm, color="#8B4513", line_style="solid"),
+        ElevationMarker("SL±0", sl_mm, color="#000000", line_style="solid"),
+    ]
+    fl = compute_fl(sl_mm, finish_thickness)
+    markers.append(ElevationMarker("FL", fl, color="#0000CC", line_style="dashed"))
+    if ceiling_bottom is not None:
+        ch = compute_ch(fl, ceiling_bottom - ceiling_finish)
+        markers.append(ElevationMarker(
+            "CH={:.0f}".format(ch), ceiling_bottom - ceiling_finish,
+            color="#006600", line_style="dashed",
+        ))
+    return markers
+
+
+def section_marker_to_dict(m: ElevationMarker) -> dict:
+    return {"label": m.label, "elevation_mm": m.elevation_mm,
+            "color": m.color, "line_style": m.line_style}
+
+
+def section_marker_from_dict(d: dict) -> ElevationMarker:
+    return ElevationMarker(
+        label=str(d.get("label", "")),
+        elevation_mm=float(d.get("elevation_mm", 0.0)),
+        color=str(d.get("color", "#000000")),
+        line_style=str(d.get("line_style", "solid")),
+    )
+
+
+def elements_intersect_cut_line(elements: list, cut_x: float) -> list:
+    """Return elements whose bounding box crosses the vertical cut line at cut_x."""
     result = []
-    for element in elements:
-        points = list(getattr(element, "points", []) or [])
-        if len(points) < 3:
+    for e in elements:
+        if not e.points:
             continue
-        xs = [float(pt[0]) for pt in points]
-        ys = [float(pt[1]) for pt in points]
-        if _segment_intersects_rect(p1, p2, xs, ys):
-            result.append(element)
+        xs = [p[0] for p in e.points]
+        if min(xs) <= cut_x <= max(xs):
+            result.append(e)
     return result
 
 
-def sort_elements_by_elevation(elements) -> list:
-    """Sort elements by bottom_elevation ascending (lowest first)."""
-    return sorted(
-        elements,
-        key=lambda e: float(getattr(e, "bottom_elevation", 0.0) or 0.0),
-    )
+def sort_elements_by_elevation(elements: list) -> list:
+    """Return elements sorted by top_elevation descending (highest first)."""
+    return sorted(elements, key=lambda e: e.top_elevation, reverse=True)

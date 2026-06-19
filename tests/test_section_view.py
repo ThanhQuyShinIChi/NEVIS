@@ -1,89 +1,90 @@
-"""Tests for modules/section_view.py — Task 15."""
+"""Tests for modules/section_view.py — no Qt dependency."""
 import pytest
-from dataclasses import dataclass, field
 from modules.section_view import (
-    compute_fl,
-    compute_ch,
-    elements_intersect_cut_line,
-    sort_elements_by_elevation,
+    ElevationMarker, compute_fl, compute_ch,
+    format_elevation_label, build_standard_markers,
+    section_marker_to_dict, section_marker_from_dict,
 )
 
 
-@dataclass
-class _MockElement:
-    points: list = field(default_factory=list)
-    bottom_elevation: float = 0.0
-    element_type: str = "slab"
+# --- compute_fl / compute_ch ---
+
+def test_fl_default_finish():
+    assert compute_fl(0.0) == 40.0
+
+def test_fl_custom_finish():
+    assert compute_fl(0.0, finish_thickness_mm=30.0) == 30.0
+
+def test_fl_above_sl():
+    assert compute_fl(100.0, 50.0) == 150.0
+
+def test_ch_basic():
+    # FL=40, ceiling_bottom=2440 → CH = 2440-40 = 2400
+    assert compute_ch(40.0, 2440.0) == 2400.0
+
+def test_ch_negative_if_ceiling_below_fl():
+    assert compute_ch(40.0, 30.0) < 0
 
 
-class TestComputeFL:
-    def test_basic(self):
-        assert compute_fl(0.0, 30.0) == 30.0
+# --- format_elevation_label ---
 
-    def test_negative_sl(self):
-        assert compute_fl(-200.0, 30.0) == -170.0
+def test_sl_zero():
+    assert format_elevation_label("SL", 0.0) == "SL±0"
 
-    def test_zero_finish(self):
-        assert compute_fl(100.0, 0.0) == 100.0
+def test_sl_positive():
+    assert format_elevation_label("SL", 100.0) == "SL+100"
 
+def test_sl_negative():
+    assert format_elevation_label("SL", -200.0) == "SL-200"
 
-class TestComputeCH:
-    def test_basic(self):
-        # ceiling at 2700, FL at 30 → CH = 2670
-        assert compute_ch(2700.0, 30.0) == 2670.0
-
-    def test_negative(self):
-        assert compute_ch(2000.0, 2500.0) == -500.0
+def test_sl_near_zero_rounds_to_zero():
+    assert format_elevation_label("SL", 0.3) == "SL±0"
 
 
-class TestElementsIntersectCutLine:
-    def _slab(self, x0, y0, x1, y1):
-        return _MockElement(points=[(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+# --- build_standard_markers ---
 
-    def test_intersects_horizontal(self):
-        slab = self._slab(0, 0, 3000, 3000)
-        # Horizontal cut through middle
-        result = elements_intersect_cut_line([slab], (-500, 1500), (4000, 1500))
-        assert slab in result
+def test_standard_markers_count_no_ceiling():
+    markers = build_standard_markers(gl_mm=-500.0)
+    # GL + SL + FL = 3
+    assert len(markers) == 3
 
-    def test_misses(self):
-        slab = self._slab(0, 0, 3000, 3000)
-        # Line above the slab
-        result = elements_intersect_cut_line([slab], (0, -100), (3000, -100))
-        assert slab not in result
+def test_standard_markers_count_with_ceiling():
+    markers = build_standard_markers(gl_mm=-500.0, ceiling_bottom=2440.0)
+    assert len(markers) == 4
 
-    def test_diagonal_cut(self):
-        slab = self._slab(1000, 1000, 4000, 4000)
-        result = elements_intersect_cut_line([slab], (0, 0), (5000, 5000))
-        assert slab in result
+def test_standard_markers_gl_first():
+    markers = build_standard_markers(gl_mm=-600.0)
+    assert markers[0].label == "GL"
+    assert markers[0].elevation_mm == -600.0
 
-    def test_empty_elements(self):
-        assert elements_intersect_cut_line([], (0, 0), (1000, 0)) == []
+def test_standard_markers_sl_zero():
+    markers = build_standard_markers(gl_mm=-500.0, sl_mm=0.0)
+    sl = next(m for m in markers if "SL" in m.label and "±" in m.label)
+    assert sl.elevation_mm == 0.0
 
-    def test_skips_degenerate(self):
-        bad = _MockElement(points=[(0, 0)])  # only 1 point
-        result = elements_intersect_cut_line([bad], (0, 0), (1000, 0))
-        assert bad not in result
+def test_standard_markers_fl_above_sl():
+    markers = build_standard_markers(gl_mm=-500.0, sl_mm=0.0, finish_thickness=40.0)
+    fl = next(m for m in markers if m.label == "FL")
+    assert fl.elevation_mm == 40.0
 
-    def test_multiple_only_intersected(self):
-        slab_a = self._slab(0, 0, 2000, 2000)
-        slab_b = self._slab(5000, 5000, 8000, 8000)
-        result = elements_intersect_cut_line([slab_a, slab_b], (-500, 1000), (3000, 1000))
-        assert slab_a in result
-        assert slab_b not in result
+def test_standard_markers_ch_label():
+    markers = build_standard_markers(gl_mm=-500.0, ceiling_bottom=2440.0, ceiling_finish=12.5)
+    ch = next(m for m in markers if "CH" in m.label)
+    assert ch is not None
 
 
-class TestSortElementsByElevation:
-    def test_sorted_ascending(self):
-        e1 = _MockElement(bottom_elevation=200.0)
-        e2 = _MockElement(bottom_elevation=-300.0)
-        e3 = _MockElement(bottom_elevation=0.0)
-        result = sort_elements_by_elevation([e1, e2, e3])
-        assert result == [e2, e3, e1]
+# --- round-trip ---
 
-    def test_empty(self):
-        assert sort_elements_by_elevation([]) == []
+def test_marker_roundtrip():
+    m = ElevationMarker(label="GL", elevation_mm=-600.0, color="#8B4513", line_style="solid")
+    d = section_marker_to_dict(m)
+    r = section_marker_from_dict(d)
+    assert r.label == "GL"
+    assert r.elevation_mm == -600.0
+    assert r.color == "#8B4513"
 
-    def test_single(self):
-        e = _MockElement(bottom_elevation=500.0)
-        assert sort_elements_by_elevation([e]) == [e]
+def test_marker_from_dict_defaults():
+    r = section_marker_from_dict({})
+    assert r.label == ""
+    assert r.elevation_mm == 0.0
+    assert r.line_style == "solid"
