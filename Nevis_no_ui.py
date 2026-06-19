@@ -30216,6 +30216,478 @@ _nevis_structural_draw_items = _nevis_t28_draw_items
 
 
 # =============================================================================
+# TASK 29 — Hide right panel in structural mode + Section cut (断面図) split view
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Part A: Hide right_shell completely when structural, restore when MEP
+# ---------------------------------------------------------------------------
+_T29_PREV_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t29_set_workspace_mode(self, mode: str) -> None:
+    _T29_PREV_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "mep") == "structural"
+    rs = getattr(self, "right_shell", None)
+    if rs is not None:
+        if structural:
+            # Save current sizes then collapse right panel
+            if not getattr(self, "_t29_right_hidden", False):
+                self._t29_right_saved_sizes = self.splitter.sizes()
+                sizes = self.splitter.sizes()
+                total = sum(sizes)
+                # Give right_shell's space to center
+                self.splitter.setSizes([sizes[0], total - sizes[0], 0])
+                rs.hide()
+                self._t29_right_hidden = True
+        else:
+            if getattr(self, "_t29_right_hidden", False):
+                rs.show()
+                saved = getattr(self, "_t29_right_saved_sizes", None)
+                if saved:
+                    self.splitter.setSizes(saved)
+                self._t29_right_hidden = False
+
+
+MainWindow.set_workspace_mode = _nevis_t29_set_workspace_mode
+
+
+# ---------------------------------------------------------------------------
+# Part B: Section cut (断面図) — draw cut line on plan, split-view result
+# ---------------------------------------------------------------------------
+
+APP_TEXT.setdefault("vi", {}).update({
+    "section_cut_hint":   "Click điểm đầu đường cắt (chỉ trục X hoặc Y)",
+    "section_cut_end":    "Click điểm kết thúc",
+    "section_cut_side":   "Click phía MẶT CẮT nhìn vào (trên/dưới/trái/phải đường cắt)",
+    "section_cut_done":   "Mặt cắt đã tạo — kéo thanh giữa để thay đổi tỉ lệ",
+    "section_cut_cancel": "Đã hủy đường cắt",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "section_cut_hint":   "切断線の始点をクリック (X軸またはY軸のみ)",
+    "section_cut_end":    "終点をクリック",
+    "section_cut_side":   "断面を見る方向をクリック (切断線の上/下/左/右)",
+    "section_cut_done":   "断面図を作成しました — 中央のハンドルで幅調整",
+    "section_cut_cancel": "切断線をキャンセルしました",
+})
+
+# Section cut state machine: "idle" → "start" → "end" → "side" → "view"
+_T29_SECTION_MODE = "_section_cut_mode"       # "idle"|"start"|"end"|"side"
+_T29_SECTION_START = "_section_start_pt"      # (rx, ry)
+_T29_SECTION_END   = "_section_end_pt"        # (rx, ry)
+_T29_SECTION_AXIS  = "_section_axis"          # "X" | "Y"
+_T29_SECTION_LINE_ITEM = "_section_line_item"
+_T29_SECTION_SPLITTER  = "_section_splitter"  # inner QSplitter (plan|section)
+_T29_SECTION_VIEW      = "_section_view"      # SectionPreviewView instance
+
+
+def _nevis_t29_section_clear_preview(view):
+    it = getattr(view, _T29_SECTION_LINE_ITEM, None)
+    if it is not None:
+        try:
+            view.scene.removeItem(it)
+        except RuntimeError:
+            pass
+        setattr(view, _T29_SECTION_LINE_ITEM, None)
+
+
+def _nevis_t29_section_enter(mainwin):
+    """Start section-cut drawing mode."""
+    setattr(mainwin, _T29_SECTION_MODE, "start")
+    mainwin.lbl_status.setText(mainwin.tr("section_cut_hint"))
+
+
+def _nevis_t29_section_compute(mainwin):
+    """Build section geometry from stored start/end/side and render."""
+    start = getattr(mainwin, _T29_SECTION_START, None)
+    end   = getattr(mainwin, _T29_SECTION_END, None)
+    side  = getattr(mainwin, "_section_view_side", None)
+    if start is None or end is None or side is None:
+        return
+    _nevis_t29_show_split_view(mainwin, start, end, side)
+
+
+def _nevis_t29_show_split_view(mainwin, start, end, side):
+    """Replace center widget with a QSplitter(plan | section)."""
+    from PySide6.QtWidgets import QSplitter as _QSpl, QGraphicsView, QGraphicsScene
+    from PySide6.QtGui import QPen, QColor, QFont, QBrush
+    from PySide6.QtCore import Qt, QRectF, QPointF
+
+    # Tear down existing section splitter if any
+    _nevis_t29_section_exit(mainwin)
+
+    # Center widget is index 1 in the main splitter
+    center_widget = mainwin.splitter.widget(1)
+
+    # Wrap existing preview in a container if needed
+    # Create inner splitter: left=plan (existing preview), right=section
+    inner = _QSpl(Qt.Horizontal, center_widget)
+    inner.setHandleWidth(6)
+    inner.setStyleSheet("QSplitter::handle { background: #90CAF9; border: 1px solid #64B5F6; }")
+
+    # The existing preview already lives in center_widget's layout;
+    # we create a NEW dedicated section canvas widget
+    section_scene = QGraphicsScene()
+    section_view = QGraphicsView(section_scene)
+    section_view.setBackgroundBrush(QBrush(QColor(245, 248, 252)))
+    section_view.setRenderHint(section_view.renderHints())
+    section_view.setDragMode(QGraphicsView.ScrollHandDrag)
+    section_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    section_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    section_view.setObjectName("section_canvas")
+
+    # Populate section scene from structural elements
+    _nevis_t29_render_section(mainwin, section_scene, start, end, side)
+
+    # Put plan preview on left, section on right
+    # Find the preview widget
+    plan_view = mainwin.preview
+    plan_view.setParent(inner)
+    section_view.setParent(inner)
+    inner.addWidget(plan_view)
+    inner.addWidget(section_view)
+    inner.setSizes([600, 400])
+    inner.setCollapsible(0, False)
+    inner.setCollapsible(1, False)
+
+    # Insert inner splitter into the center layout
+    layout = center_widget.layout()
+    if layout is not None:
+        layout.addWidget(inner)
+
+    setattr(mainwin, _T29_SECTION_SPLITTER, inner)
+    setattr(mainwin, _T29_SECTION_VIEW, section_view)
+
+    # Draw the cut line on plan view
+    _nevis_t29_draw_cut_line_on_plan(mainwin, start, end, side)
+
+    mainwin.lbl_status.setText(mainwin.tr("section_cut_done"))
+
+
+def _nevis_t29_render_section(mainwin, scene, start, end, side):
+    """Render structural elements as seen from the section cut plane."""
+    from PySide6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
+    from PySide6.QtCore import Qt, QPointF, QRectF
+
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    if not elements:
+        return
+
+    sx, sy = start
+    ex, ey = end
+    axis = getattr(mainwin, _T29_SECTION_AXIS, "X")
+
+    # Section scale: 1 mm real = 1 scene unit
+    SCALE = 1.0
+    y_cursor = 20.0  # vertical position in section scene
+
+    # Title
+    title = scene.addText("断面図", QFont("Segoe UI", 10, QFont.Bold))
+    title.setDefaultTextColor(QColor(55, 95, 145))
+    title.setPos(10, 0)
+    title.setZValue(10)
+
+    cut_y_scene = 40.0
+
+    for element in elements:
+        pts = getattr(element, "points", [])
+        if len(pts) < 3:
+            continue
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        x0, x1 = min(xs), max(xs)
+        y0, y1 = min(ys), max(ys)
+        h = float(getattr(element, "height", 150) or 150)
+        top_e = float(getattr(element, "top_elevation", 0) or 0)
+        bot_e = top_e - h
+
+        # Check if element is intersected by cut line
+        if axis == "X":
+            # Cut line is horizontal (fixed Y = sy), view direction = up/down
+            cut_coord = sy  # Y position of cut
+            if not (y0 <= cut_coord <= y1):
+                continue
+            # Horizontal extent of element along X
+            horiz_start = x0
+            horiz_end   = x1
+            # Viewing side: "above" = side < cut, "below" = side > cut
+            in_view = True
+            if side == "above" and not (y0 < cut_coord):
+                in_view = False
+            if side == "below" and not (y1 > cut_coord):
+                in_view = False
+        else:
+            # Cut line is vertical (fixed X = sx)
+            cut_coord = sx
+            if not (x0 <= cut_coord <= x1):
+                continue
+            horiz_start = y0
+            horiz_end   = y1
+            in_view = True
+
+        # Draw element in section: X = horizontal extent, Y = elevation
+        scene_x0 = (horiz_start - min(horiz_start, horiz_end)) * SCALE + 20
+        scene_x1 = (horiz_end   - min(horiz_start, horiz_end)) * SCALE + 20
+        # Elevation: flip Y (higher elevation = lower scene Y)
+        elev_ref = 0.0
+        scene_yt = cut_y_scene + (-top_e + elev_ref) * 0.5 + 60
+        scene_yb = cut_y_scene + (-bot_e + elev_ref) * 0.5 + 60
+
+        if bool(getattr(element, "is_stepped", False)):
+            pen   = QPen(QColor(55, 95, 145), 2.0, Qt.SolidLine)
+            brush = QBrush(QColor(75, 125, 180, 100), Qt.BDiagPattern)
+        else:
+            pen   = QPen(QColor(80, 80, 80), 2.0, Qt.SolidLine)
+            brush = QBrush(QColor(200, 210, 220, 160))
+
+        rect_item = scene.addRect(
+            QRectF(QPointF(scene_x0, scene_yt), QPointF(scene_x1, scene_yb)),
+            pen, brush
+        )
+        rect_item.setZValue(5)
+
+        # Label
+        lbl = _nevis_structural_type_labels(mainwin).get(
+            element.element_type, str(getattr(element, "label", "") or ""))
+        if bool(getattr(element, "is_stepped", False)):
+            lbl = mainwin.tr("stepped_slab_label")
+        t = scene.addText(lbl, QFont("Segoe UI", 7))
+        t.setDefaultTextColor(QColor(40, 40, 40))
+        t.setPos(scene_x0 + 2, scene_yt + 2)
+        t.setZValue(6)
+
+        # Elevation label on right
+        elev_txt = f"▲{top_e:+.0f}"
+        et = scene.addText(elev_txt, QFont("Segoe UI", 7))
+        et.setDefaultTextColor(QColor(180, 80, 0))
+        et.setPos(scene_x1 + 4, scene_yt)
+        et.setZValue(6)
+
+    # Cut line marker
+    cut_line = scene.addLine(0, cut_y_scene + 55, 800, cut_y_scene + 55,
+                             QPen(QColor(220, 0, 0), 1.5, Qt.DashLine))
+    cut_line.setZValue(8)
+    cl_label = scene.addText("GL=0", QFont("Segoe UI", 7))
+    cl_label.setDefaultTextColor(QColor(220, 0, 0))
+    cl_label.setPos(2, cut_y_scene + 45)
+    cl_label.setZValue(9)
+
+    scene.setSceneRect(scene.itemsBoundingRect().adjusted(-20, -20, 20, 40))
+
+
+def _nevis_t29_draw_cut_line_on_plan(mainwin, start, end, side):
+    """Draw cut line + direction arrow on the plan preview."""
+    from PySide6.QtGui import QPen, QColor, QBrush, QPolygonF
+    from PySide6.QtCore import Qt, QPointF
+    view = mainwin.preview
+    cs = _nevis_real_to_canvas_point(mainwin, start)
+    ce = _nevis_real_to_canvas_point(mainwin, end)
+    pen = QPen(QColor(220, 0, 0), 2.5, Qt.SolidLine)
+    line_item = view.scene.addLine(cs[0], cs[1], ce[0], ce[1], pen)
+    line_item.setZValue(50)
+    line_item.setData(0, "section_cut_line")
+    # Tick marks at ends
+    for pt in (cs, ce):
+        perp_size = 10
+        if getattr(mainwin, _T29_SECTION_AXIS, "X") == "X":
+            t1 = view.scene.addLine(pt[0], pt[1] - perp_size, pt[0], pt[1] + perp_size, pen)
+        else:
+            t1 = view.scene.addLine(pt[0] - perp_size, pt[1], pt[0] + perp_size, pt[1], pen)
+        t1.setZValue(50)
+        t1.setData(0, "section_cut_line")
+
+
+def _nevis_t29_section_exit(mainwin):
+    """Remove split view, restore single plan view."""
+    sp = getattr(mainwin, _T29_SECTION_SPLITTER, None)
+    if sp is None:
+        return
+    # Reparent plan_view back to center_widget and remove inner splitter
+    center_widget = mainwin.splitter.widget(1)
+    plan_view = mainwin.preview
+    plan_view.setParent(center_widget)
+    layout = center_widget.layout()
+    if layout is not None:
+        layout.addWidget(plan_view)
+    try:
+        sp.setParent(None)
+        sp.deleteLater()
+    except RuntimeError:
+        pass
+    setattr(mainwin, _T29_SECTION_SPLITTER, None)
+    setattr(mainwin, _T29_SECTION_VIEW, None)
+    # Remove cut line items from scene
+    for it in list(mainwin.preview.scene.items()):
+        try:
+            if it.data(0) == "section_cut_line":
+                mainwin.preview.scene.removeItem(it)
+        except (RuntimeError, AttributeError):
+            pass
+
+
+# Wire up 断面図 button
+_T29_ORIG_SECTION_BTN = getattr(MainWindow, "_on_section_view_btn_clicked", None)
+
+
+def _nevis_t29_section_btn(self):
+    current_mode = getattr(self, _T29_SECTION_MODE, "idle")
+    if current_mode != "idle":
+        # Cancel
+        _nevis_t29_section_clear_preview(self.preview)
+        setattr(self, _T29_SECTION_MODE, "idle")
+        _nevis_t29_section_exit(self)
+        self.lbl_status.setText(self.tr("section_cut_cancel"))
+        return
+    _nevis_t29_section_enter(self)
+
+
+def _nevis_t29_get_section_button(mainwin):
+    """Find the 断面図 button widget."""
+    from PySide6.QtWidgets import QPushButton
+    for btn in mainwin.findChildren(QPushButton):
+        if "断面" in (btn.text() or "") or "断面図" in (btn.objectName() or ""):
+            return btn
+    return None
+
+
+# Wire button at startup via patching the existing 断面図 button connection
+_T29_ORIG_BUILD_UI = MainWindow._build_ui if hasattr(MainWindow, "_build_ui") else None
+
+
+def _nevis_t29_wire_section_btn(self):
+    """Called once after build_ui to wire section button."""
+    btn = _nevis_t29_get_section_button(self)
+    if btn is not None:
+        try:
+            btn.clicked.disconnect()
+        except Exception:
+            pass
+        btn.clicked.connect(lambda: _nevis_t29_section_btn(self))
+
+
+# Patch preview mouse events for section cut line drawing
+_T29_PREV_PRESS = PreviewView.mousePressEvent
+_T29_PREV_MOVE  = PreviewView.mouseMoveEvent
+
+
+def _nevis_t29_mouse_press(self, event):
+    mode = getattr(self.mainwin, _T29_SECTION_MODE, "idle")
+    if mode == "idle":
+        return _T29_PREV_PRESS(self, event)
+
+    if event.button() == Qt.RightButton:
+        _nevis_t29_section_clear_preview(self)
+        setattr(self.mainwin, _T29_SECTION_MODE, "idle")
+        _nevis_t29_section_exit(self.mainwin)
+        self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_cancel"))
+        event.accept()
+        return
+
+    if event.button() != Qt.LeftButton:
+        return _T29_PREV_PRESS(self, event)
+
+    pt = _nevis_t26_raw_scene_point(self, event)
+
+    if mode == "start":
+        setattr(self.mainwin, _T29_SECTION_START, pt)
+        setattr(self.mainwin, _T29_SECTION_MODE, "end")
+        self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_end"))
+        event.accept()
+        return
+
+    if mode == "end":
+        start = getattr(self.mainwin, _T29_SECTION_START)
+        # Lock to axis: whichever delta is larger
+        dx = abs(pt[0] - start[0])
+        dy = abs(pt[1] - start[1])
+        if dx >= dy:
+            # Horizontal line — Y locked
+            end_pt = (pt[0], start[1])
+            setattr(self.mainwin, _T29_SECTION_AXIS, "X")
+        else:
+            # Vertical line — X locked
+            end_pt = (start[0], pt[1])
+            setattr(self.mainwin, _T29_SECTION_AXIS, "Y")
+        setattr(self.mainwin, _T29_SECTION_END, end_pt)
+        _nevis_t29_section_clear_preview(self)
+        # Draw locked line
+        cs = _nevis_real_to_canvas_point(self.mainwin, start)
+        ce = _nevis_real_to_canvas_point(self.mainwin, end_pt)
+        from PySide6.QtGui import QPen, QColor
+        pen = QPen(QColor(220, 0, 0), 2.0, Qt.DashLine)
+        li = self.scene.addLine(cs[0], cs[1], ce[0], ce[1], pen)
+        li.setZValue(50)
+        li.setData(0, "section_cut_line")
+        setattr(self, _T29_SECTION_LINE_ITEM, li)
+        setattr(self.mainwin, _T29_SECTION_MODE, "side")
+        self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_side"))
+        event.accept()
+        return
+
+    if mode == "side":
+        start = getattr(self.mainwin, _T29_SECTION_START)
+        end_pt = getattr(self.mainwin, _T29_SECTION_END)
+        axis = getattr(self.mainwin, _T29_SECTION_AXIS, "X")
+        # Determine side from click position relative to cut line
+        if axis == "X":
+            cut_y = start[1]
+            side = "above" if pt[1] < cut_y else "below"
+        else:
+            cut_x = start[0]
+            side = "left" if pt[0] < cut_x else "right"
+        setattr(self.mainwin, "_section_view_side", side)
+        setattr(self.mainwin, _T29_SECTION_MODE, "idle")
+        _nevis_t29_section_clear_preview(self)
+        _nevis_t29_show_split_view(self.mainwin, start, end_pt, side)
+        event.accept()
+        return
+
+    return _T29_PREV_PRESS(self, event)
+
+
+def _nevis_t29_mouse_move(self, event):
+    mode = getattr(self.mainwin, _T29_SECTION_MODE, "idle")
+    if mode in ("end", "side"):
+        pt = _nevis_t26_raw_scene_point(self, event)
+        _nevis_t29_section_clear_preview(self)
+        start = getattr(self.mainwin, _T29_SECTION_START, pt)
+        if mode == "end":
+            dx = abs(pt[0] - start[0])
+            dy = abs(pt[1] - start[1])
+            if dx >= dy:
+                end_pt = (pt[0], start[1])
+            else:
+                end_pt = (start[0], pt[1])
+        else:
+            end_pt = getattr(self.mainwin, _T29_SECTION_END, pt)
+        cs = _nevis_real_to_canvas_point(self.mainwin, start)
+        ce = _nevis_real_to_canvas_point(self.mainwin, end_pt)
+        from PySide6.QtGui import QPen, QColor
+        pen = QPen(QColor(220, 0, 0), 2.0, Qt.DashLine)
+        li = self.scene.addLine(cs[0], cs[1], ce[0], ce[1], pen)
+        li.setZValue(50)
+        li.setData(0, "section_cut_line")
+        setattr(self, _T29_SECTION_LINE_ITEM, li)
+    return _T29_PREV_MOVE(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_t29_mouse_press
+PreviewView.mouseMoveEvent  = _nevis_t29_mouse_move
+
+
+# Wire 断面図 button after window is fully shown (deferred)
+_T29_ORIG_SHOW = MainWindow.show
+
+
+def _nevis_t29_show(self):
+    _T29_ORIG_SHOW(self)
+    _nevis_t29_wire_section_btn(self)
+
+
+MainWindow.show = _nevis_t29_show
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
