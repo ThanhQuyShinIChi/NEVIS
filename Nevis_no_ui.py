@@ -30080,6 +30080,142 @@ MainWindow._on_stepped_slab_btn_clicked = _nevis_t27_btn_click
 
 
 # =============================================================================
+# TASK 28 — Unified slab rendering: parent "punches out" stepped slab areas
+# =============================================================================
+# Problem: when a stepped slab child exists, the parent slab still fills the
+# child area with its own hatch → visually cluttered and confusing.
+# Fix: render parent slab as a QPainterPath with the child polygon subtracted
+# (donut shape). Stepped slabs are rendered at ZValue=15 (above parent=12).
+
+_T28_PREV_DRAW_ITEMS = _nevis_structural_draw_items
+
+
+def _nevis_t28_draw_items(view) -> None:
+    from PySide6.QtGui import QPainterPath
+    elements = list(getattr(view.mainwin.model, "structural_elements", []) or [])
+    if not elements:
+        return
+
+    # Build lookup: parent_id → list of stepped child polygons (canvas coords)
+    stepped_children: dict = {}
+    for el in elements:
+        if bool(getattr(el, "is_stepped", False)) and len(getattr(el, "points", [])) >= 3:
+            pid = int(getattr(el, "parent_slab_id", -1))
+            canvas_pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in el.points]
+            poly = QPolygonF([QPointF(x, y) for x, y in canvas_pts])
+            stepped_children.setdefault(pid, []).append(poly)
+
+    bounds = None
+    sel_id = int(getattr(view.mainwin, "selected_structural_id", -1) or -1)
+
+    # --- Pass 1: parent slabs (non-stepped) with punch-out ---
+    for element in elements:
+        pts = getattr(element, "points", [])
+        if len(pts) < 3:
+            continue
+        if bool(getattr(element, "is_stepped", False)):
+            continue  # rendered in pass 2
+
+        eid = int(getattr(element, "id", -1))
+        canvas_pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in pts]
+        poly = QPolygonF([QPointF(x, y) for x, y in canvas_pts])
+
+        children = stepped_children.get(eid, [])
+        if children:
+            # Build parent path minus child polygons
+            parent_path = QPainterPath()
+            parent_path.addPolygon(poly)
+            parent_path.closeSubpath()
+            for cpoly in children:
+                child_path = QPainterPath()
+                child_path.addPolygon(cpoly)
+                child_path.closeSubpath()
+                parent_path = parent_path.subtracted(child_path)
+
+            pen = QPen(QColor(105, 112, 120), 2.0, Qt.DashLine)
+            brush = QBrush(QColor(145, 150, 158, 28))
+            item = view.scene.addPath(parent_path, pen, brush)
+        else:
+            pen = QPen(QColor(105, 112, 120), 2.0, Qt.DashLine)
+            brush = QBrush(QColor(145, 150, 158, 28))
+            item = view.scene.addPolygon(poly, pen, brush)
+
+        item.setZValue(12)
+        item.setData(0, ("structural_element", eid))
+        item_bounds = item.sceneBoundingRect()
+        bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+
+        label = _nevis_structural_type_labels(view.mainwin).get(
+            element.element_type,
+            str(getattr(element, "label", "") or element.element_type),
+        )
+        text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
+        text.setDefaultTextColor(QColor(85, 90, 98))
+        text.setZValue(13)
+        text.setAcceptedMouseButtons(Qt.NoButton)
+        tr = text.boundingRect()
+        text.setPos(item_bounds.center().x() - tr.width() / 2, item_bounds.center().y() - tr.height() / 2)
+
+        if sel_id == eid:
+            _nevis_structural_draw_handles(view, element)
+
+    # --- Pass 2: stepped slab children (always on top) ---
+    for element in elements:
+        pts = getattr(element, "points", [])
+        if len(pts) < 3:
+            continue
+        if not bool(getattr(element, "is_stepped", False)):
+            continue
+
+        eid = int(getattr(element, "id", -1))
+        canvas_pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in pts]
+        poly = QPolygonF([QPointF(x, y) for x, y in canvas_pts])
+
+        pen = QPen(QColor(55, 95, 145), 2.0, Qt.DashLine)
+        brush = QBrush(QColor(75, 125, 180, 115), Qt.BDiagPattern)
+        item = view.scene.addPolygon(poly, pen, brush)
+        item.setZValue(15)  # above parent (12) always
+        item.setData(0, ("structural_element", eid))
+        item_bounds = item.sceneBoundingRect()
+        bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+
+        # Overlap zone
+        ovw = float(getattr(element, "overlap_width", 0.0) or 0.0)
+        if ovw > 0:
+            try:
+                from modules.stepped_slab import stepped_slab_overlap_region
+                ov_pts = stepped_slab_overlap_region(element, element, ovw)
+                if ov_pts:
+                    ov_canvas = [_nevis_real_to_canvas_point(view.mainwin, p) for p in ov_pts]
+                    ov_poly = QPolygonF([QPointF(x, y) for x, y in ov_canvas])
+                    ov_pen = QPen(QColor(220, 140, 0), 1.5, Qt.DotLine)
+                    ov_brush = QBrush(QColor(255, 200, 0, 40))
+                    ov_item = view.scene.addPolygon(ov_poly, ov_pen, ov_brush)
+                    ov_item.setZValue(16)
+                    ov_item.setAcceptedMouseButtons(Qt.NoButton)
+                    ov_item.setData(0, "structural_overlap_zone")
+            except Exception:
+                pass
+
+        label = view.mainwin.tr("stepped_slab_label")
+        text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
+        text.setDefaultTextColor(QColor(55, 95, 145))
+        text.setZValue(16)
+        text.setAcceptedMouseButtons(Qt.NoButton)
+        tr = text.boundingRect()
+        text.setPos(item_bounds.center().x() - tr.width() / 2, item_bounds.center().y() - tr.height() / 2)
+
+        if sel_id == eid:
+            _nevis_structural_draw_handles(view, element)
+
+    if bounds is not None:
+        view.scene.setSceneRect(view.scene.sceneRect().united(bounds.adjusted(-20, -20, 20, 20)))
+
+
+_nevis_structural_draw_items = _nevis_t28_draw_items
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
