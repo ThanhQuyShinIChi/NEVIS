@@ -29513,6 +29513,23 @@ APP_TEXT.setdefault("jp", {}).update({
     "stepped_slab_label":         "段差スラブ",
 })
 
+# --- Temp debug log (auto-deleted on app exit) ---
+import atexit as _atexit, tempfile as _tempfile, os as _os
+_T26_LOG = _tempfile.NamedTemporaryFile(mode="w", prefix="nevis_t26_", suffix=".log", delete=False)
+_T26_LOG_PATH = _T26_LOG.name
+def _t26_log(msg):
+    try:
+        _T26_LOG.write(msg + "\n"); _T26_LOG.flush()
+    except Exception:
+        pass
+def _t26_cleanup():
+    try: _T26_LOG.close()
+    except Exception: pass
+    try: _os.unlink(_T26_LOG_PATH)
+    except Exception: pass
+_atexit.register(_t26_cleanup)
+_t26_log(f"T26 LOG INIT at {_T26_LOG_PATH}")
+
 _T26_PREV_BUILD_UI = MainWindow._build_ui
 
 
@@ -29540,6 +29557,7 @@ def _nevis_t26_on_stepped_slab_btn_clicked(self) -> None:
     """Enter stepped-slab draw mode: require a parent slab to be selected first."""
     elem_id = getattr(self, "selected_structural_id", None)
     parent = _nevis_structural_find_element(self, elem_id) if elem_id is not None else None
+    _t26_log(f"BTN clicked: selected_id={elem_id} parent={parent} type={getattr(parent,'element_type','?') if parent else 'None'}")
     if parent is None or getattr(parent, "element_type", "") != "slab":
         self.lbl_status.setText(self.tr("stepped_slab_select_parent"))
         return
@@ -29547,6 +29565,7 @@ def _nevis_t26_on_stepped_slab_btn_clicked(self) -> None:
     self.stepped_slab_draw_mode = True
     self.structural_draw_mode = False
     self.lbl_status.setText(self.tr("stepped_slab_draw_hint"))
+    _t26_log(f"BTN: entered stepped_slab_draw_mode, parent_id={elem_id}")
 
 
 MainWindow._on_stepped_slab_btn_clicked = _nevis_t26_on_stepped_slab_btn_clicked
@@ -29554,6 +29573,8 @@ MainWindow._on_stepped_slab_btn_clicked = _nevis_t26_on_stepped_slab_btn_clicked
 
 def _nevis_t26_stepped_slab_dialog(mainwin, width: float, length: float) -> tuple | None:
     """Show dialog: offset, thickness, overlap_width. Returns (offset, thickness, overlap) or None."""
+    from PySide6.QtWidgets import QDoubleSpinBox as _QDSpinBox
+    QDoubleSpinBox = _QDSpinBox
     dlg = QDialog(mainwin)
     dlg.setWindowTitle(mainwin.tr("stepped_slab_title"))
     dlg.setMinimumWidth(280)
@@ -29591,10 +29612,12 @@ def _nevis_t26_clip_to_parent(parent, sx, sy, ex, ey):
 
 
 def _nevis_t26_create_stepped_slab(mainwin, start, end) -> bool:
+    _t26_log(f"CREATE: start={start} end={end} parent_id={getattr(mainwin,'_stepped_slab_parent_id',-1)}")
     from modules.stepped_slab import compute_stepped_slab_elevation
     from modules.structural_element import StructuralElement
 
     parent = _nevis_structural_find_element(mainwin, getattr(mainwin, "_stepped_slab_parent_id", -1))
+    _t26_log(f"CREATE: parent found={parent is not None} pts={getattr(parent,'points','?') if parent else 'None'}")
     if parent is None:
         mainwin.lbl_status.setText(mainwin.tr("stepped_slab_select_parent"))
         return False
@@ -29604,11 +29627,20 @@ def _nevis_t26_create_stepped_slab(mainwin, start, end) -> bool:
     # Clip to parent bounds automatically
     sx, sy, ex, ey = _nevis_t26_clip_to_parent(parent, sx, sy, ex, ey)
     raw_w, raw_l = ex - sx, ey - sy
+    _t26_log(f"CREATE: after clip sx={sx:.1f} sy={sy:.1f} ex={ex:.1f} ey={ey:.1f} w={raw_w:.1f} l={raw_l:.1f}")
     if raw_w < 1.0 or raw_l < 1.0:
         mainwin.lbl_status.setText(mainwin.tr("stepped_slab_outside"))
+        _t26_log("CREATE: rejected - too small after clip")
         return False
-
-    result = _nevis_t26_stepped_slab_dialog(mainwin, raw_w, raw_l)
+    child_pts = [(sx, sy), (ex, sy), (ex, ey), (sx, ey)]
+    _t26_log("CREATE: calling dialog...")
+    try:
+        result = _nevis_t26_stepped_slab_dialog(mainwin, raw_w, raw_l)
+    except Exception as _e:
+        _t26_log(f"CREATE: dialog EXCEPTION: {_e}")
+        import traceback; _t26_log(traceback.format_exc())
+        return False
+    _t26_log(f"CREATE: dialog result={result}")
     if result is None:
         return False
     offset_mm, thickness_mm, overlap_mm = result
@@ -29646,10 +29678,11 @@ _T26_PREV_RELEASE = PreviewView.mouseReleaseEvent
 
 
 def _nevis_t26_mouse_release(self, event):
+    _t26_log(f"RELEASE: stepped_mode={getattr(self.mainwin,'stepped_slab_draw_mode',False)} btn={event.button()} drag_start={getattr(self,'_stepped_slab_drag_start',None)}")
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
         start = getattr(self, "_stepped_slab_drag_start", None)
         if start is not None:
-            end = _nevis_structural_event_scene_point(self, event)
+            end = _nevis_t26_raw_scene_point(self, event)
             self._stepped_slab_drag_start = None
             _nevis_t17_remove_snap_marker(self)
             _nevis_structural_remove_preview(self)
@@ -29675,9 +29708,18 @@ PreviewView.mouseReleaseEvent = _nevis_t26_mouse_release
 _T26_PREV_PRESS = PreviewView.mousePressEvent
 
 
+def _nevis_t26_raw_scene_point(view, event):
+    """Raw scene point (no grid snap) in real-world mm."""
+    pos = event.position() if hasattr(event, "position") else event.posF()
+    sp = view.mapToScene(int(pos.x()), int(pos.y()))
+    return _nevis_canvas_to_real_point(view.mainwin, (sp.x(), sp.y()))
+
+
 def _nevis_t26_mouse_press(self, event):
+    _t26_log(f"PRESS: stepped_mode={getattr(self.mainwin,'stepped_slab_draw_mode',False)} btn={event.button()}")
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
-        self._stepped_slab_drag_start = _nevis_structural_event_scene_point(self, event)
+        self._stepped_slab_drag_start = _nevis_t26_raw_scene_point(self, event)
+        _t26_log(f"PRESS: drag_start set to {self._stepped_slab_drag_start}")
         event.accept()
         return
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.RightButton:
@@ -29700,7 +29742,7 @@ def _nevis_t26_mouse_move(self, event):
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and (event.buttons() & Qt.LeftButton):
         start = getattr(self, "_stepped_slab_drag_start", None)
         if start is not None:
-            end_raw = _nevis_structural_event_scene_point(self, event)
+            end_raw = _nevis_t26_raw_scene_point(self, event)
             # Constrain end point to parent slab bounds
             parent_id = getattr(self.mainwin, "_stepped_slab_parent_id", -1)
             parent = _nevis_structural_find_element(self.mainwin, parent_id)
