@@ -30345,13 +30345,15 @@ def _nevis_t29_show_split_view(mainwin, start, end, side):
     # right_shell is already hidden; we insert the section view in its place
     mainwin.splitter.insertWidget(2, section_container)
     mainwin.splitter.setCollapsible(2, False)
-    # Give plan view 60%, section view 40%
+    # Give plan view ~58%, section view ~42%; right_shell stays at index 3 with size 0
     sizes = mainwin.splitter.sizes()
     total = sum(sizes)
     left_w = sizes[0] if sizes else 220
     plan_w  = int((total - left_w) * 0.58)
     sec_w   = int((total - left_w) * 0.42)
-    mainwin.splitter.setSizes([left_w, plan_w, sec_w])
+    n = mainwin.splitter.count()
+    new_sizes = [left_w, plan_w, sec_w] + [0] * max(0, n - 3)
+    mainwin.splitter.setSizes(new_sizes)
     section_container.show()
 
     setattr(mainwin, _T29_SECTION_SPLITTER, section_container)
@@ -30508,12 +30510,14 @@ def _nevis_t29_section_exit(mainwin):
         pass
     setattr(mainwin, _T29_SECTION_SPLITTER, None)
     setattr(mainwin, _T29_SECTION_VIEW, None)
-    # Restore main splitter sizes: left_shell + center full width
+    # Restore main splitter: left_shell + center full width + right_shell=0
     try:
         sizes = mainwin.splitter.sizes()
-        if len(sizes) >= 2:
-            total = sum(sizes)
-            mainwin.splitter.setSizes([sizes[0], total - sizes[0]])
+        total = sum(sizes)
+        left_w = sizes[0] if sizes else 220
+        n = mainwin.splitter.count()
+        new_sizes = [left_w, total - left_w] + [0] * max(0, n - 2)
+        mainwin.splitter.setSizes(new_sizes)
     except Exception:
         pass
     # Remove cut line items from plan scene
