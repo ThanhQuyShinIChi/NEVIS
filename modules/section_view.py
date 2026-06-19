@@ -88,3 +88,22 @@ def elements_intersect_cut_line(elements: list, cut_x: float) -> list:
 def sort_elements_by_elevation(elements: list) -> list:
     """Return elements sorted by top_elevation descending (highest first)."""
     return sorted(elements, key=lambda e: e.top_elevation, reverse=True)
+
+
+def format_slab_label(top_elevation: float, thickness: float, sl_zero: float = 0.0) -> str:
+    """Canvas label for a slab: 'SL±0 / t150'."""
+    elev_str = format_elevation_label("SL", top_elevation, sl_zero)
+    return "{} / t{:g}".format(elev_str, thickness)
+
+
+def format_beam_label(bottom_elevation: float, width: float, height: float,
+                      sl_zero: float = 0.0) -> str:
+    """Canvas label for a beam: 'SL-500 / 300×600'."""
+    elev_str = format_elevation_label("SL", bottom_elevation, sl_zero)
+    return "{} / {:g}×{:g}".format(elev_str, width, height)
+
+
+def format_ceiling_ch(ceiling_bottom: float, fl_elevation: float) -> str:
+    """Canvas label for ceiling: 'CH=2360'."""
+    ch = compute_ch(fl_elevation, ceiling_bottom)
+    return "CH={:g}".format(ch)
