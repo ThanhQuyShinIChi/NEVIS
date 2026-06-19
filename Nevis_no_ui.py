@@ -30341,12 +30341,17 @@ def _nevis_t29_show_split_view(mainwin, start, end, side):
     # Delay fitInView until widget has its final geometry
     def _fit():
         try:
-            r = section_scene.itemsBoundingRect().adjusted(-20, -20, 20, 20)
+            r = section_scene.itemsBoundingRect()
             if not r.isEmpty():
+                r = r.adjusted(-30, -30, 30, 30)
+                section_scene.setSceneRect(r)
+                section_view.resetTransform()
                 section_view.fitInView(r, Qt.KeepAspectRatio)
+                section_view.update()
         except RuntimeError:
             pass
-    QTimer.singleShot(150, _fit)
+    QTimer.singleShot(200, _fit)
+    QTimer.singleShot(600, _fit)  # second pass in case first fires too early
 
     # Insert into main splitter at index 2 (right_shell position, currently hidden)
     # right_shell is already hidden; we insert the section view in its place
@@ -30378,24 +30383,31 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
     from PySide6.QtCore import Qt, QPointF, QRectF
 
     elements = list(getattr(mainwin.model, "structural_elements", []) or [])
-    if not elements:
-        return
 
     sx, sy = start
     ex, ey = end
     axis = getattr(mainwin, _T29_SECTION_AXIS, "X")
 
-    # Section scale: 1 mm real = 1 scene unit
-    SCALE = 1.0
-    y_cursor = 20.0  # vertical position in section scene
+    SCALE = 0.3   # mm → scene pixels; 1:1 at 606mm = 606 scene units = too large, use 0.3x
+    cut_y_scene = 30.0
 
     # Title
-    title = scene.addText("断面図", QFont("Segoe UI", 10, QFont.Bold))
+    title = scene.addText("断面図", QFont("Segoe UI", 9, QFont.Bold))
     title.setDefaultTextColor(QColor(55, 95, 145))
-    title.setPos(10, 0)
+    title.setPos(5, 2)
     title.setZValue(10)
 
-    cut_y_scene = 40.0
+    # GL reference line always present
+    gl_y = cut_y_scene + 60
+    cut_line = scene.addLine(-20, gl_y, 1000, gl_y, QPen(QColor(180, 0, 0), 1.0, Qt.DashLine))
+    cut_line.setZValue(8)
+    gl_label = scene.addText("GL±0", QFont("Segoe UI", 7))
+    gl_label.setDefaultTextColor(QColor(180, 0, 0))
+    gl_label.setPos(2, gl_y - 18)
+    gl_label.setZValue(9)
+
+    if not elements:
+        return
 
     for element in elements:
         pts = getattr(element, "points", [])
@@ -30412,8 +30424,9 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
         # Check if element is intersected by cut line
         if axis == "X":
             # Cut line is horizontal (fixed Y = sy), view direction = up/down
-            cut_coord = sy  # Y position of cut
-            if not (y0 <= cut_coord <= y1):
+            cut_coord = sy  # Y position of cut (real-world mm)
+            lo, hi = min(y0, y1), max(y0, y1)
+            if not (lo <= cut_coord <= hi):
                 continue
             # Horizontal extent of element along X
             horiz_start = x0
@@ -30427,19 +30440,20 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
         else:
             # Cut line is vertical (fixed X = sx)
             cut_coord = sx
-            if not (x0 <= cut_coord <= x1):
+            lo, hi = min(x0, x1), max(x0, x1)
+            if not (lo <= cut_coord <= hi):
                 continue
             horiz_start = y0
             horiz_end   = y1
             in_view = True
 
-        # Draw element in section: X = horizontal extent, Y = elevation
-        scene_x0 = (horiz_start - min(horiz_start, horiz_end)) * SCALE + 20
-        scene_x1 = (horiz_end   - min(horiz_start, horiz_end)) * SCALE + 20
-        # Elevation: flip Y (higher elevation = lower scene Y)
-        elev_ref = 0.0
-        scene_yt = cut_y_scene + (-top_e + elev_ref) * 0.5 + 60
-        scene_yb = cut_y_scene + (-bot_e + elev_ref) * 0.5 + 60
+        # Draw element in section: X axis = horizontal span, Y axis = elevation
+        # Use absolute position so multiple elements align correctly
+        scene_x0 = horiz_start * SCALE + 20
+        scene_x1 = horiz_end   * SCALE + 20
+        # Elevation: upward = negative scene Y from gl_y
+        scene_yt = gl_y - top_e * SCALE
+        scene_yb = gl_y - bot_e * SCALE
 
         if bool(getattr(element, "is_stepped", False)):
             pen   = QPen(QColor(55, 95, 145), 2.0, Qt.SolidLine)
@@ -30470,15 +30484,6 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
         et.setDefaultTextColor(QColor(180, 80, 0))
         et.setPos(scene_x1 + 4, scene_yt)
         et.setZValue(6)
-
-    # Cut line marker
-    cut_line = scene.addLine(0, cut_y_scene + 55, 800, cut_y_scene + 55,
-                             QPen(QColor(220, 0, 0), 1.5, Qt.DashLine))
-    cut_line.setZValue(8)
-    cl_label = scene.addText("GL=0", QFont("Segoe UI", 7))
-    cl_label.setDefaultTextColor(QColor(220, 0, 0))
-    cl_label.setPos(2, cut_y_scene + 45)
-    cl_label.setZValue(9)
 
     scene.setSceneRect(scene.itemsBoundingRect().adjusted(-20, -20, 20, 40))
 
