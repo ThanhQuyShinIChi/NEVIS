@@ -34,6 +34,7 @@ from modules.structural_input import rect_from_center_wl, validate_dimension
 from modules.structural_transform import move_element, resize_element
 from modules.stepped_slab import compute_stepped_slab_elevation, validate_stepped_slab_bounds
 from modules.workspace_mode import deserialize_workspace_mode, get_default_mode, serialize_workspace_mode
+from modules.scale_calibration import canvas_to_real, compute_scale, real_to_canvas
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
@@ -442,6 +443,8 @@ class PipeModel:
     model_schema_version: int = 1
     level_datums: Dict[str, LevelDatum] = field(default_factory=dict)
     structural_elements: List[object] = field(default_factory=list)
+    drawing_scale: float = 1.0
+    scale_origin: Tuple[float, float] = (0.0, 0.0)
 
     def neighbors(self, nid: int) -> List[int]:
         out = []
@@ -7874,6 +7877,8 @@ class MainWindow(QMainWindow):
             "model_schema_version": max(2, int(getattr(self.model, "model_schema_version", 1) or 1)),
             "lang": self.lang,
             "workspace_mode": serialize_workspace_mode(getattr(self, "workspace_mode", get_default_mode()))["workspace_mode"],
+            "drawing_scale": float(getattr(self.model, "drawing_scale", 1.0) or 1.0),
+            "scale_origin": list(getattr(self.model, "scale_origin", (0.0, 0.0))),
             "nodes": {str(k): {"x": v.x, "y": v.y, "z": v.z, "level_id": v.level_id} for k, v in self.model.nodes.items()},
             "edges": [{"a": e.a, "b": e.b, "size": e.size, "material_override": e.material_override, "slope": e.slope, "vertical_type": e.vertical_type, "elevation_mode": e.elevation_mode, "system_type": e.system_type, "start_level_id": e.start_level_id, "end_level_id": e.end_level_id, "start_z": e.start_z, "end_z": e.end_z, "slope_percent": e.slope_percent, "elevation_locked": bool(e.elevation_locked)} for e in self.model.edges],
             "level_datums": {str(k): {"id": d.id, "name": d.name, "elevation_mm": d.elevation_mm, "datum_type": d.datum_type, "floor_index": d.floor_index, "description": d.description} for k, d in getattr(self.model, "level_datums", {}).items()},
@@ -7929,6 +7934,13 @@ class MainWindow(QMainWindow):
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         m = PipeModel()
         m.model_schema_version = int(data.get("model_schema_version", 1))
+        try:
+            m.drawing_scale = max(EPS, float(data.get("drawing_scale", 1.0) or 1.0))
+            origin_data = data.get("scale_origin", [0.0, 0.0])
+            m.scale_origin = (float(origin_data[0]), float(origin_data[1]))
+        except (TypeError, ValueError, IndexError):
+            m.drawing_scale = 1.0
+            m.scale_origin = (0.0, 0.0)
         for k, v in data.get("nodes", {}).items():
             nid = int(k); m.nodes[nid] = node_from_project_data(nid, v)
         for e in data.get("edges", []):
@@ -26094,6 +26106,13 @@ APP_TEXT.setdefault("vi", {}).update({
     "structural_grid_label": "Lưới",
     "structural_grid_enabled": "Bật lưới",
     "structural_grid_custom": "Tùy chỉnh",
+    "scale_calibrate": "Căn tỷ lệ",
+    "scale_click_1": "Click điểm 1 trên bản nền.",
+    "scale_click_2": "Click điểm 2 trên bản nền.",
+    "scale_real_distance": "Khoảng cách thực (mm)",
+    "scale_need_background": "Hãy nạp và hiển thị bản nền.",
+    "scale_invalid_points": "Hai điểm phải khác nhau.",
+    "scale_done": "Đã căn tỷ lệ 1:{scale:g}",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "undo": "元に戻す",
@@ -26139,6 +26158,13 @@ APP_TEXT.setdefault("jp", {}).update({
     "structural_grid_label": "グリッド",
     "structural_grid_enabled": "グリッド表示",
     "structural_grid_custom": "任意",
+    "scale_calibrate": "縮尺設定",
+    "scale_click_1": "背景図の1点目をクリック。",
+    "scale_click_2": "背景図の2点目をクリック。",
+    "scale_real_distance": "実距離 (mm)",
+    "scale_need_background": "背景図を読み込み、表示してください。",
+    "scale_invalid_points": "2点は異なる位置を選択してください。",
+    "scale_done": "縮尺を1:{scale:g}に設定しました",
 })
 
 
@@ -26149,6 +26175,22 @@ def _nevis_structural_type_labels(mainwin) -> dict[str, str]:
     }
 
 
+def _nevis_canvas_to_real_point(mainwin, point) -> tuple[float, float]:
+    return canvas_to_real(
+        float(point[0]), float(point[1]),
+        getattr(mainwin.model, "drawing_scale", 1.0),
+        getattr(mainwin.model, "scale_origin", (0.0, 0.0)),
+    )
+
+
+def _nevis_real_to_canvas_point(mainwin, point) -> tuple[float, float]:
+    return real_to_canvas(
+        float(point[0]), float(point[1]),
+        getattr(mainwin.model, "drawing_scale", 1.0),
+        getattr(mainwin.model, "scale_origin", (0.0, 0.0)),
+    )
+
+
 def _nevis_structural_has_visible_underlay(mainwin) -> bool:
     if getattr(mainwin, "jww_background_items", None):
         return True
@@ -26157,15 +26199,18 @@ def _nevis_structural_has_visible_underlay(mainwin) -> bool:
 
 
 def _nevis_structural_snap_scene_point(view, scene_point) -> tuple[float, float]:
-    x, y = float(scene_point.x()), float(scene_point.y())
+    x, y = _nevis_canvas_to_real_point(view.mainwin, (scene_point.x(), scene_point.y()))
     if (
         getattr(view.mainwin, "workspace_mode", get_default_mode()) == "structural"
         and bool(getattr(view.mainwin, "structural_grid_enabled", True))
     ):
         return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 303.0))
     scale = abs(float(view.transform().m11())) or 1.0
-    tolerance_scene = 10.0 / scale
-    candidates = [(node.x, node.y) for node in view.mainwin.model.nodes.values()]
+    tolerance_scene = (10.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    candidates = [
+        _nevis_canvas_to_real_point(view.mainwin, (node.x, node.y))
+        for node in view.mainwin.model.nodes.values()
+    ]
     node_point = nearest_snap_point(x, y, candidates, tolerance_scene)
     if node_point is not None:
         return node_point
@@ -26376,7 +26421,8 @@ def _nevis_structural_edit_dialog(self, width: float, length: float, center, ele
         if width_error or length_error:
             return
         points = rect_from_center_wl(center[0], center[1], edited_width, edited_length)
-        preview_item.setPolygon(QPolygonF([QPointF(x, y) for x, y in points]))
+        canvas_points = [_nevis_real_to_canvas_point(self, point) for point in points]
+        preview_item.setPolygon(QPolygonF([QPointF(x, y) for x, y in canvas_points]))
 
     def toggle_radius(checked: bool) -> None:
         radius_edit.setVisible(checked)
@@ -26482,7 +26528,8 @@ def _nevis_structural_draw_items(view) -> None:
         else:
             pen = QPen(QColor(105, 112, 120), 2.0, Qt.DashLine)
             brush = QBrush(QColor(145, 150, 158, 28))
-        polygon = QPolygonF([QPointF(float(x), float(y)) for x, y in element.points])
+        canvas_points = [_nevis_real_to_canvas_point(view.mainwin, point) for point in element.points]
+        polygon = QPolygonF([QPointF(x, y) for x, y in canvas_points])
         item = view.scene.addPolygon(polygon, pen, brush)
         item.setZValue(12)
         item.setData(0, ("structural_element", int(element.id)))
@@ -26515,8 +26562,10 @@ def _nevis_draw_structural_grid(view) -> None:
     ):
         return
     visible = view.mapToScene(view.viewport().rect()).boundingRect()
+    real_a = _nevis_canvas_to_real_point(mainwin, (visible.left(), visible.top()))
+    real_b = _nevis_canvas_to_real_point(mainwin, (visible.right(), visible.bottom()))
     points = grid_points_in_view(
-        visible.left(), visible.top(), visible.right(), visible.bottom(),
+        real_a[0], real_a[1], real_b[0], real_b[1],
         getattr(mainwin, "structural_grid_mm", 303.0),
     )
     scale = abs(float(view.transform().m11())) or 1.0
@@ -26524,7 +26573,8 @@ def _nevis_draw_structural_grid(view) -> None:
     pen = QPen(Qt.NoPen)
     brush = QBrush(QColor(120, 130, 142, 90))
     for x, y in points:
-        item = view.scene.addEllipse(x - radius, y - radius, radius * 2.0, radius * 2.0, pen, brush)
+        canvas_x, canvas_y = _nevis_real_to_canvas_point(mainwin, (x, y))
+        item = view.scene.addEllipse(canvas_x - radius, canvas_y - radius, radius * 2.0, radius * 2.0, pen, brush)
         item.setZValue(-100)
         item.setData(0, "structural_grid_point")
         item.setAcceptedMouseButtons(Qt.NoButton)
@@ -26549,7 +26599,8 @@ def _nevis_structural_draw_handles(view, element) -> None:
     pen = QPen(QColor(20, 90, 190), 1.0 / scale)
     brush = QBrush(QColor(55, 135, 235))
     for handle, (x, y) in _nevis_structural_handle_positions(element).items():
-        item = view.scene.addRect(x - size / 2.0, y - size / 2.0, size, size, pen, brush)
+        canvas_x, canvas_y = _nevis_real_to_canvas_point(view.mainwin, (x, y))
+        item = view.scene.addRect(canvas_x - size / 2.0, canvas_y - size / 2.0, size, size, pen, brush)
         item.setZValue(100)
         item.setData(0, ("structural_handle", (int(element.id), handle)))
 
@@ -26597,6 +26648,23 @@ def _nevis_structural_build_ui(self):
     self.act_redo.setEnabled(False)
     self.act_redo.triggered.connect(self.redo_last_action)
     self.menu_view.addAction(self.act_redo)
+    self.scale_calibration_active = False
+    self.scale_calibration_point1 = None
+    self.scale_calibration_marker = None
+    self.btn_scale_reference_background.setText(self.tr("scale_calibrate"))
+    self.btn_scale_reference_background.setToolTip("")
+    self.btn_scale_reference_background.setEnabled(True)
+    self.btn_scale_reference_background.setCheckable(True)
+    self.btn_scale_reference_background.show()
+    self.btn_scale_reference_background.toggled.connect(self.start_scale_calibration)
+    if self.btn_scale_reference_background not in self._preview_background_widgets:
+        self._preview_background_widgets.append(self.btn_scale_reference_background)
+    self.lbl_drawing_scale = QLabel(self.preview.viewport())
+    self.lbl_drawing_scale.setStyleSheet(
+        "background:rgba(255,255,255,210); color:#1B4A7E; border:1px solid #9AAAC0; "
+        "border-radius:4px; padding:3px 7px; font-weight:700;"
+    )
+    self.lbl_drawing_scale.show()
     self.btn_structural_draw = QPushButton(self.tr("structural_title"))
     self.btn_structural_draw.setCheckable(True)
     self.btn_structural_draw.setMinimumHeight(28)
@@ -26677,6 +26745,7 @@ def _nevis_structural_draw_model(self, *args, **kwargs):
     result = _NEVIS_STRUCTURAL_PREV_DRAW_MODEL(self, *args, **kwargs)
     _nevis_draw_structural_grid(self)
     _nevis_structural_draw_items(self)
+    _nevis_update_scale_label(self.mainwin)
     return result
 
 
@@ -26693,14 +26762,28 @@ _NEVIS_STRUCTURAL_PREV_MOUSE_RELEASE = PreviewView.mouseReleaseEvent
 
 
 def _nevis_structural_mouse_press(self, event):
+    if getattr(self.mainwin, "scale_calibration_active", False):
+        if event.button() == Qt.LeftButton:
+            try:
+                view_pos = event.position().toPoint()
+            except AttributeError:
+                view_pos = event.pos()
+            self.mainwin.handle_scale_calibration_click(self.mapToScene(view_pos))
+            event.accept()
+            return
+        if event.button() == Qt.RightButton:
+            self.mainwin.cancel_scale_calibration()
+            event.accept()
+            return
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
         start = _nevis_structural_event_scene_point(self, event)
         self._stepped_slab_drag_start = start
         _nevis_stepped_slab_remove_preview(self)
         preview_pen = QPen(QColor(35, 105, 175), 2.0, Qt.DashLine)
         preview_brush = QBrush(QColor(75, 125, 180, 115), Qt.BDiagPattern)
+        canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
         self._stepped_slab_preview_item = self.scene.addRect(
-            QRectF(QPointF(*start), QPointF(*start)), preview_pen, preview_brush
+            QRectF(QPointF(*canvas_start), QPointF(*canvas_start)), preview_pen, preview_brush
         )
         self._stepped_slab_preview_item.setZValue(1002)
         event.accept()
@@ -26710,7 +26793,8 @@ def _nevis_structural_mouse_press(self, event):
         self._structural_drag_start = start
         _nevis_structural_remove_preview(self)
         preview_pen = QPen(QColor(45, 115, 190), 2.0, Qt.DashLine)
-        self._structural_preview_item = self.scene.addRect(QRectF(QPointF(*start), QPointF(*start)), preview_pen)
+        canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
+        self._structural_preview_item = self.scene.addRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_start)), preview_pen)
         self._structural_preview_item.setZValue(1000)
         event.accept()
         return
@@ -26749,7 +26833,9 @@ def _nevis_structural_mouse_move(self, event):
         end = _nevis_structural_event_scene_point(self, event)
         item = getattr(self, "_stepped_slab_preview_item", None)
         if item is not None:
-            item.setRect(QRectF(QPointF(*stepped_start), QPointF(*end)).normalized())
+            canvas_start = _nevis_real_to_canvas_point(self.mainwin, stepped_start)
+            canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
+            item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
         event.accept()
         return
     start = getattr(self, "_structural_drag_start", None)
@@ -26757,7 +26843,9 @@ def _nevis_structural_mouse_move(self, event):
         end = _nevis_structural_event_scene_point(self, event)
         item = getattr(self, "_structural_preview_item", None)
         if item is not None:
-            item.setRect(QRectF(QPointF(*start), QPointF(*end)).normalized())
+            canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
+            canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
+            item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
         event.accept()
         return
     transform = getattr(self, "_structural_transform", None)
@@ -26903,6 +26991,8 @@ def _nevis_structural_refresh_language(self, *args, **kwargs):
         self.act_redo.setText(self.tr("redo"))
     if hasattr(self, "btn_stepped_slab"):
         self.btn_stepped_slab.setText(self.tr("stepped_slab_command"))
+    if hasattr(self, "btn_scale_reference_background"):
+        self.btn_scale_reference_background.setText(self.tr("scale_calibrate"))
     if hasattr(self, "btn_workspace_mep"):
         self.btn_workspace_mep.setText(self.tr("workspace_mep"))
         self.btn_workspace_structural.setText(self.tr("workspace_structural"))
@@ -26998,6 +27088,100 @@ def _nevis_update_structural_grid_settings(self, *args) -> None:
         self.preview.draw_model()
 
 
+def _nevis_clear_scale_marker(self) -> None:
+    marker = getattr(self, "scale_calibration_marker", None)
+    self.scale_calibration_marker = None
+    if marker is not None and marker.scene() is not None:
+        marker.scene().removeItem(marker)
+
+
+def _nevis_cancel_scale_calibration(self) -> None:
+    self.scale_calibration_active = False
+    self.scale_calibration_point1 = None
+    _nevis_clear_scale_marker(self)
+    if hasattr(self, "btn_scale_reference_background"):
+        self.btn_scale_reference_background.blockSignals(True)
+        self.btn_scale_reference_background.setChecked(False)
+        self.btn_scale_reference_background.blockSignals(False)
+    if hasattr(self, "preview"):
+        self.preview.viewport().setCursor(Qt.OpenHandCursor)
+
+
+def _nevis_start_scale_calibration(self, checked: bool = False) -> None:
+    if not checked:
+        self.cancel_scale_calibration()
+        return
+    if not _nevis_structural_has_visible_underlay(self):
+        QMessageBox.warning(self, self.tr("scale_calibrate"), self.tr("scale_need_background"))
+        self.cancel_scale_calibration()
+        return
+    if getattr(self, "_reference_background_aligning", False):
+        self.cancel_reference_background_alignment("")
+    self.scale_calibration_active = True
+    self.scale_calibration_point1 = None
+    _nevis_clear_scale_marker(self)
+    self.preview.viewport().setCursor(Qt.CrossCursor)
+    self.lbl_status.setText(self.tr("scale_click_1"))
+
+
+def _nevis_handle_scale_calibration_click(self, scene_point) -> bool:
+    if not getattr(self, "scale_calibration_active", False):
+        return False
+    point = (float(scene_point.x()), float(scene_point.y()))
+    if self.scale_calibration_point1 is None:
+        self.scale_calibration_point1 = point
+        scale = abs(float(self.preview.transform().m11())) or 1.0
+        radius = 5.0 / scale
+        marker = self.preview.scene.addEllipse(
+            point[0] - radius, point[1] - radius, radius * 2.0, radius * 2.0,
+            QPen(QColor(210, 65, 45), 2.0 / scale), QBrush(Qt.NoBrush),
+        )
+        marker.setZValue(1200)
+        self.scale_calibration_marker = marker
+        self.lbl_status.setText(self.tr("scale_click_2"))
+        return True
+    first = self.scale_calibration_point1
+    try:
+        canvas_distance = math.hypot(point[0] - first[0], point[1] - first[1])
+        if canvas_distance <= EPS:
+            raise ValueError
+    except (TypeError, ValueError):
+        QMessageBox.warning(self, self.tr("scale_calibrate"), self.tr("scale_invalid_points"))
+        return False
+    real_distance, accepted = QInputDialog.getDouble(
+        self,
+        self.tr("scale_calibrate"),
+        self.tr("scale_real_distance"),
+        1000.0, 0.001, 999999999.0, 3,
+    )
+    if not accepted:
+        self.cancel_scale_calibration()
+        return False
+    try:
+        drawing_scale = compute_scale(first, point, real_distance)
+    except ValueError:
+        QMessageBox.warning(self, self.tr("scale_calibrate"), self.tr("scale_invalid_points"))
+        return False
+    self.save_undo_snapshot("calibrate_background_scale")
+    self.model.drawing_scale = drawing_scale
+    self.model.scale_origin = first
+    self.cancel_scale_calibration()
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("scale_done").format(scale=drawing_scale))
+    return True
+
+
+def _nevis_update_scale_label(self) -> None:
+    label = getattr(self, "lbl_drawing_scale", None)
+    if label is None:
+        return
+    drawing_scale = float(getattr(self.model, "drawing_scale", 1.0) or 1.0)
+    label.setText(f"1:{drawing_scale:g}")
+    label.adjustSize()
+    label.move(max(8, self.preview.viewport().width() - label.width() - 12), 10)
+    label.raise_()
+
+
 MainWindow._build_ui = _nevis_structural_build_ui
 MainWindow.set_structural_draw_mode = _nevis_structural_set_draw_mode
 MainWindow._structural_edit_dialog = _nevis_structural_edit_dialog
@@ -27010,6 +27194,9 @@ MainWindow.set_workspace_mode = _nevis_set_workspace_mode
 MainWindow.start_workspace_structural_draw = _nevis_start_workspace_structural_draw
 MainWindow.delete_selected_structural_element = _nevis_delete_selected_structural_element
 MainWindow.update_structural_grid_settings = _nevis_update_structural_grid_settings
+MainWindow.start_scale_calibration = _nevis_start_scale_calibration
+MainWindow.cancel_scale_calibration = _nevis_cancel_scale_calibration
+MainWindow.handle_scale_calibration_click = _nevis_handle_scale_calibration_click
 MainWindow.save_undo_snapshot = _nevis_task9_save_undo
 MainWindow.undo_last_action = _nevis_task9_undo
 MainWindow.redo_last_action = _nevis_task9_redo

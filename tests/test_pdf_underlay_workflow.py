@@ -90,7 +90,8 @@ class PdfUnderlayWorkflowTest(unittest.TestCase):
             self.assertEqual(toolbar.indexOf(getattr(self.window, name)), -1, name)
 
         self.assertTrue(self.window.btn_align_reference_background.isEnabled())
-        self.assertFalse(self.window.btn_scale_reference_background.isEnabled())
+        self.assertGreaterEqual(toolbar.indexOf(self.window.btn_scale_reference_background), 0)
+        self.assertTrue(self.window.btn_scale_reference_background.isEnabled())
         self.assertEqual(
             [action.text() for action in self.window.menu_pdf_underlay.actions() if not action.isSeparator()],
             ["Nạp PDF/Ảnh...", "Xóa nền", "Xoay 180°", "Lật ngang", "Lật dọc"],

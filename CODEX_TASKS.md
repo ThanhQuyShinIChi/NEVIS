@@ -237,7 +237,7 @@ class StructuralElement:
 
 ---
 
-## TASK 13 — Căn tỷ lệ bản nền `[  ]`
+## TASK 13 — Căn tỷ lệ bản nền `[x]`
 
 **Mục tiêu:** Người dùng click 2 điểm trên bản nền PDF/JWW, nhập khoảng cách thực → tự tính scale.
 
