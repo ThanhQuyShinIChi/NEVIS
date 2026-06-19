@@ -5,7 +5,7 @@ NEVIS MEP PipeTool - single Python version v1.3 rebuild preview/library
 - Manual PySide6 layout, easier to tune directly in Python
 - Reads JWW external transform temp.txt center lines
 - Preview graph with pan/zoom, stronger lines, cursor behavior
-- Fire protection material is applied by network distance from 集合管, including branch lines
+- Fire protection material is applied by network distance from 雁E��管, including branch lines
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ except Exception as e:
 
 EPS = 1e-6
 NODE_TOL = 3.0
-ELEVATION_UI_ENABLED = False
+ELEVATION_UI_ENABLED = True
 
 # NEVIS performance cache: JSON libraries are expensive to parse/convert.
 # Key includes path mtime/size, so editing a JSON file refreshes automatically.
@@ -101,9 +101,9 @@ class nevis_perf_scope:
 # -----------------------------------------------------------------------------
 # NEVIS machine license (portable folder, one machine)
 # -----------------------------------------------------------------------------
-# Ghi chú: khóa này dùng để chặn copy nguyên thư mục sang máy khác ở mức ứng dụng.
-# Nếu cần bảo vệ thương mại rất cao thì nên chuyển phần kiểm tra license sang server
-# hoặc module native. Với NEVIS nội bộ/portable, cách này đủ gọn và dễ vận hành.
+# Ghi chú: khóa này dùng đềEchặn copy nguyên thư mục sang máy khác ềEmức ứng dụng.
+# Nếu cần bảo vềEthương mại rất cao thì nên chuyển phần kiểm tra license sang server
+# hoặc module native. Với NEVIS nội bềEportable, cách này đủ gọn và dềEvận hành.
 NEVIS_LICENSE_SECRET = b"NEVIS-MEP-NewVision-Integrated-System-2026"
 
 
@@ -204,7 +204,7 @@ DEFAULT_DARK = QColor(80, 80, 80)
 # ============================================================
 # NEVIS PIPE GRAPHIC STANDARD (LOCKED 2026-06)
 # Đại ca chốt tiêu chuẩn nét ống chính thức. Không tự ý sửa khi
-# vá các thuật toán khác (Y/LT/LL/集合管/JWW/library...).
+# vá các thuật toán khác (Y/LT/LL/雁E��管/JWW/library...).
 #
 # VP/DV/HTVP/VU/耐火VP:
 #   5 nét tổng: 2 nét biên liền + 2 nét trong đứt + 1 nét tim gạch-chấm.
@@ -214,19 +214,19 @@ DEFAULT_DARK = QColor(80, 80, 80)
 #     - mỗi bên tim ống có 3 nét
 #     - 2 nét ngoài mỗi bên là nét liền  => 4 nét liền
 #     - 1 nét trong gần tim mỗi bên là nét đứt => 2 nét đứt
-#     - tim ống ở giữa là nét gạch-chấm
+#     - tim ống ềEgiữa là nét gạch-chấm
 #
 # Quy tắc này phải dùng chung cho preview và xuất JWW.
 # ============================================================
 NEVIS_PIPE_STYLE_LOCKED_VERSION = "NEVIS_PIPE_STYLE_LOCKED_2026_06_TMP_7_LINES_VP_DV_5_LINES_NORMAL_TRIM_NO_OVERCUT"
 NEVIS_FIRE_BOUNDARY_NO_EXTRA_CAP_2026_06_12 = True  # Không vẽ nét ngang thừa tại điểm giáp ranh chống cháy lan
-# Tim ống dùng kiểu JWW dễ đọc: 1 gạch ngắn + 1 gạch dài, không dùng chấm vì rối mắt.
-# Qt không có sẵn kiểu này nên preview dùng CustomDashLine. JWW vẫn dùng LT5 (一点鎖1)
-# vì khi xuất sang JWW nó hiển thị đúng dạng gạch ngắn/gạch dài theo thiết lập JWW.
+# Tim ống dùng kiểu JWW dềEđọc: 1 gạch ngắn + 1 gạch dài, không dùng chấm vì rối mắt.
+# Qt không có sẵn kiểu này nên preview dùng CustomDashLine. JWW vẫn dùng LT5 (一点鎁E)
+# vì khi xuất sang JWW nó hiển thềEđúng dạng gạch ngắn/gạch dài theo thiết lập JWW.
 NEVIS_PREVIEW_CENTERLINE_STYLE = Qt.CustomDashLine
 NEVIS_PREVIEW_CENTERLINE_DASH_PATTERN = [4.0, 3.0, 12.0, 3.0]  # short-gap-long-gap
 NEVIS_PREVIEW_INNER_DASH_STYLE = Qt.DashLine
-NEVIS_JWW_CENTERLINE_LT = "5"   # JWW 一点鎖1 / short-long centerline
+NEVIS_JWW_CENTERLINE_LT = "5"   # JWW 一点鎁E / short-long centerline
 NEVIS_JWW_INNER_DASH_LT = "4"   # nét đứt trong thân ống TMP/DV/VP/HTVP/TaikaVP
 NEVIS_CENTERLINE_LT_SET = {"5", "6", "49"}  # 49 = JSON editor centerline marker
 
@@ -281,9 +281,9 @@ def model_point_from_display(x: float, y: float) -> Tuple[float, float]:
 
 
 def is_collection_library_name(path_or_name: str) -> bool:
-    """True for 集合管 library symbols: S_ / SV_ / S3_ / Japanese collection names."""
+    """True for 雁E��管 library symbols: S_ / SV_ / S3_ / Japanese collection names."""
     stem = Path(str(path_or_name)).stem.upper() if path_or_name else ""
-    return stem.startswith("S") or stem.startswith("SV") or stem.startswith("S3") or "集合" in stem
+    return stem.startswith("S") or stem.startswith("SV") or stem.startswith("S3") or "雁E��" in stem
 
 
 def is_y_library_name(path_or_name: str) -> bool:
@@ -307,14 +307,14 @@ def is_ahk_raw_transform_library_name(path_or_name: str) -> bool:
         or stem.startswith("DT") or "_DT" in stem
         or stem.startswith("T_") or re.match(r"^T\d", stem) is not None or "_T_" in stem
         or stem.startswith("HTVP_T")
-        or stem.startswith("IN") or "異径" in stem
+        or stem.startswith("IN") or "異征E in stem
     )
 
 
 def is_axis_right_library_name(path_or_name: str) -> bool:
     """Libraries whose local socket axis needs X reversal after Y inversion.
 
-    v34: apply ONLY to collection fittings (S / SV / S3 / 集合管).
+    v34: apply ONLY to collection fittings (S / SV / S3 / 雁E��管).
     LL/DL/L must stay on the normal elbow transform; otherwise terminal U and
     normal elbows flip by 180 degrees.
     """
@@ -510,7 +510,7 @@ def _jww_attr_key(attr: Dict[str, str]) -> Tuple[str, str, str]:
 
 
 def _read_jww_temp_entities(path: str) -> Tuple[List[Dict[str, object]], List[Tuple[float, float]]]:
-    """Read every drawable entity selected by JWW 外変, preserving layer/color/line type.
+    """Read every drawable entity selected by JWW 外夁E preserving layer/color/line type.
 
     V41 safety rule:
     - Only hp* lines are user/base points.  Do NOT treat hch/hcw/hcd/hcc as
@@ -579,7 +579,7 @@ def _read_jww_temp_entities(path: str) -> Tuple[List[Dict[str, object]], List[Tu
         kept: List[Tuple[float, float]] = []
         for bx, by in base_points:
             if math.hypot(bx - cx, by - cy) <= tol:
-                print(f"⚠ Bỏ qua 基準点/tâm vùng quét JWW: ({bx:.3f}, {by:.3f})")
+                print(f"⚠ BềEqua 基準点/tâm vùng quét JWW: ({bx:.3f}, {by:.3f})")
                 continue
             kept.append((bx, by))
         base_points = kept
@@ -605,7 +605,7 @@ def _detect_centerline_attr_from_base(ents: List[Dict[str, object]], base_points
 
 
 def parse_jww_temp(path: str) -> Tuple[List[Tuple[float,float,float,float]], List[Tuple[float,float]]]:
-    """Read JWW 外変 temp file.
+    """Read JWW 外夁Etemp file.
 
     V39: whole selected range becomes reference background, but only lines with
     the same layer/color/line type as the line under the selected start point
@@ -661,7 +661,7 @@ def jww_background_bounds(ents: List[Dict[str, object]]) -> Optional[QRectF]:
     return QRectF(min(xs), min(ys), max(xs)-min(xs), max(ys)-min(ys)).adjusted(-100, -100, 100, 100)
 
 def split_lines_at_points(lines: List[Tuple[float,float,float,float]], points: List[Tuple[float,float]], tol=NODE_TOL):
-    """Force selected 集合管 point to become a graph node when it lies on a pipe line."""
+    """Force selected 雁E��管 point to become a graph node when it lies on a pipe line."""
     if not points:
         return lines
     out = []
@@ -688,7 +688,7 @@ def build_graph(lines: List[Tuple[float,float,float,float]], base_points: List[T
     # Keep the original selected centerlines so JWW temporary selection-center points
     # can be rejected if they are not on a real centerline.
     source_lines_for_base_check = list(lines)
-    # First split normal line intersections/endpoints, then split once more by #1 集合管 point.
+    # First split normal line intersections/endpoints, then split once more by #1 雁E��管 point.
     # This prevents the base point from snapping to the wrong nearby endpoint when the user
     # right-clicks on the middle of a center line.
     lines = split_lines_at_touch_points(lines)
@@ -731,7 +731,7 @@ def build_graph(lines: List[Tuple[float,float,float,float]], base_points: List[T
                     for x1, y1, x2, y2 in source_lines_for_base_check
                 )
                 if best_seg_dist > max(NODE_TOL * 2.0, 5.0):
-                    print(f"⚠ Bỏ qua điểm tạm JWW không nằm trên tim ống: ({bx:.3f}, {by:.3f})")
+                    print(f"⚠ BềEqua điểm tạm JWW không nằm trên tim ống: ({bx:.3f}, {by:.3f})")
                     continue
 
             nid = nearest_node(model, bx, by)
@@ -740,7 +740,7 @@ def build_graph(lines: List[Tuple[float,float,float,float]], base_points: List[T
                 if math.hypot(n.x - bx, n.y - by) <= max(NODE_TOL * 2.0, 5.0):
                     bases.add(nid)
                 else:
-                    print(f"⚠ Bỏ qua điểm tạm JWW không trùng node thật: ({bx:.3f}, {by:.3f})")
+                    print(f"⚠ BềEqua điểm tạm JWW không trùng node thật: ({bx:.3f}, {by:.3f})")
         model.base_nodes = bases
         model.base_node = sorted(bases)[0] if bases else None
         if not bases:
@@ -950,7 +950,7 @@ def classify_fittings(model: PipeModel, default_size=""):
     for nid in model.nodes:
         deg = model.degree(nid)
         if (nid == model.base_node) or (nid in getattr(model, "base_nodes", set())):
-            model.fittings[nid] = Fitting(nid, "集合管", "")
+            model.fittings[nid] = Fitting(nid, "雁E��管", "")
         elif deg == 1:
             model.fittings[nid] = Fitting(nid, "DL", default_size)
         elif deg == 2:
@@ -974,7 +974,7 @@ def classify_fittings(model: PipeModel, default_size=""):
         elif deg >= 4:
             # Drainage pipe does not use a 4-way cross fitting.
             # Keep it as a check node instead of forcing Y/T/LT.
-            model.fittings[nid] = Fitting(nid, "要確認", "")
+            model.fittings[nid] = Fitting(nid, "要確誁E, "")
 
 
 def rebuild_flow(model: PipeModel):
@@ -1033,27 +1033,27 @@ APP_TEXT = {
         "window_title": "NEVIS MEP giaiphaptamhin@gmail.com",
         "menu_file": "Tệp",
         "menu_library": "Thư viện",
-        "menu_view": "Hiển thị",
-        "menu_language": "言語",
+        "menu_view": "Hiển thềE,
+        "menu_language": "言誁E,
         "menu_help": "Thông tin",
-        "act_about": "ⓘ Thông tin",
+        "act_about": "ⓁEThông tin",
         "act_settings": "Cài đặt",
         "setting_title": "Cài đặt",
         "setting_preview_detail": "Preview chi tiết tối giản",
         "setting_autoscan": "Tự quét thư viện khi khởi động",
-        "setting_show_library_tab": "Hiển thị tab thư viện",
+        "setting_show_library_tab": "Hiển thềEtab thư viện",
         "setting_note": "Tắt tab thư viện giúp giao diện nhẹ và gọn hơn.",
-        "act_open": "Mở temp.txt",
+        "act_open": "MềEtemp.txt",
         "act_exit": "Thoát",
         "act_scan": "Quét folder thư viện",
         "act_fit": "Fit bản vẽ",
-        "act_lang": "日本語",
+        "act_lang": "日本誁E,
         "common": "Thiết lập chung",
-        "common_list": "⚙ CSDL vật tư",
+        "common_list": "⚁ECSDL vật tư",
         "library_editor": "Sửa thư viện",
         "master_manager": "Định danh vật tư",
         "master_manager_title": "Định danh CSDL vật tư",
-        "master_systems": "Hệ thống",
+        "master_systems": "HềEthống",
         "master_materials": "Chủng vật tư",
         "master_groups": "Nhóm phụ kiện",
         "master_code": "Mã",
@@ -1061,18 +1061,18 @@ APP_TEXT = {
         "master_sizes": "Size dùng",
         "master_groups_allowed": "Nhóm dùng",
         "master_pattern": "Quy tắc tên",
-        "master_ports": "Số cửa",
+        "master_ports": "SềEcửa",
         "master_add": "Thêm",
         "master_edit": "Sửa",
         "master_delete": "Xóa",
         "master_save": "Lưu",
         "master_saved": "Đã lưu nevis_master.json",
-        "master_start_end": "Thiết bị đầu/cuối",
-        "master_start_devices": "Thiết bị đầu nhánh",
-        "master_end_devices": "Thiết bị cuối nhánh",
+        "master_start_end": "Thiết bềEđầu/cuối",
+        "master_start_devices": "Thiết bềEđầu nhánh",
+        "master_end_devices": "Thiết bềEcuối nhánh",
         "master_pipe_raw": "配管",
-        "master_none": "なし",
-        "library_editor_title": "Bảo vệ sửa thư viện",
+        "master_none": "なぁE,
+        "library_editor_title": "Bảo vềEsửa thư viện",
         "library_editor_password": "Nhập mật khẩu",
         "library_editor_wrong_password": "Mật khẩu không đúng",
         "library_editor_change_password": "Đổi mật khẩu",
@@ -1081,15 +1081,15 @@ APP_TEXT = {
         "library_editor_password_changed": "Đã đổi mật khẩu",
         "library_editor_not_found": "Không tìm thấy file sửa thư viện",
         "common_settings_title": "CSDL vật tư",
-        "common_settings_note": "Dùng một CSDL thống nhất: Hệ thống → Chủng vật tư → Nhóm phụ kiện → Tên vật tư. Tên vật tư chuẩn: nhóm_kích thước1_kích thước2_chú thích.",
-        "systems": "Hệ thống",
+        "common_settings_note": "Dùng một CSDL thống nhất: HềEthống ↁEChủng vật tư ↁENhóm phụ kiện ↁETên vật tư. Tên vật tư chuẩn: nhóm_kích thước1_kích thước2_chú thích.",
+        "systems": "HềEthống",
         "pipe_sizes": "Kích thước ống",
         "branch_start": "Đầu nhánh",
         "branch_end": "Cuối nhánh",
         "branch_default": "Nhánh mặc định",
         "branch_rule_down": "Giảm 1 bậc",
         "branch_rule_same": "Bằng ống chính",
-        "branch_rule_fixed": "Cố định",
+        "branch_rule_fixed": "CềEđịnh",
         "fire_group": "Chống cháy lan",
         "add": "Thêm",
         "edit": "Sửa",
@@ -1100,7 +1100,7 @@ APP_TEXT = {
         "edit_item": "Sửa mục",
         "config_saved": "Đã lưu thiết lập chung",
         "project": "Công trình",
-        "system": "Hệ",
+        "system": "HềE,
         "fixed_system": "排水転がし配管",
         "outside_keep": "",
         "main_size": "Ống chính",
@@ -1117,14 +1117,14 @@ APP_TEXT = {
         "default": "Mặc định",
         "delete_fit": "Xóa cút",
         "set_base": "Đặt đầu nhánh",
-        "detail_wait": "Tọa độ / kết nối sẽ hiện ở đây",
+        "detail_wait": "Tọa đềE/ kết nối sẽ hiện ềEđây",
         "pass_node": "đi qua",
-        "coord_degree_fmt": "Tọa độ: {x:.1f}, {y:.1f} | Bậc nối: {deg}",
+        "coord_degree_fmt": "Tọa đềE {x:.1f}, {y:.1f} | Bậc nối: {deg}",
         "node_selected_status": "Đã chọn Node {nid}",
         "pipe_selected_status": "Đã chọn ống {key}: {name}, dài {length:.3f} m",
         "jww_ops": "JWW / Thao tác",
         "debug": "Xuất kiểm tra đầy đủ",
-        "status_wait": "Trạng thái: chờ",
+        "status_wait": "Trạng thái: chềE,
         "drawing_preview": "Xem bản vẽ",
         "fit": "Fit",
         "rotate": "Xoay 180°",
@@ -1143,7 +1143,7 @@ APP_TEXT = {
         "jww_col_line": "Nét",
         "jww_col_main_layer": "Lớp chính",
         "jww_col_sub_layer": "Lớp phụ",
-        "excel_note": "Excel→Desktop保存",
+        "excel_note": "Excel→Desktop保孁E,
         "add_riser_500": "Ống đi lên +500mm",
         "tab_mat": "Vật tư",
         "tab_lib": "Thư viện",
@@ -1160,42 +1160,42 @@ APP_TEXT = {
         "bushing_confirm_title": "Chuyển thành ブッシング",
         "bushing_confirm_msg": "IN đang sát miệng cút lớn.\nBạn có muốn chuyển thành ブッシング không?",
         "bushing_done": "Đã chuyển IN thành ブッシング {size}",
-        "bushing_live_hint": "IN sát miệng cút lớn → đề xuất ブッシング",
+        "bushing_live_hint": "IN sát miệng cút lớn ↁEđềExuất ブッシング",
         "bushing_live_msg": "IN đã tới sát miệng cút lớn.\nChuyển ngay sang ブッシング không?",
         "smart_drag_title": "NEVIS kéo thông minh",
-        "smart_drag_msg": "NEVIS phát hiện tuyến ống có thể tối ưu:\n\n{old}\n→ chuyển thành {desc}\n\nÁp dụng thay đổi này không?",
+        "smart_drag_msg": "NEVIS phát hiện tuyến ống có thềEtối ưu:\n\n{old}\nↁEchuyển thành {desc}\n\nÁp dụng thay đổi này không?",
         "smart_drag_desc_45": "Y + LL/DL_UP trực tiếp",
         "smart_drag_desc_90": "chạc 3 90°",
         "smart_drag_keep": "Đã giữ nguyên tuyến ống sau khi kéo.",
         "smart_drag_done": "Đã tối ưu tuyến ống: xóa cút 45°/cút trung gian và nối lại tuyến phù hợp.",
-        "smart_drag_moved": "Đã kéo tuyến ống; NEVIS sẽ đề xuất tối ưu nếu phát hiện tuyến hợp lý.",
+        "smart_drag_moved": "Đã kéo tuyến ống; NEVIS sẽ đềExuất tối ưu nếu phát hiện tuyến hợp lý.",
         "undo": "Undo",
         "detail_preview": "Xem chi tiết",
         "end_detail_preview": "Kết thúc xem",
-        "detail_readonly_status": "Đang xem chi tiết (chỉ đọc)",
+        "detail_readonly_status": "Đang xem chi tiết (chềEđọc)",
         "detail_readonly_block": "Đang xem chi tiết: hãy bấm Kết thúc xem trước khi thao tác.",
-        "library_changed_scan": "Thư viện có thể đã thay đổi. Quét lại thư viện không?",
-        "missing_library_detail": "Không tìm thấy thư viện\n\nHệ thống: {system}\nVật liệu: {material}\nNhóm: {group}\nTên cần tìm: {name}\n\nĐường dẫn đã tìm:\n{paths}",
+        "library_changed_scan": "Thư viện có thềEđã thay đổi. Quét lại thư viện không?",
+        "missing_library_detail": "Không tìm thấy thư viện\n\nHềEthống: {system}\nVật liệu: {material}\nNhóm: {group}\nTên cần tìm: {name}\n\nĐường dẫn đã tìm:\n{paths}",
         "jww_ref": "Bảng màu - nét JWW",
         "jww_style": "Thiết lập xuất JWW",
         "right_panel_title": "Vật tư",
         "right_tab": "Vật tư",
         "pin_right_show": "Ghim bảng vật tư",
-        "pin_right_hide": "Bỏ ghim bảng vật tư",
+        "pin_right_hide": "BềEghim bảng vật tư",
         "status_detail_on": "Đang xem bản vẽ chi tiết",
         "undo_done": "Đã Undo",
         "pipe_selected": "Ống đang chọn",
-        "pipe_hint_selected": "Đang chọn ống: bấm Cút thu để thêm IN",
-        "in_hint_selected": "Đang chọn IN: có thể xóa",
+        "pipe_hint_selected": "Đang chọn ống: bấm Cút thu đềEthêm IN",
+        "in_hint_selected": "Đang chọn IN: có thềExóa",
         "branch_applied": "Đã áp dụng {mat} cho nhánh",
-        "branch_cleared": "Đã bỏ vật liệu nhánh",
-        "reducer_hint_normal": "Chọn ống để xem thông tin",
+        "branch_cleared": "Đã bềEvật liệu nhánh",
+        "reducer_hint_normal": "Chọn ống đềExem thông tin",
         "reducer_hint_select_pipe": "Chọn ống rồi bấm 異径S",
         "reducer_hint_pending": "Đang đặt IN: click/kéo trên ống rồi bấm Xác nhận",
         "branch_mat_group": "Vật liệu nhánh đặc biệt",
         "branch_material": "Vật liệu",
         "apply_branch_material": "Áp dụng",
-        "clear_branch_material": "Bỏ",
+        "clear_branch_material": "BềE,
         "branch_mat_hint_normal": "Chọn rồi gán vật liệu đặc biệt cho nhánh",
         "support_group": "Thiết lập cùm ống",
         "use_support_band": "Tính cùm ống",
@@ -1204,8 +1204,8 @@ APP_TEXT = {
         "support_kind": "",
         "apply_support_band": "Áp dụng cùm ống",
         "support_hint_off": "Tắt: không tính cùm ống",
-        "support_hint_on": "Bật: đặt giữa 2 mép cút; nhỏ hơn 35mm thì bỏ qua",
-        "support_invalid": "Khoảng cách cùm không hợp lệ",
+        "support_hint_on": "Bật: đặt giữa 2 mép cút; nhềEhơn 35mm thì bềEqua",
+        "support_invalid": "Khoảng cách cùm không hợp lềE,
         "support_positive": "Khoảng cách cùm phải lớn hơn 0",
         "support_status": "Cùm ống: {count} cái / khoảng cách ≤ {spacing:g} mm",
         "measure": "Đo",
@@ -1214,9 +1214,9 @@ APP_TEXT = {
         "measure_click2": "Chọn điểm đo thứ hai",
         "measure_result": "Đo: {dist:.1f} mm",
         "save_project": "Lưu dự án",
-        "open_project": "Mở dự án",
+        "open_project": "MềEdự án",
         "project_saved": "Đã lưu dự án",
-        "project_loaded": "Đã mở dự án",
+        "project_loaded": "Đã mềEdự án",
     },
     "jp": {
         "window_title": "NEVIS MEP giaiphaptamnhin@gmail.com",
@@ -1224,69 +1224,69 @@ APP_TEXT = {
         "menu_library": "ライブラリ",
         "menu_view": "表示",
         "menu_language": "Ngôn ngữ",
-        "menu_help": "情報",
-        "act_about": "ⓘ 情報",
-        "act_settings": "設定",
-        "setting_title": "設定",
+        "menu_help": "惁E��",
+        "act_about": "ⓁE惁E��",
+        "act_settings": "設宁E,
+        "setting_title": "設宁E,
         "setting_preview_detail": "詳細プレビューを軽量化",
-        "setting_autoscan": "起動時にライブラリを自動読込",
+        "setting_autoscan": "起動時にライブラリを�E動読込",
         "setting_show_library_tab": "ライブラリタブを表示",
-        "setting_note": "ライブラリタブを非表示にすると、画面が軽くなります。",
-        "act_open": "temp.txtを開く",
-        "act_exit": "終了",
+        "setting_note": "ライブラリタブを非表示にすると、画面が軽くなります、E,
+        "act_open": "temp.txtを開ぁE,
+        "act_exit": "終亁E,
         "act_scan": "ライブラリフォルダを読込",
         "act_fit": "全体表示",
         "act_lang": "Tiếng Việt",
-        "common": "共通設定",
-        "common_list": "⚙ 材料DB",
-        "library_editor": "図庫編集",
+        "common": "共通設宁E,
+        "common_list": "⚁E材料DB",
+        "library_editor": "図庫編雁E,
         "master_manager": "材料マスター",
-        "master_manager_title": "材料DBマスター設定",
+        "master_manager_title": "材料DBマスター設宁E,
         "master_systems": "系統",
-        "master_materials": "管材・材料",
-        "master_groups": "継手グループ",
-        "master_code": "コード",
+        "master_materials": "管材�E材料",
+        "master_groups": "継手グルーチE,
+        "master_code": "コーチE,
         "master_folder": "ライブラリフォルダ",
         "master_sizes": "使用サイズ",
-        "master_groups_allowed": "使用グループ",
+        "master_groups_allowed": "使用グルーチE,
         "master_pattern": "命名規則",
         "master_ports": "口数",
         "master_add": "追加",
-        "master_edit": "編集",
+        "master_edit": "編雁E,
         "master_delete": "削除",
-        "master_save": "保存",
+        "master_save": "保孁E,
         "master_saved": "nevis_master.jsonを保存しました",
         "master_start_end": "枝始点・枝端部機器",
         "master_start_devices": "枝始点機器",
         "master_end_devices": "枝端部機器",
         "master_pipe_raw": "配管",
-        "master_none": "なし",
-        "library_editor_title": "図庫編集ロック",
-        "library_editor_password": "パスワード入力",
-        "library_editor_wrong_password": "パスワードが違います",
+        "master_none": "なぁE,
+        "library_editor_title": "図庫編雁E��チE��",
+        "library_editor_password": "パスワード�E劁E,
+        "library_editor_wrong_password": "パスワードが違いまぁE,
         "library_editor_change_password": "パスワード変更",
-        "library_editor_old_password": "現在のパスワード",
-        "library_editor_new_password": "新しいパスワード",
+        "library_editor_old_password": "現在のパスワーチE,
+        "library_editor_new_password": "新しいパスワーチE,
         "library_editor_password_changed": "パスワードを変更しました",
-        "library_editor_not_found": "図庫編集ファイルが見つかりません",
+        "library_editor_not_found": "図庫編雁E��ァイルが見つかりません",
         "common_settings_title": "材料DB",
-        "common_settings_note": "統一DB: 系統 → 材料 → 継手グループ → 材料名。標準名: group_main_branch_note。",
+        "common_settings_note": "統一DB: 系統 ↁE材料 ↁE継手グルーチEↁE材料名。標準名: group_main_branch_note、E,
         "systems": "系統",
         "pipe_sizes": "管サイズ",
         "branch_start": "枝始点",
         "branch_end": "枝端部",
-        "branch_default": "枝初期サイズ",
-        "branch_rule_down": "1サイズ下げる",
+        "branch_default": "枝�E期サイズ",
+        "branch_rule_down": "1サイズ下げめE,
         "branch_rule_same": "主管と同じ",
-        "branch_rule_fixed": "固定",
+        "branch_rule_fixed": "固宁E,
         "fire_group": "防火区画",
         "add": "追加",
-        "edit": "編集",
+        "edit": "編雁E,
         "delete": "削除",
         "move_up": "上へ",
         "move_down": "下へ",
-        "input_item": "新しい項目",
-        "edit_item": "項目を編集",
+        "input_item": "新しい頁E��",
+        "edit_item": "頁E��を編雁E,
         "config_saved": "共通設定を保存しました",
         "project": "工事名",
         "system": "系統",
@@ -1294,115 +1294,115 @@ APP_TEXT = {
         "outside_keep": "",
         "main_size": "主管サイズ",
         "fire_rule": "防火適用",
-        "fire_len": "範囲",
-        "inside": "範囲内",
-        "outside": "範囲外",
+        "fire_len": "篁E��",
+        "inside": "篁E��冁E,
+        "outside": "篁E��夁E,
         "terminal": "枝端部",
         "apply": "適用",
         "selected_group": "選択中",
-        "not_selected": "未選択",
-        "type": "種類",
+        "not_selected": "未選抁E,
+        "type": "種顁E,
         "size": "サイズ",
-        "default": "既定",
+        "default": "既宁E,
         "delete_fit": "継手削除",
-        "set_base": "枝始点に設定",
-        "detail_wait": "座標 / 接続情報を表示します",
+        "set_base": "枝始点に設宁E,
+        "detail_wait": "座樁E/ 接続情報を表示しまぁE,
         "pass_node": "通過",
-        "coord_degree_fmt": "座標: {x:.1f}, {y:.1f} | 接続数: {deg}",
-        "node_selected_status": "Node {nid} を選択",
-        "pipe_selected_status": "配管 {key} を選択: {name}, 長さ {length:.3f} m",
-        "jww_ops": "JWW操作",
-        "debug": "全体確認出力",
-        "status_wait": "状態: 待機中",
+        "coord_degree_fmt": "座樁E {x:.1f}, {y:.1f} | 接続数: {deg}",
+        "node_selected_status": "Node {nid} を選抁E,
+        "pipe_selected_status": "配管 {key} を選抁E {name}, 長ぁE{length:.3f} m",
+        "jww_ops": "JWW操佁E,
+        "debug": "全体確認�E劁E,
+        "status_wait": "状慁E 征E��中",
         "drawing_preview": "図面プレビュー",
         "fit": "全体表示",
         "rotate": "180°回転",
         "flip_x": "左右反転",
         "flip_y": "上下反転",
         "pipe_spec": "管の定尺 m/本",
-        "area": "部屋/階",
-        "export_excel": "Excel出力",
-        "export_confirm": "出力確認",
+        "area": "部屁E隁E,
+        "export_excel": "Excel出劁E,
+        "export_confirm": "出力確誁E,
         "export_jww": "JWW\n展開",
-        "export_centerline": "中心線描画",
+        "export_centerline": "中忁E��描画",
         "jww_row_pipe": "配管",
-        "jww_row_center": "中心線",
+        "jww_row_center": "中忁E��E,
         "jww_row_joint": "継手",
         "jww_col_color": "色",
         "jww_col_line": "線種",
         "jww_col_main_layer": "主L",
         "jww_col_sub_layer": "子L",
-        "excel_note": "Excel→Desktop保存",
+        "excel_note": "Excel→Desktop保孁E,
         "add_riser_500": "立上り管+500mm",
         "tab_mat": "材料",
         "tab_lib": "ライブラリ",
         "add_txt": "TXT追加",
         "scan_folder": "フォルダ追加",
         "remove_item": "削除",
-        "no_lib_txt": "ライブラリに\nJSON/TXTなし",
+        "no_lib_txt": "ライブラリに\nJSON/TXTなぁE,
         "cant_read_txt": "JSON/TXTを読めません",
-        "reducer_group": "異径ソケット設定",
+        "reducer_group": "異征E��ケチE��設宁E,
         "insert_reducer": "異径S",
-        "confirm_reducer": "確定",
-        "cancel_reducer": "取消",
+        "confirm_reducer": "確宁E,
+        "cancel_reducer": "取涁E,
         "delete_reducer": "IN削除",
         "bushing_confirm_title": "ブッシングへ変換",
-        "bushing_confirm_msg": "INが大径側継手の口元に接近しています。\nブッシングとして使用しますか？",
-        "bushing_done": "INをブッシング {size} に変換しました",
-        "bushing_live_hint": "INが大径側口元に接近 → ブッシング候補",
-        "bushing_live_msg": "INが大径側継手の口元に入りました。\nブッシングへ切替しますか？",
-        "smart_drag_title": "NEVISスマートドラッグ",
-        "smart_drag_msg": "NEVISが最適化できる配管ルートを検出しました:\n\n{old}\n→ {desc} に変更\n\nこの変更を適用しますか？",
-        "smart_drag_desc_45": "Y + LL/DL_UP 直接接続",
-        "smart_drag_desc_90": "90°チーズ継手",
-        "smart_drag_keep": "ドラッグ後の配管ルートをそのまま保持しました。",
-        "smart_drag_done": "配管ルートを最適化しました：45°/中間継手を削除し、適切なルートへ接続しました。",
-        "smart_drag_moved": "配管ルートを移動しました。適切な形状を検出した場合、NEVISが最適化を提案します。",
-        "undo": "戻す",
-        "detail_preview": "詳細確認",
-        "end_detail_preview": "確認終了",
-        "detail_readonly_status": "詳細確認中（読取専用）",
-        "detail_readonly_block": "詳細確認中です。確認終了を押してから操作してください。",
-        "library_changed_scan": "ライブラリが変更された可能性があります。再読込しますか？",
-        "missing_library_detail": "ライブラリが見つかりません\n\n系統: {system}\n材料: {material}\nグループ: {group}\n検索名: {name}\n\n検索した場所:\n{paths}",
+        "bushing_confirm_msg": "INが大征E�E継手の口允E��接近してぁE��す、Enブッシングとして使用しますか�E�E,
+        "bushing_done": "INをブチE��ング {size} に変換しました",
+        "bushing_live_hint": "INが大征E�E口允E��接迁EↁEブッシング候裁E,
+        "bushing_live_msg": "INが大征E�E継手の口允E��入りました、Enブッシングへ刁E��しますか�E�E,
+        "smart_drag_title": "NEVISスマ�EトドラチE��",
+        "smart_drag_msg": "NEVISが最適化できる配管ルートを検�Eしました:\n\n{old}\nↁE{desc} に変更\n\nこ�E変更を適用しますか�E�E,
+        "smart_drag_desc_45": "Y + LL/DL_UP 直接接綁E,
+        "smart_drag_desc_90": "90°チ�Eズ継手",
+        "smart_drag_keep": "ドラチE��後�E配管ルートをそ�Eまま保持しました、E,
+        "smart_drag_done": "配管ルートを最適化しました�E�E5°/中間継手を削除し、E��刁E��ルートへ接続しました、E,
+        "smart_drag_moved": "配管ルートを移動しました。適刁E��形状を検�Eした場合、NEVISが最適化を提案します、E,
+        "undo": "戻ぁE,
+        "detail_preview": "詳細確誁E,
+        "end_detail_preview": "確認終亁E,
+        "detail_readonly_status": "詳細確認中�E�読取専用�E�E,
+        "detail_readonly_block": "詳細確認中です。確認終亁E��押してから操作してください、E,
+        "library_changed_scan": "ライブラリが変更された可能性があります。�E読込しますか�E�E,
+        "missing_library_detail": "ライブラリが見つかりません\n\n系統: {system}\n材料: {material}\nグルーチE {group}\n検索吁E {name}\n\n検索した場所:\n{paths}",
         "jww_ref": "JWW線属性",
-        "jww_style": "JWW出力設定",
+        "jww_style": "JWW出力設宁E,
         "right_panel_title": "材料 / 図庫",
         "right_tab": "材料",
         "pin_right_show": "材料パネルを表示",
-        "pin_right_hide": "材料パネルを隠す",
+        "pin_right_hide": "材料パネルを隠ぁE,
         "status_detail_on": "詳細図表示: ON",
         "undo_done": "戻しました",
         "pipe_selected": "選択中の配管",
-        "pipe_hint_selected": "管を選択中：異径SでINを追加",
-        "in_hint_selected": "INを選択中：削除できます",
-        "branch_applied": "枝配管へ{mat}適用",
-        "branch_cleared": "枝配管材質を解除",
-        "reducer_hint_normal": "管を選択して情報を表示",
+        "pipe_hint_selected": "管を選択中�E�異径SでINを追加",
+        "in_hint_selected": "INを選択中�E�削除できまぁE,
+        "branch_applied": "枝�E管へ{mat}適用",
+        "branch_cleared": "枝�E管材質を解除",
+        "reducer_hint_normal": "管を選択して惁E��を表示",
         "reducer_hint_select_pipe": "管を選択してから異径Sを押してください",
-        "reducer_hint_pending": "IN配置中：管上をクリック/ドラッグして確定",
+        "reducer_hint_pending": "IN配置中�E�管上をクリチE��/ドラチE��して確宁E,
         "branch_mat_group": "特殊枝配管材質",
         "branch_material": "材質",
         "apply_branch_material": "適用",
         "clear_branch_material": "解除",
         "branch_mat_hint_normal": "Y/LT/DT/Tを選択し、枝へ特殊材質を適用",
-        "support_group": "支持バンド設定",
-        "use_support_band": "支持バンド計算",
+        "support_group": "支持バンド設宁E,
+        "use_support_band": "支持バンド計箁E,
         "show_support_band": "バンド表示",
-        "support_spacing": "最大支持間隔",
+        "support_spacing": "最大支持E��隁E,
         "support_kind": "",
         "apply_support_band": "支持バンド反映",
-        "support_hint_off": "OFF：支持バンドを計算しません",
-        "support_hint_on": "ON：継手端部間の中央を優先。35mm未満は除外",
-        "support_invalid": "支持間隔が不正です",
-        "support_positive": "支持間隔は0より大きくしてください",
-        "support_status": "支持バンド: {count} 個 / 間隔 ≤ {spacing:g} mm",
-        "measure": "測定",
+        "support_hint_off": "OFF�E�支持バンドを計算しません",
+        "support_hint_on": "ON�E�継手端部間�E中央を優先、E5mm未満は除夁E,
+        "support_invalid": "支持E��隔が不正でぁE,
+        "support_positive": "支持E��隔�E0より大きくしてください",
+        "support_status": "支持バンチE {count} 倁E/ 間隔 ≤ {spacing:g} mm",
+        "measure": "測宁E,
         "clear_measure": "測定削除",
-        "measure_click1": "測定点1を選択",
-        "measure_click2": "測定点2を選択",
-        "measure_result": "測定: {dist:.1f} mm",
-        "save_project": "プロジェクト保存",
+        "measure_click1": "測定点1を選抁E,
+        "measure_click2": "測定点2を選抁E,
+        "measure_result": "測宁E {dist:.1f} mm",
+        "save_project": "プロジェクト保孁E,
         "open_project": "プロジェクトを開く",
         "project_saved": "プロジェクトを保存しました",
         "project_loaded": "プロジェクトを開きました",
@@ -1410,25 +1410,25 @@ APP_TEXT = {
 }
 
 APP_TEXT.setdefault("vi", {}).update({
-    "elevation_group": "Cao độ",
-    "elevation_report_group": "Báo cáo cao độ",
+    "elevation_group": "Cao đềE,
+    "elevation_report_group": "Báo cáo cao đềE,
     "elevation_node_level": "Level",
     "elevation_node_z": "Z",
     "elevation_start_level": "Level bắt đầu",
     "elevation_end_level": "Level kết thúc",
-    "elevation_start_z": "Cao độ bắt đầu",
-    "elevation_end_z": "Cao độ kết thúc",
+    "elevation_start_z": "Cao đềEbắt đầu",
+    "elevation_end_z": "Cao đềEkết thúc",
     "elevation_slope": "Dốc",
     "elevation_locked": "Khóa",
-    "elevation_apply": "Áp dụng cao độ",
+    "elevation_apply": "Áp dụng cao đềE,
     "elevation_apply_to_nodes": "Ghi vào node",
     "elevation_sync_from_nodes": "Lấy từ node",
-    "elevation_propagate_chain": "Truyền cao độ",
+    "elevation_propagate_chain": "Truyền cao đềE,
     "elevation_refresh_report": "Tính lại",
     "elevation_slope_mode": "Kiểu dốc",
     "elevation_slope_ratio": "1/N",
     "elevation_slope_percent": "%",
-    "elevation_reference": "Mốc cao độ",
+    "elevation_reference": "Mốc cao đềE,
     "elevation_ref_invert": "Đáy ống",
     "elevation_ref_center": "Tim ống",
     "elevation_ref_top": "Đỉnh ống",
@@ -1441,100 +1441,100 @@ APP_TEXT.setdefault("vi", {}).update({
     "elevation_report_status": "Trạng thái",
     "elevation_calc_preview": "Tính thử",
     "elevation_warnings": "Cảnh báo",
-    "elevation_preview_title": "Báo cáo tính thử cao độ",
-    "elevation_preview_open": "Mở tính thử cao độ",
-    "elevation_preview_run": "Tính thử cao độ",
-    "elevation_preview_readonly": "CHỈ XEM",
-    "elevation_preview_footer": "Chỉ xem. Không thay đổi dữ liệu cao độ trong mô hình.",
-    "elevation_preview_status_proposed": "Đề xuất",
+    "elevation_preview_title": "Báo cáo tính thử cao đềE,
+    "elevation_preview_open": "MềEtính thử cao đềE,
+    "elevation_preview_run": "Tính thử cao đềE,
+    "elevation_preview_readonly": "CHềEXEM",
+    "elevation_preview_footer": "ChềExem. Không thay đổi dữ liệu cao đềEtrong mô hình.",
+    "elevation_preview_status_proposed": "ĐềExuất",
     "elevation_preview_status_conflict": "Xung đột",
     "elevation_preview_status_locked": "Khóa",
-    "elevation_preview_status_skipped": "Bỏ qua",
+    "elevation_preview_status_skipped": "BềEqua",
     "elevation_preview_col_type": "Loại",
     "elevation_preview_col_target": "Đối tượng",
-    "elevation_preview_col_current": "Cao độ hiện tại",
-    "elevation_preview_col_proposed": "Cao độ đề xuất",
+    "elevation_preview_col_current": "Cao đềEhiện tại",
+    "elevation_preview_col_proposed": "Cao đềEđềExuất",
     "elevation_preview_col_reason": "Lý do",
     "elevation_preview_target_format": "{pipe} {pair} / {endpoint}",
     "elevation_preview_empty": "Không có kết quả tính thử.",
-    "elevation_preview_error": "Không thể tính thử cao độ.",
+    "elevation_preview_error": "Không thềEtính thử cao đềE",
     "elevation_preview_stale": "Kết quả không còn khớp với mô hình. Hãy tính thử lại.",
     "elevation_preview_unknown": "Không xác định",
-    "elevation_reason_copy_source": "Lấy cao độ từ điểm nguồn",
-    "elevation_reason_candidate_conflict": "Các đề xuất cao độ xung đột",
-    "elevation_reason_anchor_source_conflict": "Mốc cao độ tại điểm nguồn xung đột",
-    "elevation_reason_anchor_target_conflict": "Mốc cao độ tại đích xung đột",
-    "elevation_reason_multiple_candidates": "Có nhiều đề xuất cho cùng một đích",
+    "elevation_reason_copy_source": "Lấy cao đềEtừ điểm nguồn",
+    "elevation_reason_candidate_conflict": "Các đềExuất cao đềExung đột",
+    "elevation_reason_anchor_source_conflict": "Mốc cao đềEtại điểm nguồn xung đột",
+    "elevation_reason_anchor_target_conflict": "Mốc cao đềEtại đích xung đột",
+    "elevation_reason_multiple_candidates": "Có nhiều đềExuất cho cùng một đích",
     "elevation_reason_source_locked": "Ống nguồn đã khóa",
     "elevation_reason_target_locked": "Ống đích đã khóa",
-    "elevation_reason_known_locked": "Cao độ hiện có đã khóa",
-    "elevation_reason_target_known": "Đã có cao độ",
-    "elevation_reason_missing_source": "Thiếu dữ liệu cao độ nguồn",
-    "elevation_reason_invalid_endpoint": "Đầu ống không hợp lệ",
+    "elevation_reason_known_locked": "Cao đềEhiện có đã khóa",
+    "elevation_reason_target_known": "Đã có cao đềE,
+    "elevation_reason_missing_source": "Thiếu dữ liệu cao đềEnguồn",
+    "elevation_reason_invalid_endpoint": "Đầu ống không hợp lềE,
     "elevation_reason_edge_missing": "Không tìm thấy ống đích",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "elevation_group": "高低差",
-    "elevation_report_group": "高低差レポート",
+    "elevation_report_group": "高低差レポ�EチE,
     "elevation_node_level": "レベル",
     "elevation_node_z": "高さ",
     "elevation_start_level": "開始レベル",
-    "elevation_end_level": "終了レベル",
+    "elevation_end_level": "終亁E��ベル",
     "elevation_start_z": "開始高さ",
-    "elevation_end_z": "終了高さ",
-    "elevation_slope": "勾配",
-    "elevation_locked": "ロック",
+    "elevation_end_z": "終亁E��さ",
+    "elevation_slope": "勾酁E,
+    "elevation_locked": "ロチE��",
     "elevation_apply": "高低差反映",
-    "elevation_apply_to_nodes": "ノードへ反映",
-    "elevation_sync_from_nodes": "ノードから取得",
+    "elevation_apply_to_nodes": "ノ�Eドへ反映",
+    "elevation_sync_from_nodes": "ノ�Eドから取征E,
     "elevation_propagate_chain": "高低差伝播",
-    "elevation_refresh_report": "再集計",
-    "elevation_slope_mode": "勾配方式",
+    "elevation_refresh_report": "再集訁E,
+    "elevation_slope_mode": "勾配方弁E,
     "elevation_slope_ratio": "1/N",
     "elevation_slope_percent": "%",
-    "elevation_reference": "高さ基準",
-    "elevation_ref_invert": "管底",
+    "elevation_reference": "高さ基溁E,
+    "elevation_ref_invert": "管庁E,
     "elevation_ref_center": "管芯",
     "elevation_ref_top": "上端",
-    "elevation_none": "なし",
+    "elevation_none": "なぁE,
     "elevation_report_pipe": "配管",
-    "elevation_report_start": "開始",
-    "elevation_report_end": "終了",
-    "elevation_report_length": "長さ",
-    "elevation_report_slope": "勾配",
-    "elevation_report_status": "状態",
-    "elevation_calc_preview": "計算プレビュー",
-    "elevation_warnings": "警告",
-    "elevation_preview_title": "高低差計算プレビュー",
-    "elevation_preview_open": "高低差計算プレビューを開く",
-    "elevation_preview_run": "高低差を試算",
-    "elevation_preview_readonly": "参照のみ",
-    "elevation_preview_footer": "参照のみ。モデルの高さデータは変更されません。",
-    "elevation_preview_status_proposed": "提案",
-    "elevation_preview_status_conflict": "競合",
-    "elevation_preview_status_locked": "ロック",
-    "elevation_preview_status_skipped": "対象外",
-    "elevation_preview_col_type": "種類",
+    "elevation_report_start": "開姁E,
+    "elevation_report_end": "終亁E,
+    "elevation_report_length": "長ぁE,
+    "elevation_report_slope": "勾酁E,
+    "elevation_report_status": "状慁E,
+    "elevation_calc_preview": "計算�Eレビュー",
+    "elevation_warnings": "警呁E,
+    "elevation_preview_title": "高低差計算�Eレビュー",
+    "elevation_preview_open": "高低差計算�Eレビューを開ぁE,
+    "elevation_preview_run": "高低差を試箁E,
+    "elevation_preview_readonly": "参�Eのみ",
+    "elevation_preview_footer": "参�Eのみ。モチE��の高さチE�Eタは変更されません、E,
+    "elevation_preview_status_proposed": "提桁E,
+    "elevation_preview_status_conflict": "競吁E,
+    "elevation_preview_status_locked": "ロチE��",
+    "elevation_preview_status_skipped": "対象夁E,
+    "elevation_preview_col_type": "種顁E,
     "elevation_preview_col_target": "対象",
     "elevation_preview_col_current": "現在高さ",
     "elevation_preview_col_proposed": "提案高さ",
-    "elevation_preview_col_reason": "理由",
+    "elevation_preview_col_reason": "琁E��",
     "elevation_preview_target_format": "{pipe} {pair} / {endpoint}",
-    "elevation_preview_empty": "試算結果はありません。",
-    "elevation_preview_error": "高低差を試算できませんでした。",
-    "elevation_preview_stale": "結果が現在のモデルと一致しません。再試算してください。",
-    "elevation_preview_unknown": "不明",
-    "elevation_reason_copy_source": "参照元端点の高さを採用",
-    "elevation_reason_candidate_conflict": "高さ提案が競合しています",
-    "elevation_reason_anchor_source_conflict": "参照元の基準高さが競合しています",
-    "elevation_reason_anchor_target_conflict": "対象の基準高さが競合しています",
-    "elevation_reason_multiple_candidates": "同一対象に複数の提案があります",
-    "elevation_reason_source_locked": "参照元配管がロックされています",
-    "elevation_reason_target_locked": "対象配管がロックされています",
-    "elevation_reason_known_locked": "設定済み高さがロックされています",
+    "elevation_preview_empty": "試算結果はありません、E,
+    "elevation_preview_error": "高低差を試算できませんでした、E,
+    "elevation_preview_stale": "結果が現在のモチE��と一致しません。�E試算してください、E,
+    "elevation_preview_unknown": "不�E",
+    "elevation_reason_copy_source": "参�E允E��点の高さを採用",
+    "elevation_reason_candidate_conflict": "高さ提案が競合してぁE��ぁE,
+    "elevation_reason_anchor_source_conflict": "参�E允E�E基準高さが競合してぁE��ぁE,
+    "elevation_reason_anchor_target_conflict": "対象の基準高さが競合してぁE��ぁE,
+    "elevation_reason_multiple_candidates": "同一対象に褁E��の提案がありまぁE,
+    "elevation_reason_source_locked": "参�E允E�E管がロチE��されてぁE��ぁE,
+    "elevation_reason_target_locked": "対象配管がロチE��されてぁE��ぁE,
+    "elevation_reason_known_locked": "設定済み高さがロチE��されてぁE��ぁE,
     "elevation_reason_target_known": "高さ設定済み",
-    "elevation_reason_missing_source": "参照元の高さデータがありません",
-    "elevation_reason_invalid_endpoint": "配管端点が無効です",
+    "elevation_reason_missing_source": "参�E允E�E高さチE�Eタがありません",
+    "elevation_reason_invalid_endpoint": "配管端点が無効でぁE,
     "elevation_reason_edge_missing": "対象配管が見つかりません",
 })
 
@@ -2141,7 +2141,7 @@ class PreviewView(QGraphicsView):
         self._move_undo_saved = False
         self._pending_danger_move = None
         self._slide_pipe_data = None  # V18: pipe slide constraint data
-        # NEVIS perf: background JWW cache – tránh vẽ lại 30K đối tượng khi chỉ model thay đổi.
+        # NEVIS perf: background JWW cache  Etránh vẽ lại 30K đối tượng khi chềEmodel thay đổi.
         self._bg_sig: object = None
         self._bg_items: list = []
 
@@ -2154,7 +2154,7 @@ class PreviewView(QGraphicsView):
         bg_items = getattr(self.mainwin, "jww_background_items", []) or []
         _sig_now = (id(bg_items), len(bg_items))
         if _sig_now != self._bg_sig:
-            # Background thay đổi hoặc lần đầu vẽ: xóa toàn bộ rồi rebuild.
+            # Background thay đổi hoặc lần đầu vẽ: xóa toàn bềErồi rebuild.
             _nevis_runtime_timed_scene_clear(self.scene); self._item_map.clear()
             self._bg_items = []
             if not m.nodes and not bg_items:
@@ -2170,7 +2170,7 @@ class PreviewView(QGraphicsView):
             self._bg_items = [it for it in self.scene.items() if id(it) not in _before_ids]
             self._bg_sig = _sig_now
         else:
-            # Background không đổi: chỉ xóa các item model/fitting, giữ lại JWW nền.
+            # Background không đổi: chềExóa các item model/fitting, giữ lại JWW nền.
             _bg_ids = {id(it) for it in self._bg_items}
             for it in list(self.scene.items()):
                 if id(it) not in _bg_ids:
@@ -2251,7 +2251,7 @@ class PreviewView(QGraphicsView):
                 self._add_pipe_line(x1, y1, x2, y2, QColor(255, 185, 55, 180), 13, ("edge", e.key), cosmetic=True, z=14)
                 self._add_pipe_line(x1, y1, x2, y2, QColor(255, 245, 120), 3, ("edge", e.key), cosmetic=True, z=15)
 
-        # 支持バンド / pipe support bands.  Draw after pipes and before fittings.
+        # 支持バンチE/ pipe support bands.  Draw after pipes and before fittings.
         if getattr(self.mainwin, "support_enabled", False) and getattr(self.mainwin, "support_visible", False):
             self._draw_support_bands()
 
@@ -2492,7 +2492,7 @@ class PreviewView(QGraphicsView):
             mark.setAcceptedMouseButtons(Qt.NoButton)
             mark.setZValue(71)
 
-            msg = f"隙間不足 / Khe hở thiếu: {clear_len:.1f}mm < 10mm"
+            msg = f"隙間不足 / Khe hềEthiếu: {clear_len:.1f}mm < 10mm"
             txt = self.scene.addText(msg, QFont("Segoe UI", 7, QFont.Bold))
             txt.setDefaultTextColor(QColor(190, 35, 20))
             txt.setPos(x + 44, y - 24)
@@ -2921,7 +2921,7 @@ class PreviewView(QGraphicsView):
                 # correction flags are never applied to JSON preview geometry.
                 self.mainwin._active_fitting_axis_right = (False if is_json_lib else (
                     is_axis_right_library_name(path)
-                    or ftype_norm in ["集合管", "S", "SV"]
+                    or ftype_norm in ["雁E��管", "S", "SV"]
                 ))
                 self.mainwin._active_fitting_skip_y_invert = (True if is_json_lib else (
                     ftype_norm in ["Y", "LT", "DT", "T", "IN", "HTVP"]
@@ -2934,7 +2934,7 @@ class PreviewView(QGraphicsView):
                 expected = self.mainwin.fitting_expected_mouth_count(nid, fit)
                 # v30 SmartMatcher: use the exact anchor chosen during fitting_transform.
                 # Do not recalculate here, because Y/45 use mouth-intersection anchor
-                # while 集合管/S/SV usually use the TXT origin as the collection point.
+                # while 雁E��管/S/SV usually use the TXT origin as the collection point.
                 anchors = getattr(self.mainwin, "_last_fit_anchor_by_node", {})
                 self.mainwin._active_fitting_anchor = anchors.get(nid, self.mainwin.fitting_local_anchor(path, expected=expected))
                 _perf_transform_ms += _perf_elapsed_ms(_t)
@@ -3019,7 +3019,7 @@ class PreviewView(QGraphicsView):
             item.setAcceptedMouseButtons(Qt.NoButton)
 
     def _node_colors(self, ftype: str, is_base: bool):
-        if is_base or ftype == "集合管":
+        if is_base or ftype == "雁E��管":
             return QColor(255, 220, 95), QColor(180, 85, 0)
         if ftype in ("Y", "LT", "DT", "T"):
             return QColor(205, 232, 255), QColor(0, 95, 180)
@@ -3143,7 +3143,7 @@ class PreviewView(QGraphicsView):
             data.pop("bushing_offer_key", None)
             data.pop("bushing_declined_key", None)
             self.mainwin.pending_reducer = data
-            self.mainwin.lbl_reducer_hint.setText(f"IN {data.get('size','')} 位置 {t*100:.0f}% → 確定")
+            self.mainwin.lbl_reducer_hint.setText(f"IN {data.get('size','')} 位置 {t*100:.0f}% ↁE確宁E)
             self.mainwin.preview.draw_model()
             return True
 
@@ -3152,11 +3152,11 @@ class PreviewView(QGraphicsView):
         is_base = (nid == getattr(m, "base_node", None)) or (nid in getattr(m, "base_nodes", set()))
         is_end = (m.degree(nid) == 1)
         if is_base and is_end:
-            return True, "⚠ Đây là điểm đầu đồng thời là điểm cuối. Nhấn Space để xác nhận di chuyển."
+            return True, "⚠ Đây là điểm đầu đồng thời là điểm cuối. Nhấn Space đềExác nhận di chuyển."
         if is_base:
-            return True, "⚠ Đây là điểm đầu nhánh. Nhấn Space để xác nhận di chuyển."
+            return True, "⚠ Đây là điểm đầu nhánh. Nhấn Space đềExác nhận di chuyển."
         if is_end:
-            return True, "⚠ Đây là điểm cuối nhánh. Nhấn Space để xác nhận di chuyển."
+            return True, "⚠ Đây là điểm cuối nhánh. Nhấn Space đềExác nhận di chuyển."
         return False, ""
 
     def _edge_by_key(self, key: str):
@@ -3180,9 +3180,9 @@ class PreviewView(QGraphicsView):
     def _build_pipe_move_group(self, edge_key_value: str) -> Set[int]:
         """Return all nodes on the selected straight/45° pipe run.
 
-        Kéo ống kiểu BIM: chọn một đoạn ống nhỏ bất kỳ, NEVIS gom toàn bộ
+        Kéo ống kiểu BIM: chọn một đoạn ống nhềEbất kỳ, NEVIS gom toàn bềE
         các đoạn cùng phương nối tiếp nhau thành một tuyến.  Khi kéo, mọi cút
-        trên tuyến đó đi theo; các nhánh ngoài chỉ thay đổi dài/ngắn.
+        trên tuyến đó đi theo; các nhánh ngoài chềEthay đổi dài/ngắn.
         """
         m = self.mainwin.model
         e0 = self._edge_by_key(edge_key_value)
@@ -3291,7 +3291,7 @@ class PreviewView(QGraphicsView):
         rail_a = self._external_slide_unit(end_a, group, run_ux, run_uy)
         rail_b = self._external_slide_unit(end_b, group, run_ux, run_uy)
         if not rail_a or not rail_b:
-            self.mainwin.lbl_status.setText("⚠ Tuyến ống này thiếu ống xanh ở một đầu để cút trượt. Chọn đoạn khác hoặc dùng chỉnh thủ công.")
+            self.mainwin.lbl_status.setText("⚠ Tuyến ống này thiếu ống xanh ềEmột đầu đềEcút trượt. Chọn đoạn khác hoặc dùng chỉnh thủ công.")
             return None
         ua_x, ua_y, outside_a, edge_a = rail_a
         ub_x, ub_y, outside_b, edge_b = rail_b
@@ -3393,7 +3393,7 @@ class PreviewView(QGraphicsView):
         self._pending_danger_move = None
         self.viewport().setCursor(Qt.ClosedHandCursor)
         self.mainwin.lbl_status.setText(
-            "Đang kéo ống kiểu trượt: 2 đầu cút chạy trên ống xanh, ống đang kéo giữ nguyên góc, chỉ dài/ngắn."
+            "Đang kéo ống kiểu trượt: 2 đầu cút chạy trên ống xanh, ống đang kéo giữ nguyên góc, chềEdài/ngắn."
         )
         return True
 
@@ -3415,7 +3415,7 @@ class PreviewView(QGraphicsView):
         self._move_undo_saved = False
         self._pending_danger_move = None
         self.viewport().setCursor(Qt.ClosedHandCursor)
-        self.mainwin.lbl_status.setText("Đang di chuyển cút: chỉ cho 8 hướng 0°/45°/90°. Thả chuột phải để kết thúc.")
+        self.mainwin.lbl_status.setText("Đang di chuyển cút: chềEcho 8 hướng 0°/45°/90°. Thả chuột phải đềEkết thúc.")
         return True
 
     def _snap_delta_8dir(self, dx: float, dy: float) -> Tuple[float, float]:
@@ -3481,7 +3481,7 @@ class PreviewView(QGraphicsView):
         if getattr(self, "_slide_pipe_data", None):
             positions = self._calc_slide_positions(dx_model, dy_model)
             if not positions or not self._slide_positions_ok(positions):
-                self.mainwin.lbl_status.setText("⚠ Không kéo được: cút không thể trượt mà vẫn giữ toàn bộ ống theo góc 0°/45°/90°/135°.")
+                self.mainwin.lbl_status.setText("⚠ Không kéo được: cút không thềEtrượt mà vẫn giữ toàn bềEống theo góc 0°/45°/90°/135°.")
                 self.viewport().setCursor(Qt.ForbiddenCursor)
                 return False
             if not self._move_undo_saved:
@@ -3659,7 +3659,7 @@ class PreviewView(QGraphicsView):
             event.accept()
             return
         if event.button() == Qt.RightButton and self._pending_danger_move:
-            # Người dùng chỉ bấm phải vào điểm nguy hiểm nhưng chưa nhấn Space.
+            # Người dùng chềEbấm phải vào điểm nguy hiểm nhưng chưa nhấn Space.
             # Giữ cảnh báo trên status, không tự di chuyển.
             self.viewport().setCursor(Qt.OpenHandCursor)
             event.accept()
@@ -3685,23 +3685,23 @@ DEFAULT_NEVIS_MASTER = {
         {"code":"SP", "name_vi":"Sprinkler", "name_jp":"スプリンクラー", "folder":"Cuu hoa", "materials":["STPG"], "default_main_size":"100", "default_branch_rule":"same"},
         {"code":"連結送水管", "name_vi":"Liên kết cấp nước chữa cháy", "name_jp":"連結送水管", "folder":"Cuu hoa", "materials":["STPG"], "default_main_size":"100", "default_branch_rule":"same"},
         {"code":"空調", "name_vi":"Điều hòa", "name_jp":"空調", "folder":"Dieu hoa", "materials":["DUCT","DR", "SPIRAL"], "default_main_size":"100", "default_branch_rule":"same"},
-        {"code":"換気", "name_vi":"Thông khí", "name_jp":"換気", "folder":"Thong khi", "materials":["SPIRAL","FLEX"], "default_main_size":"100", "default_branch_rule":"same"}
+        {"code":"換氁E, "name_vi":"Thông khí", "name_jp":"換氁E, "folder":"Thong khi", "materials":["SPIRAL","FLEX"], "default_main_size":"100", "default_branch_rule":"same"}
     ],
     "materials": [
-        {"code":"DV", "name_vi":"DV", "name_jp":"DV", "folder":"DV", "family":"VP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN","集合管","脚部"], "start_groups":["集合管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
-        {"code":"TMP", "name_vi":"TMP", "name_jp":"トミジ", "folder":"TMP", "family":"TMP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN","集合管","脚部"], "start_groups":["集合管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
-        {"code":"VP/VU", "name_vi":"VP/VU", "name_jp":"VP/VU", "folder":"DV", "family":"VP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN"], "start_groups":["集合管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
-        {"code":"HTVP", "name_vi":"HTVP", "name_jp":"HTVP", "folder":"HTVP", "family":"VP", "sizes":["20","25","30","40","50","65","75","100"], "groups":["DL","LL","45°","Y","LT","DT","T","IN"], "start_groups":["集合管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
-        {"code":"AW", "name_vi":"AW", "name_jp":"AW", "folder":"AW", "family":"WATER", "sizes":["13","16","20","25","30","40","50"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なし"], "end_groups":["LL","DL","IN","配管","なし"]},
-        {"code":"VP", "name_vi":"VP", "name_jp":"VP", "folder":"VP", "family":"VP", "sizes":["13","16","20","25","30","40","50","65","75","100"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なし"], "end_groups":["LL","DL","IN","配管","なし"]},
-        {"code":"HIVP", "name_vi":"HIVP", "name_jp":"HIVP", "folder":"HIVP", "family":"WATER", "sizes":["13","16","20","25","30","40","50","65","75","100"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なし"], "end_groups":["LL","DL","IN","配管","なし"]},
-        {"code":"VB", "name_vi":"VB", "name_jp":"VB", "folder":"VB", "family":"WATER", "sizes":["13","16","20","25","30","40","50"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なし"], "end_groups":["LL","DL","IN","配管","なし"]},
-        {"code":"VD", "name_vi":"VD", "name_jp":"VD", "folder":"VD", "family":"WATER", "sizes":["13","16","20","25","30","40","50"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なし"], "end_groups":["LL","DL","IN","配管","なし"]},
-        {"code":"耐火VP", "name_vi":"耐火VP", "name_jp":"耐火VP", "folder":"耐火VP", "family":"VP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN"], "start_groups":["集合管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
-        {"code":"STPG", "name_vi":"STPG", "name_jp":"STPG", "folder":"STPG", "family":"FIRE", "sizes":["25","32","40","50","65","80","100","125","150","200"], "groups":["LL","DL","T","IN"], "start_groups":["配管","なし"], "end_groups":["配管","なし"]},
-        {"code":"SPIRAL", "name_vi":"Ống gió xoắn", "name_jp":"スパイラルダクト", "folder":"SPIRAL", "family":"DUCT", "sizes":["75","100","125","150","200","250","300"], "groups":["LL","DL","T","IN"], "start_groups":["配管","なし"], "end_groups":["FLEX","配管","なし"]},
-        {"code":"FLEX", "name_vi":"Ống ruột mềm", "name_jp":"フレキダクト", "folder":"FLEX", "family":"DUCT", "sizes":["75","100","125","150","200"], "groups":["配管"], "start_groups":["配管","なし"], "end_groups":["配管","なし"]},
-        {"code":"DUCT", "name_vi":"Ống gió", "name_jp":"ダクト", "folder":"DUCT", "family":"DUCT", "sizes":["100","150","200","250","300","400","500"], "groups":["LL","DL","T","IN"], "start_groups":["配管","なし"], "end_groups":["FLEX","配管","なし"]}
+        {"code":"DV", "name_vi":"DV", "name_jp":"DV", "folder":"DV", "family":"VP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN","雁E��管","脚部"], "start_groups":["雁E��管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
+        {"code":"TMP", "name_vi":"TMP", "name_jp":"トミジ", "folder":"TMP", "family":"TMP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN","雁E��管","脚部"], "start_groups":["雁E��管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
+        {"code":"VP/VU", "name_vi":"VP/VU", "name_jp":"VP/VU", "folder":"DV", "family":"VP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN"], "start_groups":["雁E��管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
+        {"code":"HTVP", "name_vi":"HTVP", "name_jp":"HTVP", "folder":"HTVP", "family":"VP", "sizes":["20","25","30","40","50","65","75","100"], "groups":["DL","LL","45°","Y","LT","DT","T","IN"], "start_groups":["雁E��管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
+        {"code":"AW", "name_vi":"AW", "name_jp":"AW", "folder":"AW", "family":"WATER", "sizes":["13","16","20","25","30","40","50"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なぁE], "end_groups":["LL","DL","IN","配管","なぁE]},
+        {"code":"VP", "name_vi":"VP", "name_jp":"VP", "folder":"VP", "family":"VP", "sizes":["13","16","20","25","30","40","50","65","75","100"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なぁE], "end_groups":["LL","DL","IN","配管","なぁE]},
+        {"code":"HIVP", "name_vi":"HIVP", "name_jp":"HIVP", "folder":"HIVP", "family":"WATER", "sizes":["13","16","20","25","30","40","50","65","75","100"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なぁE], "end_groups":["LL","DL","IN","配管","なぁE]},
+        {"code":"VB", "name_vi":"VB", "name_jp":"VB", "folder":"VB", "family":"WATER", "sizes":["13","16","20","25","30","40","50"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なぁE], "end_groups":["LL","DL","IN","配管","なぁE]},
+        {"code":"VD", "name_vi":"VD", "name_jp":"VD", "folder":"VD", "family":"WATER", "sizes":["13","16","20","25","30","40","50"], "groups":["LL","DL","T","IN"], "start_groups":["IN","T","配管","なぁE], "end_groups":["LL","DL","IN","配管","なぁE]},
+        {"code":"耐火VP", "name_vi":"耐火VP", "name_jp":"耐火VP", "folder":"耐火VP", "family":"VP", "sizes":["30","40","50","65","75","100","125","150"], "groups":["DL","LL","45°","Y","LT","DT","T","IN"], "start_groups":["雁E��管","DL Down","LL Down"], "end_groups":["DL UP","LL UP"]},
+        {"code":"STPG", "name_vi":"STPG", "name_jp":"STPG", "folder":"STPG", "family":"FIRE", "sizes":["25","32","40","50","65","80","100","125","150","200"], "groups":["LL","DL","T","IN"], "start_groups":["配管","なぁE], "end_groups":["配管","なぁE]},
+        {"code":"SPIRAL", "name_vi":"Ống gió xoắn", "name_jp":"スパイラルダクチE, "folder":"SPIRAL", "family":"DUCT", "sizes":["75","100","125","150","200","250","300"], "groups":["LL","DL","T","IN"], "start_groups":["配管","なぁE], "end_groups":["FLEX","配管","なぁE]},
+        {"code":"FLEX", "name_vi":"Ống ruột mềm", "name_jp":"フレキダクチE, "folder":"FLEX", "family":"DUCT", "sizes":["75","100","125","150","200"], "groups":["配管"], "start_groups":["配管","なぁE], "end_groups":["配管","なぁE]},
+        {"code":"DUCT", "name_vi":"Ống gió", "name_jp":"ダクチE, "folder":"DUCT", "family":"DUCT", "sizes":["100","150","200","250","300","400","500"], "groups":["LL","DL","T","IN"], "start_groups":["配管","なぁE], "end_groups":["FLEX","配管","なぁE]}
     ],
     "fitting_groups": [
         {"code":"DL", "name_vi":"DL", "name_jp":"DL", "ports":2, "patterns":["DL_{main}_{branch}.json", "DL_{main}_{branch}_{note}.json"]},
@@ -3712,7 +3712,7 @@ DEFAULT_NEVIS_MASTER = {
         {"code":"DT", "name_vi":"DT", "name_jp":"DT", "ports":3, "patterns":["DT_{main}_{branch}.json", "DT_{main}_{branch}_{note}.json"]},
         {"code":"T", "name_vi":"T", "name_jp":"T", "ports":3, "patterns":["T_{main}_{branch}.json", "T_{main}_{branch}_{note}.json"]},
         {"code":"IN", "name_vi":"IN", "name_jp":"IN", "ports":2, "patterns":["IN_{main}_{branch}.json", "IN_{main}_{branch}_{note}.json"]},
-        {"code":"集合管", "name_vi":"集合管", "name_jp":"集合管", "ports":2, "patterns":["S_{main}.json", "S_{main}_{note}.json", "S_{main}_{branch}.json", "S_{main}_{branch}_{note}.json", "SV_{main}_{branch}.json", "SV_{main}_{branch}_{note}.json"]},
+        {"code":"雁E��管", "name_vi":"雁E��管", "name_jp":"雁E��管", "ports":2, "patterns":["S_{main}.json", "S_{main}_{note}.json", "S_{main}_{branch}.json", "S_{main}_{branch}_{note}.json", "SV_{main}_{branch}.json", "SV_{main}_{branch}_{note}.json"]},
         {"code":"脚部", "name_vi":"Chân ống", "name_jp":"脚部", "ports":1, "patterns":["脚部_{size}.json", "KB_{size}.json"]}
     ]
 }
@@ -3724,7 +3724,7 @@ SYSTEM_FOLDER_ALIAS_MAP = {
     "SP": ["Cuu hoa", "Cứu hỏa", "消防", "Sprinkler", "Fire"],
     "連結送水管": ["Cuu hoa", "Cứu hỏa", "消防", "連結送水管", "Fire department connection", "FDC"],
     "空調": ["Dieu hoa", "Điều hòa", "空調", "HVAC"],
-    "換気": ["Thong khi", "Thông khí", "換気", "Vent", "Ventilation"],
+    "換氁E: ["Thong khi", "Thông khí", "換氁E, "Vent", "Ventilation"],
 }
 SYSTEM_FOLDER_TOKENS = {x.lower(): code for code, arr in SYSTEM_FOLDER_ALIAS_MAP.items() for x in ([code] + arr)}
 
@@ -3796,7 +3796,7 @@ def parse_nevis_material_name(name: str) -> Dict[str, str]:
 
 # Fittings whose identity depends on BOTH main pipe size and branch size.
 # These must never fall back from 65x50 to 65x65 just because the main size matches.
-STRICT_BRANCH_SIZE_FITTINGS = {"Y", "LT", "DT", "T", "SV", "S", "集合管"}
+STRICT_BRANCH_SIZE_FITTINGS = {"Y", "LT", "DT", "T", "SV", "S", "雁E��管"}
 
 
 def _nevis_size_identity(text: str) -> Tuple[str, str, str]:
@@ -3830,9 +3830,9 @@ def _nevis_size_identity(text: str) -> Tuple[str, str, str]:
 
 
 def _collection_requested_single_port(size_text: str) -> bool:
-    """True when 集合管 request is one-door/one-port: size is only main size.
+    """True when 雁E��管 request is one-door/one-port: size is only main size.
 
-    NEVIS uses size like "65" for 集合管 1 cửa.  Names like S_65_50 /
+    NEVIS uses size like "65" for 雁E��管 1 cửa.  Names like S_65_50 /
     SV_65_50 are multi-port collection libraries and must not be used for this
     request even though the first size token matches 65.
     """
@@ -3841,9 +3841,9 @@ def _collection_requested_single_port(size_text: str) -> bool:
 
 
 def _collection_candidate_is_single_port(name_or_path: str) -> bool:
-    """Return True for one-door 集合管 library names.
+    """Return True for one-door 雁E��管 library names.
 
-    Accept S_65 / S65 / 集合管_65. Reject SV_* and any name containing two or
+    Accept S_65 / S65 / 雁E��管_65. Reject SV_* and any name containing two or
     more size numbers such as S_65_50, because those draw two/three mouths.
     """
     stem = Path(str(name_or_path or "")).stem.upper()
@@ -3922,8 +3922,8 @@ class NevisMasterDialog(QDialog):
         self.refresh_materials_for_system()
         self.refresh_groups_for_material()
         self.refresh_start_end_for_material()
-        # Không tự đồng bộ kiểu suy đoán khi mở cửa sổ.
-        # CSDL phải theo folder thật, chỉ đồng bộ khi người dùng bấm nút.
+        # Không tự đồng bềEkiểu suy đoán khi mềEcửa sềE
+        # CSDL phải theo folder thật, chềEđồng bềEkhi người dùng bấm nút.
         # Điều này tránh tự thêm DL/LL/VP... không tồn tại trong cây thư viện.
 
     def _upgrade_nevis_master_data(self, data: dict):
@@ -3986,21 +3986,21 @@ class NevisMasterDialog(QDialog):
 
     def system_label(self, item: dict) -> str:
         name = self.name_of(item); code = item.get('code','')
-        return f"{code} — {name}" if name and name != code else code
+        return f"{code}  E{name}" if name and name != code else code
 
     def material_label(self, item: dict) -> str:
         name = self.name_of(item); code = item.get('code',''); folder = item.get('folder','')
-        return f"{code} — {name}  [{folder}]" if name and name != code else f"{code}  [{folder}]"
+        return f"{code}  E{name}  [{folder}]" if name and name != code else f"{code}  [{folder}]"
 
     def group_label(self, item: dict) -> str:
         name = self.name_of(item); code = item.get('code',''); ports = item.get('ports','')
-        return f"{code} — {name}  ({ports}P)" if name and name != code else f"{code}  ({ports}P)"
+        return f"{code}  E{name}  ({ports}P)" if name and name != code else f"{code}  ({ports}P)"
 
     def role_label(self, code: str) -> str:
         code = str(code or '').strip()
         if code in {'PIPE', '配管'}:
             return self.tr('master_pipe_raw')
-        if code in {'NONE', 'なし'}:
+        if code in {'NONE', 'なぁE}:
             return self.tr('master_none')
         for g in self.data.get('fitting_groups', []) or []:
             if str(g.get('code', '')) == code:
@@ -4014,7 +4014,7 @@ class NevisMasterDialog(QDialog):
         code = str(code or '').strip()
         aliases = {
             'PIPE': '配管', 'pipe': '配管', 'Pipe': '配管',
-            'NONE': 'なし', 'none': 'なし', 'None': 'なし',
+            'NONE': 'なぁE, 'none': 'なぁE, 'None': 'なぁE,
             # Keep UP/Down spelling consistent so DL Up / DL UP do not split lists.
             'DL UP': 'DL Up', 'DL_UP': 'DL Up', 'DL-UP': 'DL Up',
             'LL UP': 'LL Up', 'LL_UP': 'LL Up', 'LL-UP': 'LL Up',
@@ -4030,14 +4030,14 @@ class NevisMasterDialog(QDialog):
             item.setForeground(QBrush(QColor(0, 105, 92)))
             f = item.font(); f.setBold(True); item.setFont(f)
             txt = item.text()
-            if not txt.startswith("✓ "):
-                item.setText("✓ " + txt)
+            if not txt.startswith("✁E"):
+                item.setText("✁E" + txt)
         else:
             item.setBackground(QBrush(QColor(255, 255, 255)))
             item.setForeground(QBrush(QColor(31, 41, 55)))
             f = item.font(); f.setBold(False); item.setFont(f)
             txt = item.text()
-            if txt.startswith("✓ "):
+            if txt.startswith("✁E"):
                 item.setText(txt[2:])
 
     def selected_system(self):
@@ -4101,13 +4101,13 @@ class NevisMasterDialog(QDialog):
         title = QLabel(self.t('CSDL vật tư = Cây folder thư viện thật', '材料DB = 図庫フォルダ + 使用ルール'))
         title.setStyleSheet('color:#1B4A7E; font-weight:bold; font-size:13px;')
         root.addWidget(title)
-        note = QLabel(self.t('Đồng bộ chuẩn: cấp 1 = Hệ thống, cấp 2 = Folder bên trong hệ, cấp 3 = Nhóm phụ kiện. Không tự thêm, không gộp tên, không đổi tên folder.', '材料・継手グループ・サイズは実際の図庫から取得します。この画面では、系統で使う材料、材料で使う継手、枝始点/枝端部の使用可否だけを設定します。'))
+        note = QLabel(self.t('Đồng bềEchuẩn: cấp 1 = HềEthống, cấp 2 = Folder bên trong hềE cấp 3 = Nhóm phụ kiện. Không tự thêm, không gộp tên, không đổi tên folder.', '材料・継手グループ�Eサイズは実際の図庫から取得します。この画面では、系統で使ぁE��料、材料で使ぁE��手、枝始点/枝端部の使用可否だけを設定します、E))
         note.setStyleSheet('color:#5A6B80;')
         root.addWidget(note)
         top_actions = QHBoxLayout(); root.addLayout(top_actions)
-        self.btn_sync_library_master = QPushButton(self.t('↻ Đồng bộ chuẩn từ cây folder Library', '↻ 図庫フォルダから追加/同期'))
+        self.btn_sync_library_master = QPushButton(self.t('↻ Đồng bềEchuẩn từ cây folder Library', '↻ 図庫フォルダから追加/同期'))
         self.btn_sync_library_master.setMinimumHeight(30)
-        self.btn_sync_library_master.setToolTip(self.t('Chọn folder Library gốc. CSDL sẽ lấy đúng tên folder cấp 1/2/3, không tự thêm hoặc gộp tên.', '実際の図庫を読込、材料・継手グループ・サイズを自動追加します。'))
+        self.btn_sync_library_master.setToolTip(self.t('Chọn folder Library gốc. CSDL sẽ lấy đúng tên folder cấp 1/2/3, không tự thêm hoặc gộp tên.', '実際の図庫を読込、材料�E継手グループ�Eサイズを�E動追加します、E))
         top_actions.addWidget(self.btn_sync_library_master)
         top_actions.addStretch()
         body = QHBoxLayout(); body.setSpacing(10); root.addLayout(body, 1)
@@ -4119,25 +4119,25 @@ class NevisMasterDialog(QDialog):
         row_s.addWidget(self.btn_sys_add); row_s.addWidget(self.btn_sys_edit); row_s.addWidget(self.btn_sys_del); ls.addLayout(row_s)
         body.addWidget(box_s, 1)
 
-        box_m = QGroupBox(self.t('Chủng vật tư của hệ thống', '系統で使用する材料'))
+        box_m = QGroupBox(self.t('Chủng vật tư của hềEthống', '系統で使用する材料'))
         lm = QVBoxLayout(box_m); lm.setContentsMargins(8,8,8,8); lm.setSpacing(6)
         self.lw_materials = QListWidget(); self.lw_materials.itemChanged.connect(self.on_material_check_changed); self.lw_materials.currentItemChanged.connect(lambda *_: (self.refresh_groups_for_material(), self.refresh_start_end_for_material()))
         lm.addWidget(self.lw_materials, 1)
-        row_m = QHBoxLayout(); self.btn_mat_add = QPushButton(self.t('Thêm folder','フォルダ追加')); self.btn_mat_edit = QPushButton(self.t('Sửa ánh xạ','関連編集')); self.btn_mat_del = QPushButton(self.t('Xóa khỏi DB','DBから削除'))
+        row_m = QHBoxLayout(); self.btn_mat_add = QPushButton(self.t('Thêm folder','フォルダ追加')); self.btn_mat_edit = QPushButton(self.t('Sửa ánh xạ','関連編雁E)); self.btn_mat_del = QPushButton(self.t('Xóa khỏi DB','DBから削除'))
         row_m.addWidget(self.btn_mat_add); row_m.addWidget(self.btn_mat_edit); row_m.addWidget(self.btn_mat_del); lm.addLayout(row_m)
         body.addWidget(box_m, 1)
 
-        box_g = QGroupBox(self.t('Nhóm phụ kiện của vật tư', '材料で使用する継手グループ'))
+        box_g = QGroupBox(self.t('Nhóm phụ kiện của vật tư', '材料で使用する継手グルーチE))
         lg = QVBoxLayout(box_g); lg.setContentsMargins(8,8,8,8); lg.setSpacing(6)
         self.lw_groups = QListWidget(); self.lw_groups.itemChanged.connect(self.on_group_check_changed)
         lg.addWidget(self.lw_groups, 1)
-        row_g = QHBoxLayout(); self.btn_grp_add = QPushButton(self.t('Thêm folder','フォルダ追加')); self.btn_grp_edit = QPushButton(self.t('Sửa ánh xạ','関連編集')); self.btn_grp_del = QPushButton(self.t('Xóa khỏi DB','DBから削除'))
+        row_g = QHBoxLayout(); self.btn_grp_add = QPushButton(self.t('Thêm folder','フォルダ追加')); self.btn_grp_edit = QPushButton(self.t('Sửa ánh xạ','関連編雁E)); self.btn_grp_del = QPushButton(self.t('Xóa khỏi DB','DBから削除'))
         row_g.addWidget(self.btn_grp_add); row_g.addWidget(self.btn_grp_edit); row_g.addWidget(self.btn_grp_del); lg.addLayout(row_g)
         body.addWidget(box_g, 1)
 
         # Compact 5-column layout:
-        # 1) Hệ thống, 2) Chủng vật tư, 3) Nhóm phụ kiện,
-        # 4) Thiết bị đầu nhánh, 5) Thiết bị cuối nhánh.
+        # 1) HềEthống, 2) Chủng vật tư, 3) Nhóm phụ kiện,
+        # 4) Thiết bềEđầu nhánh, 5) Thiết bềEcuối nhánh.
         # The start/end lists are role metadata only; files are not duplicated.
         box_start = QGroupBox(self.tr('master_start_devices'))
         lsrt = QVBoxLayout(box_start); lsrt.setContentsMargins(8,8,8,8); lsrt.setSpacing(4)
@@ -4153,11 +4153,11 @@ class NevisMasterDialog(QDialog):
         lend.addWidget(self.lw_end_roles, 1)
         body.addWidget(box_end, 1)
 
-        hint_roles = QLabel(self.t('Đầu nhánh chỉ dùng D/集合管; cuối nhánh chỉ dùng U. Các cút trên tuyến như Y/LT/45/IN không hiển thị ở đây.', '枝始点はD/集合管のみ、枝端部はUのみ。Y/LT/45/INなどの途中継手はここに表示しません。'))
+        hint_roles = QLabel(self.t('Đầu nhánh chềEdùng D/雁E��管; cuối nhánh chềEdùng U. Các cút trên tuyến như Y/LT/45/IN không hiển thềEềEđây.', '枝始点はD/雁E��管のみ、枝端部はUのみ、E/LT/45/INなどの途中継手はここに表示しません、E))
         hint_roles.setWordWrap(True); hint_roles.setStyleSheet('color:#5A6B80; font-size:11px;')
         root.addWidget(hint_roles)
 
-        detail = QGroupBox(self.t('Thông tin đang chọn', '選択中の情報'))
+        detail = QGroupBox(self.t('Thông tin đang chọn', '選択中の惁E��'))
         dl = QVBoxLayout(detail); dl.setContentsMargins(8,8,8,8)
         self.lbl_detail_master = QLabel(''); self.lbl_detail_master.setWordWrap(True); self.lbl_detail_master.setStyleSheet('color:#334;')
         dl.addWidget(self.lbl_detail_master)
@@ -4280,7 +4280,7 @@ class NevisMasterDialog(QDialog):
             return 'LL Down'
 
         base = str(it.get('type') or raw).strip()
-        base = '集合管' if base in {'S','SV','S3'} else base
+        base = '雁E��管' if base in {'S','SV','S3'} else base
         if str(base).upper().replace('°','') == '45':
             base = '45°'
         return self.normalize_role_code(base)
@@ -4314,8 +4314,8 @@ class NevisMasterDialog(QDialog):
             ftype = str(it.get('type') or '').strip()
             size = str(it.get('size') or '').strip()
             system = infer_system_code_from_folder(str(it.get('system') or '排水')) or '排水'
-            if not pipe or pipe in {'集合管'}:
-                # 集合管 is a fitting group, not a pipe material.
+            if not pipe or pipe in {'雁E��管'}:
+                # 雁E��管 is a fitting group, not a pipe material.
                 pipe = 'DV'
             mat = mat_map.setdefault(pipe, {'sizes': set(), 'groups': set(), 'systems': set()})
             mat['systems'].add(system)
@@ -4328,7 +4328,7 @@ class NevisMasterDialog(QDialog):
                 # DL UP / DL Down / LL UP / LL Down instead of collapsing them to DL/LL.
                 group_code = self._master_group_code_from_library_item(it)
                 mat['groups'].add(group_code)
-                if group_code not in {'配管','なし'}:
+                if group_code not in {'配管','なぁE}:
                     ports = self._ports_for_master_group(group_code)
                     group_ports[group_code] = max(group_ports.get(group_code, 0), ports)
 
@@ -4367,14 +4367,14 @@ class NevisMasterDialog(QDialog):
             # allow them separately to prevent wrong terminal selection.
             # 排水転がし配管 only: keep branch start/end roles short and safe.
             # Start = D type or collection fitting. End = U type only.
-            allowed_start = ['集合管', 'DL Down', 'LL Down']
+            allowed_start = ['雁E��管', 'DL Down', 'LL Down']
             allowed_end = ['DL UP', 'LL UP']
-            mat['start_groups'] = [x for x in allowed_start if x == '集合管' or x in old_groups]
+            mat['start_groups'] = [x for x in allowed_start if x == '雁E��管' or x in old_groups]
             mat['end_groups'] = [x for x in allowed_end if x in old_groups]
 
         # Add fitting groups discovered from actual folders/files.
         for g, ports in group_ports.items():
-            if g in {'配管','なし'}:
+            if g in {'配管','なぁE}:
                 continue
             grp = self._master_find_by_code('fitting_groups', g)
             if not grp:
@@ -4386,7 +4386,7 @@ class NevisMasterDialog(QDialog):
 
         self.refresh_systems(); self.refresh_materials_for_system(); self.refresh_groups_for_material(); self.refresh_start_end_for_material()
         if not silent:
-            QMessageBox.information(self, self.tr('master_manager_title'), self.t(f'Đã đồng bộ {changed} mục từ thư viện thật.', f'図庫から {changed} 件を同期しました。'))
+            QMessageBox.information(self, self.tr('master_manager_title'), self.t(f'Đã đồng bềE{changed} mục từ thư viện thật.', f'図庫から {changed} 件を同期しました、E))
         return changed
 
     def _strict_code_from_folder(self, name: str) -> str:
@@ -4396,9 +4396,9 @@ class NevisMasterDialog(QDialog):
     def _infer_ports_from_folder_name_strict(self, name: str) -> int:
         """Only a display hint; the folder name itself is never changed."""
         u = str(name or '').upper().replace('　', ' ').strip()
-        if '脚部' in name or 'FOOT' in u or 'CHÂN' in u:
+        if '脚部' in name or 'FOOT' in u or 'CHÁE' in u:
             return 1
-        if u in {'Y','LT','DT','T'} or name in {'集合管','SV','S3'}:
+        if u in {'Y','LT','DT','T'} or name in {'雁E��管','SV','S3'}:
             return 3
         return 2
 
@@ -4425,7 +4425,7 @@ class NevisMasterDialog(QDialog):
         - Level 2 folders become materials/special folders exactly as folder names.
         - Level 3 folders become fitting groups exactly as folder names.
         - No DL/LL/UP/DOWN merging.
-        - No default VP/DV/STPG/なし added if the folder does not exist.
+        - No default VP/DV/STPG/なぁEadded if the folder does not exist.
         """
         root = Path(root_dir)
         data = {
@@ -4511,15 +4511,15 @@ class NevisMasterDialog(QDialog):
 
     def sync_master_from_library_folder(self):
         # Strict mode: choose the real top-level Library folder. Master DB is rebuilt from folder names exactly.
-        d = QFileDialog.getExistingDirectory(self, self.t('Chọn folder Library gốc để đồng bộ CHUẨN', '同期する図庫ルートフォルダを選択'))
+        d = QFileDialog.getExistingDirectory(self, self.t('Chọn folder Library gốc đềEđồng bềECHUẨN', '同期する図庫ルートフォルダを選抁E))
         if not d:
             return
         try:
             new_data = self._build_master_from_library_folder_strict(d)
             if not new_data.get('systems'):
                 QMessageBox.warning(self, self.tr('master_manager_title'), self.t(
-                    'Folder này không có hệ thống con. Hãy chọn đúng folder Library gốc, bên trong có Cap nuoc / Cuu hoa / Dieu hoa / Thoat nuoc / Thong khi.',
-                    'このフォルダには系統フォルダがありません。Libraryルートを選択してください。'))
+                    'Folder này không có hềEthống con. Hãy chọn đúng folder Library gốc, bên trong có Cap nuoc / Cuu hoa / Dieu hoa / Thoat nuoc / Thong khi.',
+                    'こ�Eフォルダには系統フォルダがありません、Eibraryルートを選択してください、E))
                 return
             self.data = new_data
             # Also rebuild normal library_index from exact files so preview/export can find the same tree.
@@ -4537,8 +4537,8 @@ class NevisMasterDialog(QDialog):
             self.save_master(silent=True)
             self.refresh_systems(); self.refresh_materials_for_system(); self.refresh_groups_for_material(); self.refresh_start_end_for_material()
             msg = self.t(
-                f'Đã đồng bộ CHUẨN theo folder thật.\nHệ thống: {len(self.data.get("systems", []))}\nFolder cấp 2: {len(self.data.get("materials", []))}\nNhóm cấp 3: {len(self.data.get("fitting_groups", []))}\n\nKhông tự thêm, không gộp DL/LL UP/DOWN.',
-                f'実フォルダ通りに同期しました。\n系統: {len(self.data.get("systems", []))}\n第2階層: {len(self.data.get("materials", []))}\n第3階層: {len(self.data.get("fitting_groups", []))}\n\n自動追加・DL/LL UP/DOWN統合なし。')
+                f'Đã đồng bềECHUẨN theo folder thật.\nHềEthống: {len(self.data.get("systems", []))}\nFolder cấp 2: {len(self.data.get("materials", []))}\nNhóm cấp 3: {len(self.data.get("fitting_groups", []))}\n\nKhông tự thêm, không gộp DL/LL UP/DOWN.',
+                f'実フォルダ通りに同期しました、En系統: {len(self.data.get("systems", []))}\n第2階層: {len(self.data.get("materials", []))}\n第3階層: {len(self.data.get("fitting_groups", []))}\n\n自動追加・DL/LL UP/DOWN統合なし、E)
             QMessageBox.information(self, self.tr('master_manager_title'), msg)
         except Exception as e:
             QMessageBox.warning(self, self.tr('master_manager_title'), str(e))
@@ -4587,12 +4587,12 @@ class NevisMasterDialog(QDialog):
         mat = self.selected_material() or {}
         groups = {self.normalize_role_code(x) for x in mat.get('groups', []) or []}
         if role_key == 'start_groups':
-            base = ['集合管', 'DL Down', 'LL Down']
+            base = ['雁E��管', 'DL Down', 'LL Down']
         else:
             base = ['DL Up', 'LL Up']
         out = []
         for code in base:
-            if code == '集合管' or code in groups:
+            if code == '雁E��管' or code in groups:
                 out.append(code)
         return out
 
@@ -4656,13 +4656,13 @@ class NevisMasterDialog(QDialog):
     def update_detail(self):
         sys_item = self.selected_system(); mat = self.selected_material()
         if not sys_item: self.lbl_detail_master.setText(''); return
-        txt = [self.t('Hệ thống', '系統') + f": {self.system_label(sys_item)}",
+        txt = [self.t('HềEthống', '系統') + f": {self.system_label(sys_item)}",
                self.t('Vật tư được phép', '使用可能材料') + f": {', '.join(sys_item.get('materials', [])) or '-'}"]
         if mat:
-            txt += [self.t('Vật tư đang chọn', '選択材料') + f": {self.material_label(mat)}",
+            txt += [self.t('Vật tư đang chọn', '選択材斁E) + f": {self.material_label(mat)}",
                     self.t('Nhóm phụ kiện được phép', '使用可能継手') + f": {', '.join(mat.get('groups', [])) or '-'}",
-                    self.t('Thiết bị đầu nhánh', '枝始点機器') + f": {', '.join(self.normalize_role_code(x) for x in mat.get('start_groups', [])) or '-'}",
-                    self.t('Thiết bị cuối nhánh', '枝端部機器') + f": {', '.join(self.normalize_role_code(x) for x in mat.get('end_groups', [])) or '-'}",
+                    self.t('Thiết bềEđầu nhánh', '枝始点機器') + f": {', '.join(self.normalize_role_code(x) for x in mat.get('start_groups', [])) or '-'}",
+                    self.t('Thiết bềEcuối nhánh', '枝端部機器') + f": {', '.join(self.normalize_role_code(x) for x in mat.get('end_groups', [])) or '-'}",
                     self.t('Size', 'サイズ') + f": {', '.join(mat.get('sizes', [])) or '-'}"]
         self.lbl_detail_master.setText('\n'.join(txt))
 
@@ -4670,7 +4670,7 @@ class NevisMasterDialog(QDialog):
         if key == 'systems':
             return [('code', self.tr('master_code')), ('name_vi','Tên VI'), ('name_jp','日本語名'), ('materials', self.tr('master_materials')), ('default_main_size', self.tr('main_size')), ('default_branch_rule', self.tr('branch_default'))]
         if key == 'materials':
-            return [('code', self.tr('master_code')), ('name_vi','Tên VI'), ('name_jp','日本語名'), ('folder', self.tr('master_folder')), ('family','Họ ống'), ('sizes', self.tr('master_sizes')), ('groups', self.tr('master_groups_allowed')), ('start_groups', self.t('Thiết bị đầu nhánh', '枝始点機器')), ('end_groups', self.t('Thiết bị cuối nhánh', '枝端部機器'))]
+            return [('code', self.tr('master_code')), ('name_vi','Tên VI'), ('name_jp','日本語名'), ('folder', self.tr('master_folder')), ('family','HềEống'), ('sizes', self.tr('master_sizes')), ('groups', self.tr('master_groups_allowed')), ('start_groups', self.t('Thiết bềEđầu nhánh', '枝始点機器')), ('end_groups', self.t('Thiết bềEcuối nhánh', '枝端部機器'))]
         return [('code', self.tr('master_code')), ('name_vi','Tên VI'), ('name_jp','日本語名'), ('ports', self.tr('master_ports')), ('patterns', self.tr('master_pattern'))]
 
     def normalize_values(self, key, vals):
@@ -4726,7 +4726,7 @@ class NevisMasterDialog(QDialog):
             code = self.lw_groups.currentItem().data(Qt.UserRole) if self.lw_groups.currentItem() else None
             arr = self.data.get('fitting_groups', []); row = next((i for i,x in enumerate(arr) if x.get('code') == code), -1)
         if row < 0: return
-        if QMessageBox.question(self, self.tr('master_delete'), self.t('Xóa mục đang chọn?', '選択項目を削除しますか？')) != QMessageBox.Yes: return
+        if QMessageBox.question(self, self.tr('master_delete'), self.t('Xóa mục đang chọn?', '選択頁E��を削除しますか�E�E)) != QMessageBox.Yes: return
         del arr[row]
         if key == 'materials':
             for s in self.data.get('systems', []): s['materials'] = [x for x in s.get('materials', []) if x != code]
@@ -4963,7 +4963,7 @@ def _nevis_elevation_font_families() -> List[str]:
 
 def _nevis_elevation_ui_font(lang: str) -> QFont:
     families = _nevis_elevation_font_families()
-    required = "高低差試算参照" if lang == "jp" else "Đề xuất cao độ thử"
+    required = "高低差試算参照" if lang == "jp" else "ĐềExuất cao đềEthử"
     preferred = (
         ("Noto Sans JP", "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo")
         if lang == "jp"
@@ -5196,16 +5196,16 @@ class ElevationPreviewDialog(QDialog):
     @staticmethod
     def _number_text(value) -> str:
         if value is None:
-            return "—"
+            return " E
         try:
             return f"{float(value):g}"
         except Exception:
-            return "—"
+            return " E
 
     def _target_text(self, row) -> str:
         pair = getattr(row, "target_edge_pair", None)
         if pair is None or row.target_endpoint not in {"start", "end"}:
-            return "—"
+            return " E
         endpoint_key = (
             "elevation_report_start"
             if row.target_endpoint == "start"
@@ -5400,7 +5400,7 @@ class MainWindow(QMainWindow):
         self._refresh_timer.setInterval(120)
         self._refresh_timer.timeout.connect(self._do_refresh_all)
         self._drawing_now = False
-        # JWW output style defaults. These match the old AHK panel: 配管 / 中心線 / 継手.
+        # JWW output style defaults. These match the old AHK panel: 配管 / 中忁E��E/ 継手.
         # In JWW外部変形 the helper must write back to the jwc_temp.txt that JWW is waiting for.
         # If BAT does not pass argv[2], use the same folder as the input temp file instead of Python cwd.
         if len(sys.argv) > 2:
@@ -5484,7 +5484,7 @@ class MainWindow(QMainWindow):
         self.menu_view.addSeparator()
         # The left operation/task panel must always stay visible.
         # Only the right material/library panel can be pinned/unpinned.
-        self.act_toggle_right = QAction("材料/ライブラリ パネルを隠す", self)
+        self.act_toggle_right = QAction("材料/ライブラリ パネルを隠ぁE, self)
         self.act_toggle_right.triggered.connect(lambda: self.set_side_panel_visible('right', False))
         self.menu_view.addAction(self.act_toggle_right)
         self.menu_lang = self.menuBar().addMenu(self.tr("menu_language"))
@@ -5649,7 +5649,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.cmb_branch_size, 2, 3, 1, 2)
 
         self.cmb_start_fitting = _nevis_control(QComboBox(), 120, 170); self.cmb_start_fitting.setEditable(True)
-        self.cmb_start_fitting.addItems(["集合管", "DL Down", "LL Down"]); self.cmb_start_fitting.setCurrentText("集合管")
+        self.cmb_start_fitting.addItems(["雁E��管", "DL Down", "LL Down"]); self.cmb_start_fitting.setCurrentText("雁E��管")
         self.lbl_start_fitting = _nevis_label(self.tr("branch_start"))
         self.cmb_terminal = _nevis_control(QComboBox(), 92, 125); self.cmb_terminal.setEditable(True)
         self.cmb_terminal.addItems(["DL Up", "LL Up", "IN", "配管"]); self.cmb_terminal.setCurrentText("DL Up")
@@ -5734,7 +5734,7 @@ class MainWindow(QMainWindow):
         sgrid.addWidget(self.lbl_selected, 0, 0, 1, 3)
 
         self.cmb_fit_type = QComboBox()
-        self.cmb_fit_type.addItems(["集合管","Y","LT","DT","T","SV","S","LL","DL","45°","IN","脚部"])
+        self.cmb_fit_type.addItems(["雁E��管","Y","LT","DT","T","SV","S","LL","DL","45°","IN","脚部"])
 
         self.cmb_fit_size = QComboBox()
         self.cmb_fit_size.setEditable(True)
@@ -5834,7 +5834,7 @@ class MainWindow(QMainWindow):
         op_grid.addLayout(size_row, 1, 1)
         op_grid.addWidget(self.lbl_detail, 2, 1)
 
-        # cột 2 là khe hở chống đè
+        # cột 2 là khe hềEchống đè
         op_grid.setColumnMinimumWidth(2, 28)
 
         op_grid.addWidget(self.btn_apply_node, 0, 3)
@@ -6247,7 +6247,7 @@ class MainWindow(QMainWindow):
         self.btn_export_jww.clicked.connect(self.export_jww)
         self.chk_export_centerline = QCheckBox(self.tr("export_centerline"))
         self.chk_export_centerline.setChecked(True)
-        self.chk_export_centerline.setToolTip("Bật để xuất lại tim ống theo dòng 中心線 ở bảng thiết lập JWW")
+        self.chk_export_centerline.setToolTip("Bật đềExuất lại tim ống theo dòng 中忁E��EềEbảng thiết lập JWW")
         style_grid.addWidget(self.chk_export_centerline, 0, 5, 1, 1)
         style_grid.addWidget(self.btn_export_jww, 1, 5, 3, 1)
         self.g_jww_style.setMinimumWidth(300)
@@ -6275,7 +6275,7 @@ class MainWindow(QMainWindow):
         self.lbl_drawing_preview.setStyleSheet("color:#1B4A7E; font-weight:700; font-size:13px;")
         row.addWidget(self.lbl_drawing_preview, 0, 0)
         row.setColumnStretch(1, 1)
-        # Detail preview is a view-only mode. One button toggles: Xem chi tiết ⇄ Kết thúc xem.
+        # Detail preview is a view-only mode. One button toggles: Xem chi tiết ⇁EKết thúc xem.
         # Undo remains only for real edit operations.
         self.btn_detail_preview = QPushButton(self.tr("detail_preview"))
         self.btn_detail_preview.setCheckable(True)
@@ -6311,7 +6311,7 @@ class MainWindow(QMainWindow):
         self.chk_reference_background_visible = QCheckBox("Hiện nền")
         self.chk_reference_background_visible.setChecked(True)
         self.chk_reference_background_visible.toggled.connect(self.toggle_reference_background)
-        self.lbl_reference_background_opacity = QLabel("Độ mờ")
+        self.lbl_reference_background_opacity = QLabel("ĐềEmềE)
         self.slider_reference_background_opacity = QSlider(Qt.Horizontal)
         self.slider_reference_background_opacity.setRange(20, 100)
         self.slider_reference_background_opacity.setValue(45)
@@ -6321,13 +6321,13 @@ class MainWindow(QMainWindow):
         self.btn_clear_reference_background = QPushButton("Xóa nền", self)
         self.btn_clear_reference_background.hide()
         self.btn_align_reference_background = QPushButton("Căn thẳng")
-        self.btn_scale_reference_background = QPushButton("Căn tỷ lệ")
+        self.btn_scale_reference_background = QPushButton("Căn tỷ lềE)
         self.btn_align_reference_background.setMinimumHeight(28)
         self.btn_align_reference_background.setCheckable(True)
         self.btn_align_reference_background.clicked.connect(self.start_reference_background_alignment)
         self.btn_scale_reference_background.setMinimumHeight(28)
         self.btn_scale_reference_background.setEnabled(False)
-        self.btn_scale_reference_background.setToolTip("Chức năng đang được chuẩn bị")
+        self.btn_scale_reference_background.setToolTip("Chức năng đang được chuẩn bềE)
         self.btn_scale_reference_background.hide()
         self.lbl_reference_background_angle = QLabel("Góc hiện tại: 0.00°")
         self.lbl_reference_background_name = QLabel("Chưa có nền")
@@ -6359,7 +6359,7 @@ class MainWindow(QMainWindow):
         right_head.addStretch(1)
         # Upright pin button: checked = pinned/visible, unchecked = hidden.
         # Avoid the tilted 📌 emoji because it looks diagonal on many Windows fonts.
-        self.btn_pin_right = QPushButton("●\n│")
+        self.btn_pin_right = QPushButton("●\n━E)
         self.btn_pin_right.setCheckable(True)
         self.btn_pin_right.setChecked(True)
         self.btn_pin_right.setFixedSize(34, 38)
@@ -6369,8 +6369,8 @@ class MainWindow(QMainWindow):
         rv.addLayout(right_head)
         self.tabs = QTabWidget(); rv.addWidget(self.tabs)
         tab_mat = QWidget(); mv = QVBoxLayout(tab_mat); mv.setContentsMargins(6,6,6,6); mv.setSpacing(6)
-        self.table_mat = QTableWidget(0,6); self.table_mat.setHorizontalHeaderLabels(["種類","サイズ","品名","単位","数量","備考"])
-        # Bảng vật tư: cột tự giãn theo chữ dài nhất, không ép 品名 bị bóp nhỏ.
+        self.table_mat = QTableWidget(0,6); self.table_mat.setHorizontalHeaderLabels(["種顁E,"サイズ","品名","単佁E,"数釁E,"備老E])
+        # Bảng vật tư: cột tự giãn theo chữ dài nhất, không ép 品名 bềEbóp nhềE
         self.table_mat.verticalHeader().setVisible(False)
         self.table_mat.setWordWrap(False)
         self.table_mat.setAlternatingRowColors(True)
@@ -6401,7 +6401,7 @@ class MainWindow(QMainWindow):
         mv.addLayout(excel_note_row)
 
         excel_row = QHBoxLayout()
-        self.edit_area = QLineEdit("Aタイプ"); self.lbl_area = QLabel(self.tr("area")); excel_row.addWidget(self.lbl_area); excel_row.addWidget(self.edit_area)
+        self.edit_area = QLineEdit("AタイチE); self.lbl_area = QLabel(self.tr("area")); excel_row.addWidget(self.lbl_area); excel_row.addWidget(self.edit_area)
         self.lbl_area.setVisible(False); self.edit_area.setVisible(False)
         self.btn_excel = QPushButton(self.tr("export_excel")); self.btn_excel.clicked.connect(self.handle_excel_button)
         excel_row.addWidget(self.btn_excel); mv.addLayout(excel_row)
@@ -7058,7 +7058,7 @@ class MainWindow(QMainWindow):
         lang = getattr(self, "lang", "vi")
         vi = lang == "vi"
         dlg = QDialog(self)
-        dlg.setWindowTitle("Thông tin phần mềm" if vi else "バージョン情報")
+        dlg.setWindowTitle("Thông tin phần mềm" if vi else "バ�Eジョン惁E��")
         dlg.setModal(True)
         dlg.resize(545, 720)
         dlg.setStyleSheet('''
@@ -7087,9 +7087,9 @@ class MainWindow(QMainWindow):
         title_box = QVBoxLayout(); title_box.setSpacing(6)
         title = QLabel("PipeTool Professional 2.01")
         title.setFont(QFont("Segoe UI", 14, QFont.Bold)); title.setStyleSheet("color:#1B4A7E; background:#ECEFF4;")
-        sub1 = QLabel("Hệ thống hỗ trợ thiết kế, bóc tách khối lượng và dự toán\nthoát nước kết hợp cùng JW_CAD" if vi else "JW_CAD連携型 排水設備設計・数量拾い・積算支援システム")
+        sub1 = QLabel("HềEthống hềEtrợ thiết kế, bóc tách khối lượng và dự toán\nthoát nước kết hợp cùng JW_CAD" if vi else "JW_CAD連携垁E排水設備設計�E数量拾ぁE�E積算支援シスチE��")
         sub1.setFont(QFont("Segoe UI", 9, QFont.Bold)); sub1.setStyleSheet("color:#1B4A7E; background:#ECEFF4;")
-        sub2 = QLabel("JW_CAD連携型 排水設備設計・数量拾い・積算支援システム" if vi else "排水設備の設計・材料集計・数量拾いを支援します")
+        sub2 = QLabel("JW_CAD連携垁E排水設備設計�E数量拾ぁE�E積算支援シスチE��" if vi else "排水設備�E設計�E材料雁E���E数量拾ぁE��支援しまぁE)
         sub2.setFont(QFont("Segoe UI", 9)); sub2.setStyleSheet("color:#505A6B; background:#ECEFF4;")
         title_box.addWidget(title); title_box.addWidget(sub1); title_box.addWidget(sub2)
         top.addLayout(title_box, 1)
@@ -7101,7 +7101,7 @@ class MainWindow(QMainWindow):
 
         grid = QGridLayout(); grid.setHorizontalSpacing(16); grid.setVerticalSpacing(8)
         rows_vi = [("Phiên bản", "Ver 2.01"), ("Năm hoàn thiện", "2026"), ("Tác giả", "Lê Thanh Quý"), ("Email", "giaiphaptamnhin@gmail.com"), ("Điện thoại", "+84 9 0573 0673")]
-        rows_jp = [("バージョン", "Ver 2.01"), ("完成年", "2026"), ("作成者", "Lê Thanh Quý"), ("Email", "giaiphaptamnhin@gmail.com"), ("電話", "+84 9 0573 0673")]
+        rows_jp = [("バ�Eジョン", "Ver 2.01"), ("完�E年", "2026"), ("作�E老E, "Lê Thanh Quý"), ("Email", "giaiphaptamnhin@gmail.com"), ("電話", "+84 9 0573 0673")]
         for r, (lab, val) in enumerate(rows_vi if vi else rows_jp):
             l = QLabel(lab); l.setFont(QFont("Segoe UI", 8)); l.setStyleSheet("color:#4A5568; background:#ECEFF4;")
             v = QLabel(val); v.setFont(QFont("Segoe UI", 8, QFont.Bold)); v.setAlignment(Qt.AlignRight); v.setStyleSheet("color:#1B4A7E; background:#ECEFF4;")
@@ -7109,35 +7109,35 @@ class MainWindow(QMainWindow):
         root.addLayout(grid)
         root.addWidget(line())
 
-        feature_title = QLabel("TÍNH NĂNG CHÍNH" if vi else "主な機能")
+        feature_title = QLabel("TÍNH NāEG CHÍNH" if vi else "主な機�E")
         feature_title.setFont(QFont("Segoe UI", 10, QFont.Bold)); feature_title.setStyleSheet("color:#1B4A7E; background:#ECEFF4;")
         root.addWidget(feature_title)
         features_vi = [
-            "Vẽ tự động hệ thống thoát nước trên JW_CAD",
-            "Tự động bố trí cút, tê, nhánh và phụ kiện",
-            "Hỗ trợ các hệ ống DV, HTVP, TMP...",
+            "Vẽ tự động hềEthống thoát nước trên JW_CAD",
+            "Tự động bềEtrí cút, tê, nhánh và phụ kiện",
+            "HềEtrợ các hềEống DV, HTVP, TMP...",
             "Tự động thống kê chiều dài đường ống",
-            "Tự động thống kê số lượng phụ kiện",
+            "Tự động thống kê sềElượng phụ kiện",
             "Tự động lập bảng vật tư",
-            "Hỗ trợ bóc tách khối lượng và lập dự toán",
+            "HềEtrợ bóc tách khối lượng và lập dự toán",
             "Xuất dữ liệu trực tiếp sang JW_CAD",
         ]
         features_jp = [
-            "JW_CAD上で排水配管を自動作図",
-            "継手・枝管・接続部材の自動配置",
-            "DV・HTVP・TMP等の管材対応",
-            "配管長さの自動集計",
-            "継手数量の自動集計",
-            "材料集計表の自動作成",
-            "数量拾い・積算業務を支援",
-            "JW_CADへ直接出力",
+            "JW_CAD上で排水配管を�E動作図",
+            "継手・枝管・接続部材�E自動�E置",
+            "DV・HTVP・TMP等�E管材対忁E,
+            "配管長さ�E自動集訁E,
+            "継手数量�E自動集訁E,
+            "材料雁E��表の自動作�E",
+            "数量拾ぁE�E積算業務を支援",
+            "JW_CADへ直接出劁E,
         ]
         ft = QLabel("\n\n".join("• " + x for x in (features_vi if vi else features_jp)))
         ft.setFont(QFont("Segoe UI", 8)); ft.setStyleSheet("color:#333333; background:#ECEFF4;")
         ft.setWordWrap(True)
         root.addWidget(ft, 1)
         root.addWidget(line())
-        slogan = QLabel("Giải pháp chuyên dụng kết hợp cùng JW_CAD cho thiết kế,\nthống kê vật tư, bóc tách khối lượng và hỗ trợ dự toán." if vi else "JW_CAD連携による排水設備設計・数量拾い・積算支援ツール")
+        slogan = QLabel("Giải pháp chuyên dụng kết hợp cùng JW_CAD cho thiết kế,\nthống kê vật tư, bóc tách khối lượng và hềEtrợ dự toán." if vi else "JW_CAD連携による排水設備設計�E数量拾ぁE�E積算支援チE�Eル")
         slogan.setFont(QFont("Segoe UI", 9, QFont.Bold)); slogan.setAlignment(Qt.AlignCenter); slogan.setStyleSheet("color:#1B4A7E; background:#ECEFF4;")
         root.addWidget(slogan)
         btn_row = QHBoxLayout(); btn_row.addStretch()
@@ -7882,7 +7882,7 @@ class MainWindow(QMainWindow):
                 "main_size": self.cmb_main_size.currentText() if hasattr(self, "cmb_main_size") else "",
                 "branch_rule": self.cmb_branch_rule.currentText() if hasattr(self, "cmb_branch_rule") else "Giảm 1 bậc",
                 "branch_size": self.cmb_branch_size.currentText() if hasattr(self, "cmb_branch_size") else "",
-                "start_fitting": self.cmb_start_fitting.currentText() if hasattr(self, "cmb_start_fitting") else "集合管",
+                "start_fitting": self.cmb_start_fitting.currentText() if hasattr(self, "cmb_start_fitting") else "雁E��管",
                 "system_items": self._combo_items(self.cmb_system) if hasattr(self, "cmb_system") else [],
                 "pipe_size_items": self._combo_items(self.cmb_main_size) if hasattr(self, "cmb_main_size") else [],
                 "start_fitting_items": self._combo_items(self.cmb_start_fitting) if hasattr(self, "cmb_start_fitting") else [],
@@ -7972,7 +7972,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "cmb_start_fitting"): _restore_combo_items(self.cmb_start_fitting, "start_fitting_items")
         if hasattr(self, "cmb_terminal"): _restore_combo_items(self.cmb_terminal, "terminal_items")
         if hasattr(self, "cmb_branch_size"): self.cmb_branch_size.setCurrentText(str(st.get("branch_size", "")))
-        if hasattr(self, "cmb_start_fitting"): self.cmb_start_fitting.setCurrentText(str(st.get("start_fitting", "集合管")))
+        if hasattr(self, "cmb_start_fitting"): self.cmb_start_fitting.setCurrentText(str(st.get("start_fitting", "雁E��管")))
         if hasattr(self, "edit_fire_len"): self.edit_fire_len.setText(str(st.get("fire_len", "1200")))
         if hasattr(self, "cmb_fire_mat"): self.cmb_fire_mat.setCurrentText(str(st.get("fire_mat", "TMP")))
         if hasattr(self, "cmb_normal_mat"): self.cmb_normal_mat.setCurrentText(str(st.get("normal_mat", "VP/VU")))
@@ -8006,9 +8006,9 @@ class MainWindow(QMainWindow):
 
     def _branch_rule_code_from_text(self, text: str = "") -> str:
         text = str(text or (self.cmb_branch_rule.currentText() if hasattr(self, "cmb_branch_rule") else "")).lower()
-        if "cố" in text or "固定" in text or "fixed" in text:
+        if "cềE in text or "固宁E in text or "fixed" in text:
             return "fixed"
-        if "bằng" in text or "同" in text or "same" in text:
+        if "bằng" in text or "吁E in text or "same" in text:
             return "same"
         return "down"
 
@@ -8094,9 +8094,9 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         txt = combo.currentText().strip()
-        # Labels may be like "排水 — Thoát nước".
-        if " — " in txt:
-            return txt.split(" — ", 1)[0].strip()
+        # Labels may be like "排水  EThoát nước".
+        if "  E" in txt:
+            return txt.split("  E", 1)[0].strip()
         return txt
 
     def _set_combo_items_with_data(self, combo: QComboBox, pairs: List[Tuple[str, str]], keep_code: str = ""):
@@ -8210,7 +8210,7 @@ class MainWindow(QMainWindow):
             combo.blockSignals(False)
         def role_pairs(role_key: str, fallback: List[str]):
             # 排水転がし配管: start/end candidates are fixed and compact.
-            allowed = ['集合管', 'DL Down', 'LL Down'] if role_key == 'start_groups' else ['DL Up', 'LL Up']
+            allowed = ['雁E��管', 'DL Down', 'LL Down'] if role_key == 'start_groups' else ['DL Up', 'LL Up']
             codes = [str(x) for x in (mat_item or {}).get(role_key, []) if str(x).strip() and str(x) in allowed]
             if not codes:
                 codes = [x for x in fallback[:] if x in allowed]
@@ -8225,7 +8225,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "cmb_fit_type"):
             set_group_combo(self.cmb_fit_type, group_pairs)
         if hasattr(self, "cmb_start_fitting"):
-            set_group_combo(self.cmb_start_fitting, role_pairs("start_groups", ["集合管", "DL Down", "LL Down"]))
+            set_group_combo(self.cmb_start_fitting, role_pairs("start_groups", ["雁E��管", "DL Down", "LL Down"]))
         if hasattr(self, "cmb_terminal"):
             set_group_combo(self.cmb_terminal, role_pairs("end_groups", ["DL Up", "LL Up"]))
         try:
@@ -8296,7 +8296,7 @@ class MainWindow(QMainWindow):
 
         - Giảm 1 bậc: main 65 -> branch 50.
         - Bằng ống chính: branch follows main exactly.
-        - Cố định: user can freely edit branch size; do not overwrite it.
+        - CềEđịnh: user can freely edit branch size; do not overwrite it.
         """
         if not hasattr(self, "cmb_branch_rule") or not hasattr(self, "cmb_branch_size"):
             return
@@ -8381,7 +8381,7 @@ class MainWindow(QMainWindow):
             b_edit.clicked.connect(edit_item)
             b_del.clicked.connect(delete_item)
             # Sắp xếp bằng thao tác kéo trong danh sách, không dùng nút Lên/Xuống
-            # để cửa sổ gọn hơn.
+            # đềEcửa sềEgọn hơn.
             try:
                 lw.setDragDropMode(QListWidget.InternalMove)
                 lw.setDefaultDropAction(Qt.MoveAction)
@@ -8411,7 +8411,7 @@ class MainWindow(QMainWindow):
         current_terminal = self.cmb_terminal.currentText().strip()
         systems = list_items(lw_system) or [current_system or self.tr("systems")]
         sizes = list_items(lw_sizes) or PIPE_SIZE_ORDER
-        starts = list_items(lw_start) or [current_start or "集合管"]
+        starts = list_items(lw_start) or [current_start or "雁E��管"]
         terms = list_items(lw_terminal) or [current_terminal or "DL"]
         PIPE_SIZE_ORDER = sizes[:]
 
@@ -8458,7 +8458,7 @@ class MainWindow(QMainWindow):
         This prevents the confusing case where the user reorganizes Library by system/material
         and old cached/indexed paths keep being used until combos are changed several times.
         """
-        # NEVIS perf: throttle – tránh rglob mỗi lần bấm Apply. Chỉ kiểm tra 1 lần/20 giây.
+        # NEVIS perf: throttle  Etránh rglob mỗi lần bấm Apply. ChềEkiểm tra 1 lần/20 giây.
         try:
             import time as _tm
             if _tm.monotonic() - getattr(self, '_lib_chk_t', 0.0) < 20.0:
@@ -8483,8 +8483,8 @@ class MainWindow(QMainWindow):
     def schedule_common_apply(self, *args):
         """Debounced common-setting apply.
 
-        Thiết lập chung là khóa chính nên mọi thay đổi hệ/size/đầu-cuối nhánh
-        phải chạy lại size propagation. Dùng timer để giảm lag khi combo phát nhiều signal.
+        Thiết lập chung là khóa chính nên mọi thay đổi hềEsize/đầu-cuối nhánh
+        phải chạy lại size propagation. Dùng timer đềEgiảm lag khi combo phát nhiều signal.
         """
         try:
             if getattr(self, '_loading_project', False) or getattr(self, '_updating_master_combos', False):
@@ -8520,16 +8520,16 @@ class MainWindow(QMainWindow):
         """
         main_size = self.cmb_main_size.currentText().strip() if hasattr(self, 'cmb_main_size') else ''
         terminal = self.cmb_terminal.currentText().strip() if hasattr(self, 'cmb_terminal') else 'DL'
-        start_type = self.cmb_start_fitting.currentText().strip() if hasattr(self, 'cmb_start_fitting') else '集合管'
+        start_type = self.cmb_start_fitting.currentText().strip() if hasattr(self, 'cmb_start_fitting') else '雁E��管'
         deg = self.model.degree(nid) if getattr(self, 'model', None) else 0
         old_fit = self.model.fittings.get(nid) if getattr(self, 'model', None) else None
         old_mat = getattr(old_fit, 'material_override', '') if old_fit else ''
         if (getattr(self.model, 'base_node', None) == nid) or (nid in getattr(self.model, 'base_nodes', set())):
-            base_kind = self._safe_group_code(start_type) or start_type or '集合管'
-            size = self.auto_base_fitting_size(nid) if base_kind == '集合管' else main_size
+            base_kind = self._safe_group_code(start_type) or start_type or '雁E��管'
+            size = self.auto_base_fitting_size(nid) if base_kind == '雁E��管' else main_size
             return Fitting(nid, base_kind, size, manual=False, material_override=old_mat)
         if deg <= 0:
-            return Fitting(nid, '要確認', '', manual=False, material_override=old_mat)
+            return Fitting(nid, '要確誁E, '', manual=False, material_override=old_mat)
         if deg == 1:
             ftype, fsize = self.normalize_terminal_type_size(terminal, main_size)
             return Fitting(nid, ftype, fsize, manual=False, material_override=old_mat)
@@ -8547,7 +8547,7 @@ class MainWindow(QMainWindow):
             bsize = self.default_branch_size_for(main_size)
             fsize = f'{main_size}x{bsize}' if main_size and bsize else main_size
             return Fitting(nid, ftype, fsize, manual=False, material_override=old_mat)
-        return Fitting(nid, '要確認', main_size, manual=False, material_override=old_mat)
+        return Fitting(nid, '要確誁E, main_size, manual=False, material_override=old_mat)
 
     def apply_common(self):
         if self._block_if_detail_readonly():
@@ -8561,7 +8561,7 @@ class MainWindow(QMainWindow):
             if not main_size:
                 self.require_main_size_for_action()
             missing = []
-            if not sys_code: missing.append("Hệ")
+            if not sys_code: missing.append("HềE)
             if not mat_code: missing.append("Vật liệu")
             if not main_size: missing.append("Ống chính")
             msg = "Vui lòng nhập kích thước ống chính" if not main_size else "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
@@ -8577,7 +8577,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "sync_branch_size_from_rule"):
             self.sync_branch_size_from_rule()
         # Thiết lập chung là khóa chính: base fitting luôn ăn theo ô Đầu nhánh,
-        # trừ khi người dùng cố tình sửa chi tiết bằng Apply trên node khác.
+        # trừ khi người dùng cềEtình sửa chi tiết bằng Apply trên node khác.
         if hasattr(self, "cmb_start_fitting"):
             bases = set(getattr(self.model, "base_nodes", set()) or [])
             if getattr(self.model, "base_node", None) in self.model.nodes:
@@ -8595,7 +8595,7 @@ class MainWindow(QMainWindow):
 
         - Giảm 1 bậc: old drainage rule, e.g. 65 -> 50.
         - Bằng ống chính: branch keeps the same size as main.
-        - Cố định: branch uses the editable branch-size box, e.g. 150 -> 100 or 80 -> 25.
+        - CềEđịnh: branch uses the editable branch-size box, e.g. 150 -> 100 or 80 -> 25.
         """
         code = (self.cmb_branch_rule.currentData() if hasattr(self, "cmb_branch_rule") else "down") or self._branch_rule_code_from_text()
         current_size = str(current_size or "").strip()
@@ -8612,9 +8612,9 @@ class MainWindow(QMainWindow):
         t = str(terminal_type or "DL").strip()
         low = t.lower()
         mode = ""
-        if "up" in low or t.endswith(" U") or t.endswith("_U") or "上" in t:
+        if "up" in low or t.endswith(" U") or t.endswith("_U") or "丁E in t:
             mode = "U"
-        elif "down" in low or t.endswith(" D") or t.endswith("_D") or "下" in t:
+        elif "down" in low or t.endswith(" D") or t.endswith("_D") or "丁E in t:
             mode = "D"
         base = t.replace(" Up", "").replace(" Down", "").replace("_U", "").replace("_D", "").strip()
         if base in ["DL", "LL"] and mode:
@@ -8639,7 +8639,7 @@ class MainWindow(QMainWindow):
                 if str(getattr(e, "size", "")) == "65":
                     e.size = ""
             try:
-                self.statusBar().showMessage("Chưa chọn size tuyến chính / 主管サイズ未設定")
+                self.statusBar().showMessage("Chưa chọn size tuyến chính / 主管サイズ未設宁E)
             except Exception:
                 pass
             return
@@ -8647,16 +8647,16 @@ class MainWindow(QMainWindow):
             e.size = main_size
 
         # Base and terminal defaults first.
-        # 集合管 is not a fixed 100x65x50 fitting anymore:
+        # 雁E��管 is not a fixed 100x65x50 fitting anymore:
         # its port count/type follows the number and angle of centerlines connected to the base point.
-        # Auto priority is 65x75 for a 2-port 集合管, then each outgoing branch inherits its own port size.
+        # Auto priority is 65x75 for a 2-port 雁E��管, then each outgoing branch inherits its own port size.
         for nid, fit in list(self.model.fittings.items()):
             fbase0 = self._safe_group_code(getattr(fit, 'ftype', ''))
             if (nid == self.model.base_node or nid in getattr(self.model, "base_nodes", set())) and not fit.manual:
-                # Keep current common-start type. 集合管 uses auto port size; other start devices use main size.
-                start_type = self.cmb_start_fitting.currentText().strip() if hasattr(self, 'cmb_start_fitting') else '集合管'
-                fit.ftype = self._safe_group_code(start_type) or start_type or '集合管'
-                fit.size = self.auto_base_fitting_size(nid) if fit.ftype == '集合管' else main_size
+                # Keep current common-start type. 雁E��管 uses auto port size; other start devices use main size.
+                start_type = self.cmb_start_fitting.currentText().strip() if hasattr(self, 'cmb_start_fitting') else '雁E��管'
+                fit.ftype = self._safe_group_code(start_type) or start_type or '雁E��管'
+                fit.size = self.auto_base_fitting_size(nid) if fit.ftype == '雁E��管' else main_size
             elif self.model.degree(nid) == 1 and fbase0 in ["DL", "LL", "脚部"] and not fit.manual:
                 fit.ftype, fit.size = self.normalize_terminal_type_size(terminal_type, main_size)
                 # Temporary default; the DFS below overwrites it with the actual inherited branch size.
@@ -8676,7 +8676,7 @@ class MainWindow(QMainWindow):
             fit = self.model.fittings.get(nid)
             if self.model.degree(nid) >= 4:
                 if fit and not fit.manual:
-                    fit.ftype = "要確認"
+                    fit.ftype = "要確誁E
                     fit.size = incoming_size or main_size
                 info = None
             else:
@@ -8697,8 +8697,8 @@ class MainWindow(QMainWindow):
                     branch_size = self.default_branch_size_for(current_size)
                     fit.size = f"{current_size}x{branch_size}"
             elif fit and fit.ftype == "IN":
-                # 異径ソケット / cút thu thẳng trên tuyến.
-                # Upstream side keeps incoming_size; only the downstream side away from 集合管 changes.
+                # 異征E��ケチE�� / cút thu thẳng trên tuyến.
+                # Upstream side keeps incoming_size; only the downstream side away from 雁E��管 changes.
                 nums = re.findall(r"\d+", str(fit.size))
                 if len(nums) >= 2:
                     up_size, down_size = nums[0], nums[1]
@@ -8724,7 +8724,7 @@ class MainWindow(QMainWindow):
                     fit.ftype = fit_base2
                     fit.size = current_size
 
-            # Children are nodes farther from 集合管. This keeps the rule following the pipe network, not screen radius.
+            # Children are nodes farther from 雁E��管. This keeps the rule following the pipe network, not screen radius.
             for nb in self.model.neighbors(nid):
                 if self.model.parent.get(nb) != nid:
                     continue
@@ -8759,7 +8759,7 @@ class MainWindow(QMainWindow):
                 disconnected_count += 1
         if disconnected_count:
             try:
-                self.statusBar().showMessage(f"⚠ Có {disconnected_count} đoạn ống chưa nối được về đầu nhánh/集合管 - giữ size trống")
+                self.statusBar().showMessage(f"⚠ Có {disconnected_count} đoạn ống chưa nối được vềEđầu nhánh/雁E��管 - giữ size trống")
             except Exception:
                 pass
         self.force_bushing_downstream_sizes()
@@ -8789,7 +8789,7 @@ class MainWindow(QMainWindow):
         mat2 = self.material_kind_label(mat)
         sys_code = self._combo_current_code(self.cmb_system) if hasattr(self, "cmb_system") else ""
         if mat2 in {"STPG", "SGP", "SUS", "STEEL"} or sys_code in {"SP", "連結送水管"}:
-            return "金属ブッシング"
+            return "金属ブチE��ング"
         return "ブッシング"
 
 
@@ -8914,7 +8914,7 @@ class MainWindow(QMainWindow):
         fit_host = self.model.fittings.get(host)
         fit_mid = self.model.fittings.get(mid)
         fit_term = self.model.fittings.get(terminal)
-        old_route = f"{getattr(fit_host, 'ftype', '')} → {getattr(fit_mid, 'ftype', '45°')} → {getattr(fit_term, 'ftype', '')}"
+        old_route = f"{getattr(fit_host, 'ftype', '')} ↁE{getattr(fit_mid, 'ftype', '45°')} ↁE{getattr(fit_term, 'ftype', '')}"
         desc = self.tr(str(cand.get("desc_key") or "smart_drag_desc_45"))
         msg = self.tr("smart_drag_msg").format(old=old_route, desc=desc)
         ret = QMessageBox.question(self, self.tr("smart_drag_title"), msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
@@ -8983,10 +8983,10 @@ class MainWindow(QMainWindow):
             return ""
         prefix = self.fitting_prefix_for_node(nid)
         suffix = self.bushing_label_suffix(nid) if hasattr(self, "bushing_label_suffix") else ""
-        if fit.ftype == "集合管":
+        if fit.ftype == "雁E��管":
             size_txt = (fit.size or "").strip()
             port_txt = self.classify_base_ports(nid)
-            base = f"集合管 {port_txt}" if not size_txt else f"{size_txt} 集合管 {port_txt}"
+            base = f"雁E��管 {port_txt}" if not size_txt else f"{size_txt} 雁E��管 {port_txt}"
             return base + suffix
         if fit.ftype in ["Y","LT","DT","T","SV","S"]:
             return f"{fit.size}{prefix}-{fit.ftype}" + suffix
@@ -9000,7 +9000,7 @@ class MainWindow(QMainWindow):
         return f"{fit.size}{prefix}-{fit.ftype}" + suffix
 
     def classify_base_ports(self, nid:int) -> str:
-        """Human label for 集合管 ports based on the centerlines connected to the base node."""
+        """Human label for 雁E��管 ports based on the centerlines connected to the base node."""
         deg = self.model.degree(nid)
         if deg <= 1:
             return "1 cửa"
@@ -9014,7 +9014,7 @@ class MainWindow(QMainWindow):
         return f"{deg} cửa"
 
     def auto_base_fitting_size(self, nid:int) -> str:
-        """Default 集合管 size. Priority is pipe size first, branch split second.
+        """Default 雁E��管 size. Priority is pipe size first, branch split second.
 
         For a 2-port base, prefer 65x75 as requested. This makes one outgoing
         branch inherit 65 and the other inherit 75 before later Y/LT/DT sizing rules.
@@ -9033,7 +9033,7 @@ class MainWindow(QMainWindow):
         return "x".join([x for x in parts if x])
 
     def ordered_base_children(self, nid:int) -> List[int]:
-        """Stable order for assigning 集合管 port sizes to connected branches."""
+        """Stable order for assigning 雁E��管 port sizes to connected branches."""
         if nid not in self.model.nodes:
             return []
         n0 = self.model.nodes[nid]
@@ -9055,7 +9055,7 @@ class MainWindow(QMainWindow):
         return [nb for _, nb in children]
 
     def base_child_size_map(self, nid:int, fallback_size: str) -> Dict[int, str]:
-        """Map each outgoing branch from 集合管 to the port size it should inherit."""
+        """Map each outgoing branch from 雁E��管 to the port size it should inherit."""
         fit = self.model.fittings.get(nid)
         size_text = (fit.size if fit else "") or self.auto_base_fitting_size(nid)
         nums = re.findall(r"\d+", str(size_text))
@@ -9302,20 +9302,20 @@ class MainWindow(QMainWindow):
         t = (t or "").strip()
         if t in ["45", "45°", "45度"]:
             return "45°"
-        if t in ["S管", "集合管"]:
-            return "集合管"
+        if t in ["S管", "雁E��管"]:
+            return "雁E��管"
         return t
 
     def pipe_aliases(self, pipe: str, ftype: str = "") -> Set[str]:
         """Return material/folder aliases for library lookup.
         Library is folder-first: library/<pipe>/<fitting>/<txt>.
-        集合管 is special and may live in library/集合管, not under DV/TMP.
+        雁E��管 is special and may live in library/雁E��管, not under DV/TMP.
         """
         pipe = (pipe or "").strip()
         ftype = self.normalize_lib_type(ftype)
         aliases = {pipe} if pipe else set()
-        if ftype == "集合管":
-            aliases.update(["集合管", "S", "SV", "S3"])
+        if ftype == "雁E��管":
+            aliases.update(["雁E��管", "S", "SV", "S3"])
             return aliases
         if pipe in ["DV", "VP", "VU", "VP/VU"]:
             aliases.update(["DV", "VP", "VU", "VP/VU"])
@@ -9329,8 +9329,8 @@ class MainWindow(QMainWindow):
 
     def type_aliases(self, ftype: str) -> Set[str]:
         ftype = self.normalize_lib_type(ftype)
-        if ftype == "集合管":
-            return {"集合管", "S", "SV"}
+        if ftype == "雁E��管":
+            return {"雁E��管", "S", "SV"}
         if ftype == "45°":
             return {"45°", "45"}
         if ftype == "LL":
@@ -9372,8 +9372,8 @@ class MainWindow(QMainWindow):
             pass
         try:
             txt = self.cmb_normal_mat.currentText().strip()
-            # labels may be like "排水 — Thoát nước"; keep the code side when possible.
-            return txt.split("—", 1)[0].strip()
+            # labels may be like "排水  EThoát nước"; keep the code side when possible.
+            return txt.split(" E, 1)[0].strip()
         except Exception:
             return ""
 
@@ -9498,7 +9498,7 @@ class MainWindow(QMainWindow):
 
     def fallback_sizes_for_type(self, ftype: str, current_size: str = "") -> List[str]:
         ftype = self.normalize_lib_type(ftype)
-        if ftype == "集合管":
+        if ftype == "雁E��管":
             return ["65x75", "75x65", "65x50", "50x65", "65", "75", "100x65x50"]
         if ftype in ["Y", "LT", "DT", "T", "SV", "S"]:
             main = parse_fitting_size_pair(current_size, self.cmb_main_size.currentText())[0]
@@ -9584,7 +9584,7 @@ class MainWindow(QMainWindow):
         """Return True when a Y TXT contains the NEVIS explicit centerline rule.
 
         Required convention:
-        - lc8 line starts at 0,0 and points downstream to 集合管, usually 130mm.
+        - lc8 line starts at 0,0 and points downstream to 雁E��管, usually 130mm.
         - another origin line (often lc2) points to the branch, usually about 200mm.
         This lets Y be placed by center vectors, not by guessed mouth geometry.
         """
@@ -9689,8 +9689,8 @@ class MainWindow(QMainWindow):
                 for tt in type_aliases:
                     yield pipe_dir / tt
             # Special role libraries may live directly under the system folder:
-            # library/<system>/集合管/... or library/<system>/脚部/...
-            if ftype in {"集合管", "脚部", "配管"}:
+            # library/<system>/雁E��管/... or library/<system>/脚部/...
+            if ftype in {"雁E��管", "脚部", "配管"}:
                 for tt in type_aliases:
                     yield root / tt
 
@@ -9712,10 +9712,10 @@ class MainWindow(QMainWindow):
                     fnums_for_size = list(fnums)
                     if self.normalize_lib_type(ftype) == "45°" and fnums_for_size and fnums_for_size[0] == "45":
                         fnums_for_size = fnums_for_size[1:]
-                    # 集合管 1 cửa: request size is only "65".  Do not accept
+                    # 雁E��管 1 cửa: request size is only "65".  Do not accept
                     # S_65_50 / SV_65_50 because those are multi-mouth libraries
                     # and produce the wrong preview/JWW even when the label says 1 cửa.
-                    if self.normalize_lib_type(ftype) == "集合管" and _collection_requested_single_port(size):
+                    if self.normalize_lib_type(ftype) == "雁E��管" and _collection_requested_single_port(size):
                         if not _collection_candidate_is_single_port(str(f)):
                             continue
                     if strict_branch:
@@ -9780,8 +9780,8 @@ class MainWindow(QMainWindow):
             it_size = str(item.get("size", ""))
             if it_pipe in aliases and it_type in type_alias:
                 pth = str(item.get("path", ""))
-                if ftype == "集合管" and _collection_requested_single_port(size):
-                    # Keep 集合管 1 cửa strict.  Old index search previously accepted
+                if ftype == "雁E��管" and _collection_requested_single_port(size):
+                    # Keep 雁E��管 1 cửa strict.  Old index search previously accepted
                     # S_65_50/SV_65_50 because only the first size matched.
                     if not _collection_candidate_is_single_port(pth or str(item.get("size", ""))):
                         continue
@@ -10153,7 +10153,7 @@ class MainWindow(QMainWindow):
             self.fit_preview.fitInView(rect, Qt.KeepAspectRatio)
 
     def update_support_kind_items(self):
-        """Cùm ống của 排水転がし配管 chỉ dùng レベル, không cho chọn loại khác."""
+        """Cùm ống của 排水転がし配管 chềEdùng レベル, không cho chọn loại khác."""
         self.support_kind = "レベル"
         if hasattr(self, "cmb_support_kind"):
             self.cmb_support_kind.blockSignals(True)
@@ -10277,7 +10277,7 @@ class MainWindow(QMainWindow):
         k = (kind if kind is not None else getattr(self, "support_kind", "レベル")) or "レベル"
         pipe = f"{size}{self.band_pipe_name_for_material(mat)}"
         if getattr(self, "lang", "vi") == "jp":
-            return f"{pipe}用{k}バンド"
+            return f"{pipe}用{k}バンチE
         return f"Cùm ống {pipe} - {k}"
 
     def support_half_len_for_edge(self, e: Edge) -> float:
@@ -10377,8 +10377,8 @@ class MainWindow(QMainWindow):
         """Set combo text even when the current master/filter list does not contain it.
 
         NEVIS dùng CSDL vật tư động theo folder. Khi một node đổi vai trò
-        bằng Mặc định/Đặt đầu nhánh, loại cút có thể chuyển sang 集合管, 脚部,
-        要確認... nhưng combobox đang bị lọc theo danh sách cũ. Qt setCurrentText
+        bằng Mặc định/Đặt đầu nhánh, loại cút có thềEchuyển sang 雁E��管, 脚部,
+        要確誁E.. nhưng combobox đang bềElọc theo danh sách cũ. Qt setCurrentText
         sẽ im lặng thất bại nếu text không có trong list, làm màn hình vẫn hiện
         DL UP/LL Down cũ dù model đã đổi đúng. Hàm này đảm bảo UI luôn phản ánh
         đúng model, tránh người dùng tưởng phần mềm không đổi.
@@ -10398,7 +10398,7 @@ class MainWindow(QMainWindow):
             combo.blockSignals(False)
 
     def select_node(self, nid:int):
-        _prev_edge = self.selected_edge  # NEVIS perf: chỉ redraw nếu có edge highlight cần xóa
+        _prev_edge = self.selected_edge  # NEVIS perf: chềEredraw nếu có edge highlight cần xóa
         self.selected_node = nid; self.selected_edge = None; self.selected_bushing_id = None
         fit = self.model.fittings.get(nid)
         n = self.model.nodes[nid]
@@ -10407,7 +10407,7 @@ class MainWindow(QMainWindow):
                 self.cmb_branch_material.setCurrentText(fit.material_override)
 
             # Cực quan trọng: combo phải ăn theo dữ liệu model, không được giữ
-            # hiển thị cũ. Trước đây label đã đổi thành 集合管 nhưng combo vẫn hiện
+            # hiển thềEcũ. Trước đây label đã đổi thành 雁E��管 nhưng combo vẫn hiện
             # DL UP, khiến Apply/preview tiếp tục tra thư viện sai.
             self._force_combo_text_visible(self.cmb_fit_type, fit.ftype)
             if self.cmb_fit_size.findText(str(fit.size or "")) < 0 and str(fit.size or ""):
@@ -10419,8 +10419,8 @@ class MainWindow(QMainWindow):
                 self.cmb_fit_size.blockSignals(False)
 
             self.update_size_choices_for_selected()
-            # update_size_choices_for_selected() có thể rebuild list size; set lại
-            # một lần nữa để không mất size hiện tại.
+            # update_size_choices_for_selected() có thềErebuild list size; set lại
+            # một lần nữa đềEkhông mất size hiện tại.
             if str(fit.size or ""):
                 self.cmb_fit_size.blockSignals(True)
                 try:
@@ -10440,7 +10440,7 @@ class MainWindow(QMainWindow):
         self.update_reducer_buttons()
         self.update_branch_material_buttons()
         # NEVIS perf: nếu không có edge nào đang được chọn thì không cần xóa highlight.
-        # Khi có edge được chọn trước đó, vẫn phải redraw để bỏ highlight màu vàng.
+        # Khi có edge được chọn trước đó, vẫn phải redraw đềEbềEhighlight màu vàng.
         if _prev_edge is not None:
             self.preview.draw_model()
 
@@ -10508,7 +10508,7 @@ class MainWindow(QMainWindow):
         self.lbl_status.setText(self.tr("undo_done"))
 
     def update_reducer_buttons(self):
-        """Update 異径ソケット button states by selection context."""
+        """Update 異征E��ケチE�� button states by selection context."""
         if not hasattr(self, "btn_insert_reducer"):
             return
         fit = self.model.fittings.get(self.selected_node) if self.selected_node else None
@@ -10585,7 +10585,7 @@ class MainWindow(QMainWindow):
         Everything reachable from other without crossing host or another bushing host
         is considered the small-side run.  This is intentionally geometry/network
         based, not only normal flow-parent based, so it also works when the selected
-        pipe is not perfectly aligned with the current 集合管 flow tree.
+        pipe is not perfectly aligned with the current 雁E��管 flow tree.
         """
         nodes: Set[int] = set()
         edges: Set[str] = set()
@@ -10661,7 +10661,7 @@ class MainWindow(QMainWindow):
                 is_endpoint = False
             mode = _terminal_mode_for_fit() if is_endpoint else ""
             fit.size = f"{small}x{mode}" if mode in {"U", "D"} else small
-        elif fbase in ["45°", "集合管", "S", "SV"]:
+        elif fbase in ["45°", "雁E��管", "S", "SV"]:
             fit.size = small
         elif fbase in ["Y", "LT", "DT", "T", "HTVP"]:
             # Keep the same fitting family, but its main pipe becomes the small side.
@@ -10678,7 +10678,7 @@ class MainWindow(QMainWindow):
             nums2 = re.findall(r"\d+", str(getattr(fit, "size", "")))
             out_small = nums2[1] if len(nums2) >= 2 else self.default_branch_size_for(small)
             fit.size = f"{small}x{out_small}"
-        elif fbase and fbase != "要確認":
+        elif fbase and fbase != "要確誁E:
             fit.size = small
 
     def _apply_bushing_small_side_now(self, host: int, other: int, small: str):
@@ -10777,10 +10777,10 @@ class MainWindow(QMainWindow):
                 if dist_t * length > max(35.0, length * 0.08):
                     continue
                 fit = self.model.fittings.get(endpoint)
-                if not fit or fit.excluded or fit.ftype in {"IN", "要確認"}:
+                if not fit or fit.excluded or fit.ftype in {"IN", "要確誁E}:
                     continue
                 # Prefer the end whose fitting/edge is the large side.  Empty fitting
-                # size is still accepted because many 集合管 sizes are auto labels.
+                # size is still accepted because many 雁E��管 sizes are auto labels.
                 fnums = re.findall(r"\d+", str(fit.size or ""))
                 if fnums and big not in fnums[:2]:
                     # Still allow when the selected edge itself is the big pipe.
@@ -10968,8 +10968,8 @@ class MainWindow(QMainWindow):
             self.cmb_fit_size.blockSignals(False)
         self.fit_preview_scene.clear()
         self.lbl_selected.setText(f"{item_name} / {size}")
-        self.lbl_detail.setText(f"Host Node {host} → Small side Node {other} | {size}")
-        self.lbl_status.setText(f"Đã chọn {item_name} {size}: có thể sửa size hoặc xóa như cút thu IN.")
+        self.lbl_detail.setText(f"Host Node {host} ↁESmall side Node {other} | {size}")
+        self.lbl_status.setText(f"Đã chọn {item_name} {size}: có thềEsửa size hoặc xóa như cút thu IN.")
         self.update_reducer_buttons()
         self.update_branch_material_buttons()
         self.preview.draw_model()
@@ -10982,7 +10982,7 @@ class MainWindow(QMainWindow):
         size = self.cmb_fit_size.currentText().strip()
         nums = re.findall(r"\d+", size)
         if len(nums) < 2:
-            QMessageBox.warning(self, "NEVIS", "Size ブッシング không hợp lệ. Ví dụ: 100x65")
+            QMessageBox.warning(self, "NEVIS", "Size ブッシング không hợp lềE Ví dụ: 100x65")
             return True
         self.save_undo_snapshot("edit_bushing")
         b["size"] = f"{nums[0]}x{nums[1]}"
@@ -10995,7 +10995,7 @@ class MainWindow(QMainWindow):
         self.apply_common()
         self.force_bushing_downstream_sizes()
         self.select_bushing(b.get("id"))
-        self.lbl_status.setText(f"Đã sửa ブッシング thành {b['size']} và ép tuyến sau về {nums[1]}.")
+        self.lbl_status.setText(f"Đã sửa ブッシング thành {b['size']} và ép tuyến sau vềE{nums[1]}.")
         return True
 
     def delete_selected_bushing(self) -> bool:
@@ -11016,7 +11016,7 @@ class MainWindow(QMainWindow):
             self.select_edge(self.selected_edge)
         else:
             self.refresh_all()
-        self.lbl_status.setText(f"Đã xóa ブッシング {old_size}; size ống đã tính lại theo hệ thống.")
+        self.lbl_status.setText(f"Đã xóa ブッシング {old_size}; size ống đã tính lại theo hềEthống.")
         return True
 
     def start_insert_reducer(self):
@@ -11032,12 +11032,12 @@ class MainWindow(QMainWindow):
         if not opts:
             QMessageBox.warning(self, "NEVIS", f"Không tìm thấy thư viện IN phù hợp cho size {e.size}.")
             return
-        choice, ok = QInputDialog.getItem(self, "異径ソケット / Cút thu IN", "Chọn size / サイズ", opts, 0, False)
+        choice, ok = QInputDialog.getItem(self, "異征E��ケチE�� / Cút thu IN", "Chọn size / サイズ", opts, 0, False)
         if not ok or not choice:
             return
-        # Place at midpoint first; user can click/drag on this pipe to move before 確定.
+        # Place at midpoint first; user can click/drag on this pipe to move before 確宁E
         self.pending_reducer = {"edge_key": e.key, "size": choice, "t": 0.5}
-        self.lbl_reducer_hint.setText(f"IN {choice}: click/kéo trên ống rồi bấm 確定")
+        self.lbl_reducer_hint.setText(f"IN {choice}: click/kéo trên ống rồi bấm 確宁E)
         self.update_reducer_buttons()
         self.preview.draw_model()
 
@@ -11059,7 +11059,7 @@ class MainWindow(QMainWindow):
             return
         nums = re.findall(r"\d+", size)
         if len(nums) < 2:
-            QMessageBox.warning(self, "NEVIS", "Size IN không hợp lệ.")
+            QMessageBox.warning(self, "NEVIS", "Size IN không hợp lềE")
             return
         bushing_info = self.reducer_near_bushing_end(e, t, size)
         if bushing_info:
@@ -11106,7 +11106,7 @@ class MainWindow(QMainWindow):
             return
         ns = self.model.neighbors(nid)
         if len(ns) != 2:
-            QMessageBox.warning(self, "NEVIS", "Chỉ xóa IN khi nó nằm giữa đúng 2 đoạn ống.")
+            QMessageBox.warning(self, "NEVIS", "ChềExóa IN khi nó nằm giữa đúng 2 đoạn ống.")
             return
         self.save_undo_snapshot("delete_in")
         a, b = ns[0], ns[1]
@@ -11127,7 +11127,7 @@ class MainWindow(QMainWindow):
         """Return the child node where a branch-material override should start.
 
         For Y/LT/DT/T this is the side branch. For a normal two-way fitting or IN,
-        it is the downstream child away from 集合管.
+        it is the downstream child away from 雁E��管.
         """
         if not nid or nid not in self.model.nodes:
             return None
@@ -11152,7 +11152,7 @@ class MainWindow(QMainWindow):
         if can_apply and fit:
             mat = getattr(fit, "material_override", "") or ""
             extra = f" / hiện tại: {mat}" if mat else ""
-            self.lbl_branch_mat_hint.setText(f"{fit.ftype} " + ("nhánh đặc biệt" if self.lang == "vi" else "の枝へ材質指定") + f"{extra}")
+            self.lbl_branch_mat_hint.setText(f"{fit.ftype} " + ("nhánh đặc biệt" if self.lang == "vi" else "の枝へ材質持E��E) + f"{extra}")
         else:
             self.lbl_branch_mat_hint.setText(self.tr("branch_mat_hint_normal"))
 
@@ -11177,7 +11177,7 @@ class MainWindow(QMainWindow):
         """Force material from selected fitting's side branch downstream.
 
         Example: select DT at dishwasher drainage branch, choose HTVP, then the DT
-        and all pipes/fittings away from 集合管 on that branch use HTVP.
+        and all pipes/fittings away from 雁E��管 on that branch use HTVP.
         """
         nid = self.selected_node
         fit = self.model.fittings.get(nid) if nid else None
@@ -11216,11 +11216,11 @@ class MainWindow(QMainWindow):
         self.lbl_status.setText(self.tr("branch_cleared"))
 
     def update_fire_controls(self, refresh_only: bool = False):
-        """Hiển thị thiết lập chống cháy đơn giản cho 排水転がし配管.
+        """Hiển thềEthiết lập chống cháy đơn giản cho 排水転がし配管.
 
-        - Không tích: toàn hệ thống dùng vật liệu ống thường.
+        - Không tích: toàn hềEthống dùng vật liệu ống thường.
         - Có tích: trong phạm vi dùng vật liệu chống cháy, ngoài phạm vi dùng vật liệu thường.
-        Không còn lựa chọn "ngoài phạm vi" để tránh hiểu nhầm.
+        Không còn lựa chọn "ngoài phạm vi" đềEtránh hiểu nhầm.
         """
         active = bool(self.chk_fire.isChecked()) if hasattr(self, "chk_fire") else False
         for w in [getattr(self, "lbl_fire_len", None), getattr(self, "edit_fire_len", None), getattr(self, "lbl_fire_unit", None),
@@ -11228,7 +11228,7 @@ class MainWindow(QMainWindow):
             if w is not None:
                 w.setVisible(active)
                 w.setEnabled(active)
-        # Vật liệu ống thường luôn cần hiển thị: khi tắt chống cháy dùng cho toàn hệ,
+        # Vật liệu ống thường luôn cần hiển thềE khi tắt chống cháy dùng cho toàn hềE
         # khi bật chống cháy dùng cho phần ngoài phạm vi.
         for w in [getattr(self, "lbl_outside", None), getattr(self, "cmb_normal_mat", None)]:
             if w is not None:
@@ -11273,7 +11273,7 @@ class MainWindow(QMainWindow):
         old_fit = self.model.fittings.get(self.selected_node)
         old_mat = getattr(old_fit, "material_override", "") if old_fit else ""
         self.model.fittings[self.selected_node] = Fitting(self.selected_node, ftype, size, manual=True, material_override=old_mat)
-        if ftype == "集合管":
+        if ftype == "雁E��管":
             self.model.base_nodes = set(getattr(self.model, "base_nodes", set()) or [])
             self.model.base_nodes.add(self.selected_node)
             if self.model.base_node is None or self.model.base_node not in self.model.nodes:
@@ -11287,7 +11287,7 @@ class MainWindow(QMainWindow):
     def default_node(self):
         if not self.selected_node:
             return
-        # Mặc định = bỏ sửa tay và trả node về đúng thiết lập chung + hình học hiện tại.
+        # Mặc định = bềEsửa tay và trả node vềEđúng thiết lập chung + hình học hiện tại.
         self.model.fittings[self.selected_node] = self._auto_default_fitting_for_node(self.selected_node)
         self.apply_common()
         self.select_node(self.selected_node)
@@ -11331,7 +11331,7 @@ class MainWindow(QMainWindow):
         """Japanese material item name used for UI/Excel aggregation."""
         ftype = str(ftype or "")
         if ftype in ["45", "45°", "45度"]:
-            return "45°エルボ"
+            return "45°エルチE
         if ftype == "LL":
             return "LL継手"
         if ftype == "DL":
@@ -11345,13 +11345,13 @@ class MainWindow(QMainWindow):
         if ftype == "T":
             return "T継手"
         if ftype == "IN":
-            return "異径ソケット"
+            return "異征E��ケチE��"
         if ftype in {"BUSHING", "ブッシング"}:
             return "ブッシング"
         if ftype == "脚部":
             return "脚部継手"
-        if ftype == "集合管":
-            return "集合管"
+        if ftype == "雁E��管":
+            return "雁E��管"
         return ftype
 
     def material_kind_label(self, mat: str) -> str:
@@ -11370,18 +11370,18 @@ class MainWindow(QMainWindow):
     def pipe_item_name(self, mat: str) -> str:
         mat2 = self.material_kind_label(mat)
         if mat2 == "TMP":
-            return "トミジパイプ"
+            return "トミジパイチE
         if mat2 == "HTVP":
-            return "HTVPパイプ"
+            return "HTVPパイチE
         if mat2 == "耐火VP":
-            return "耐火VPパイプ"
-        return f"{mat2}パイプ"
+            return "耐火VPパイチE
+        return f"{mat2}パイチE
 
     def build_material_rows(self, sheet_type: str = "") -> List[List[object]]:
-        """Return canonical rows: [種類, サイズ, 品名, 単位, 数量, 備考].
+        """Return canonical rows: [種顁E サイズ, 品名, 単佁E 数釁E 備考].
 
         `sheet_type` is kept only for backward-compatible callers; the UI/export
-        no longer uses the タイプ column because 排水転がし配管 has only one system.
+        no longer uses the タイチEcolumn because 排水転がし配管 has only one system.
         """
         rows: List[List[object]] = []
         counts: Dict[Tuple[str,str,str], int] = {}
@@ -11401,7 +11401,7 @@ class MainWindow(QMainWindow):
             counts[(mat, size, item_name)] = counts.get((mat, size, item_name), 0) + int(b.get("quantity", 1) or 1)
 
         for (mat, size, item_name), cnt in sorted(counts.items()):
-            rows.append([mat, size, item_name, "個", cnt, ""])
+            rows.append([mat, size, item_name, "倁E, cnt, ""])
 
         pipe_len: Dict[Tuple[str,str], float] = {}
         try:
@@ -11479,9 +11479,9 @@ class MainWindow(QMainWindow):
         for (mat, size), mm in sorted(pipe_len.items()):
             m = round(mm / 1000.0, 2)
             pcs = max(1, math.ceil((mm / 1000.0) / unit_len)) if mm > 0 else 0
-            rows.append([mat, size, self.pipe_item_name(mat), "m", m, f"{unit_len:g}m管 × {pcs}本"])
+            rows.append([mat, size, self.pipe_item_name(mat), "m", m, f"{unit_len:g}m管 ÁE{pcs}本"])
 
-        # 支持バンド count by size/material/kind.
+        # 支持バンチEcount by size/material/kind.
         if getattr(self, "support_enabled", False):
             band_counts: Dict[Tuple[str,str,str], int] = {}
             for b in self.compute_support_bands():
@@ -11491,7 +11491,7 @@ class MainWindow(QMainWindow):
                 name = self.support_band_label(size, mat, kind)
                 band_counts[(mat, size, name)] = band_counts.get((mat, size, name), 0) + 1
             for (mat, size, name), cnt in sorted(band_counts.items()):
-                rows.append([mat, size, name, "個", cnt, ""])
+                rows.append([mat, size, name, "倁E, cnt, ""])
 
         return rows
 
@@ -11512,7 +11512,7 @@ class MainWindow(QMainWindow):
             header.setStretchLastSection(False)
             header.setSectionResizeMode(QHeaderView.Interactive)
             fm = table.fontMetrics()
-            labels = ["種類", "サイズ", "品名", "単位", "数量", "備考"]
+            labels = ["種顁E, "サイズ", "品名", "単佁E, "数釁E, "備老E]
             min_w = [62, 76, 160, 48, 62, 95]
             max_w = [150, 150, 520, 80, 100, 420]
             pad = 28
@@ -11525,7 +11525,7 @@ class MainWindow(QMainWindow):
                         best = max(best, fm.horizontalAdvance(item.text()) + pad)
                 table.setColumnWidth(c, max(min_w[c], min(best, max_w[c])))
 
-            # If there is still free space, give it to 品名 first, then 備考.
+            # If there is still free space, give it to 品名 first, then 備老E
             viewport_w = max(0, table.viewport().width() - 4)
             total_w = sum(table.columnWidth(c) for c in range(table.columnCount()))
             extra = viewport_w - total_w
@@ -11544,7 +11544,7 @@ class MainWindow(QMainWindow):
         rows = self.build_material_rows("")
         self.table_mat.setRowCount(len(rows))
         self.table_mat.setColumnCount(6)
-        self.table_mat.setHorizontalHeaderLabels(["種類", "サイズ", "品名", "単位", "数量", "備考"])
+        self.table_mat.setHorizontalHeaderLabels(["種顁E, "サイズ", "品名", "単佁E, "数釁E, "備老E])
         try:
             self.table_mat.verticalHeader().setVisible(False)
             self.table_mat.setWordWrap(False)
@@ -11582,9 +11582,9 @@ class MainWindow(QMainWindow):
 
     def jww_line_pattern_text(self, no: int) -> str:
         return {
-            1: "━━━━", 2: "･･････", 3: "- - -", 4: "-- --",
-            5: "-･-･", 6: "--･--", 7: "-･･-", 8: "--･･",
-        }.get(int(no), "--･･")
+            1: "━━━━", 2: "�E��E��E��E��E��E�", 3: "- - -", 4: "-- --",
+            5: "-�E�-�E�", 6: "--�E�--", 7: "-�E��E�-", 8: "--�E��E�",
+        }.get(int(no), "--�E��E�")
 
     def load_jww_colors_for_style(self, jwf_path: str = r"C:\JWW\Jw_win.jwf") -> Dict[int, str]:
         colors = {1:"00C0C0", 2:"000000", 3:"00C000", 4:"C0C000", 5:"C000C0", 6:"0000FF", 7:"008080", 8:"FF0080"}
@@ -11974,9 +11974,9 @@ class MainWindow(QMainWindow):
         tables = self.ruby_dim_tables(family, ftype)
         nums = re.findall(r"\d+", key)
         base = nums[0] if nums else str(size).split("x")[0]
-        # 集合管 trim: for now use a fixed 140mm from the center to each port mouth.
+        # 雁E��管 trim: for now use a fixed 140mm from the center to each port mouth.
         # This keeps pipe edges from running through the stack fitting.
-        if ftype in ["集合管", "S", "SV"]:
+        if ftype in ["雁E��管", "S", "SV"]:
             return 140.0
 
         # Terminal LL/DL uses its own simple cl table from Ruby.
@@ -12000,8 +12000,8 @@ class MainWindow(QMainWindow):
             if ftype == "Y":
                 # v49: Y main-axis cut direction was reversed.
                 # For Y_65x50 the NEVIS/RB rule is:
-                #   side toward 集合管 / water-collection point = MAIN_SHORT = cl2 = 43mm
-                #   opposite side away from 集合管          = MAIN_LONG  = cl  = 115mm
+                #   side toward 雁E��管 / water-collection point = MAIN_SHORT = cl2 = 43mm
+                #   opposite side away from 雁E��管          = MAIN_LONG  = cl  = 115mm
                 # Branch side remains cl3.
                 table_name = "cl2" if d_other < d_here else "cl"
             else:
@@ -12233,7 +12233,7 @@ class MainWindow(QMainWindow):
             ly *= local_scale
         if globals().get("LIBRARY_TXT_INVERT_Y", False) and not getattr(self, "_active_fitting_skip_y_invert", False):
             ly = -ly
-        # v34: reverse local X after Y inversion only for 集合管/S/SV/S3.
+        # v34: reverse local X after Y inversion only for 雁E��管/S/SV/S3.
         # LL/DL/L, Y and 45° are intentionally excluded.
         if getattr(self, "_active_fitting_axis_right", False) and globals().get("AXIS_RIGHT_REVERSE_X_AFTER_Y_INVERT", False):
             lx = -lx
@@ -12493,7 +12493,7 @@ class MainWindow(QMainWindow):
 
 
     def fixed_port_transform(self, nid: int, fit: Fitting, ports: List[float], fallback: Tuple[float, int, int]) -> Tuple[float, int, int]:
-        """Best-fit orientation for LL / DL / perpendicular 2-port 集合管.
+        """Best-fit orientation for LL / DL / perpendicular 2-port 雁E��管.
 
         These fittings do not contain a centerline in TXT. Treat their theoretical
         centerlines as two perpendicular ports through the fitting origin, then try
@@ -12507,7 +12507,7 @@ class MainWindow(QMainWindow):
         # For normal LL/DL elbows, do not mirror the library TXT.
         # The elbow has only four valid positions around its center:
         # 0 / 90 / 180 / 270 degrees.  Mirroring was the reason one side
-        # looked unchanged or inverted while 集合管 seemed OK.
+        # looked unchanged or inverted while 雁E��管 seemed OK.
         ftype = self.normalize_lib_type(fit.ftype)
         if ftype in ["LL", "DL"]:
             best = (1e9, fallback[0], 1, 1)
@@ -12519,7 +12519,7 @@ class MainWindow(QMainWindow):
                     best = (sc, rot, 1, 1)
             # Library LL/DL local mouth axis is consistently 90 degrees clockwise
             # from the pipe-center axis inferred above.  Shift all normal LL/DL
-            # elbows counterclockwise by 90 degrees; do not apply this to S/集合管,
+            # elbows counterclockwise by 90 degrees; do not apply this to S/雁E��管,
             # because its best-fit result is already correct.
             final_rot = best[1] - math.pi / 2
             # v35: LL/DL loại U (đi lên) uses the same elbow logic but the TXT
@@ -12542,7 +12542,7 @@ class MainWindow(QMainWindow):
         bis = self._corner_bisector_angle(desired)
         best = (1e9, fallback[0], fallback[1], fallback[2])
 
-        # 集合管 2 cửa vuông góc still uses the wider best-fit because its TXT
+        # 雁E��管 2 cửa vuông góc still uses the wider best-fit because its TXT
         # may be drawn with a different handedness depending on the library.
         seed_rots = [0.0, math.pi/2, math.pi, math.pi*3/2]
         for fx in (1, -1):
@@ -12754,7 +12754,7 @@ class MainWindow(QMainWindow):
     def fitting_local_anchor(self, path: str, expected: int = 2) -> Tuple[float, float]:
         """Return the local anchor that must sit exactly on the graph node.
 
-        v27: 集合管/S/SV library TXT is drawn around the real collection center
+        v27: 雁E��管/S/SV library TXT is drawn around the real collection center
         (the wastewater concentration point).  Detecting only outer mouth faces can
         drift to a socket edge because these symbols contain many repeated/outer
         rectangles.  Therefore collection fittings use the TXT origin as the
@@ -12780,15 +12780,15 @@ class MainWindow(QMainWindow):
     def fitting_expected_mouth_count(self, nid: int, fit: Fitting) -> int:
         """Expected connection mouths for anchoring/preview.
 
-        Y and 3-port 集合管/S/SV must use 3 mouths.  The previous preview used
-        expected=2 for 集合管, so the local anchor was calculated from only two
+        Y and 3-port 雁E��管/S/SV must use 3 mouths.  The previous preview used
+        expected=2 for 雁E��管, so the local anchor was calculated from only two
         ports and the whole symbol shifted away from the real collection point.
         """
         ftype = self.normalize_lib_type(getattr(fit, "ftype", ""))
         deg = self.model.degree(nid) if getattr(self, "model", None) and nid in self.model.nodes else 0
         if ftype == "Y":
             return 3
-        if ftype in ["集合管", "S", "SV"]:
+        if ftype in ["雁E��管", "S", "SV"]:
             return max(2, min(3, deg if deg else len(self._desired_node_directions(nid, fit))))
         return 2
 
@@ -12815,7 +12815,7 @@ class MainWindow(QMainWindow):
         For Y / 3-port S: two mouths belong to the main pipe and are collinear;
         the correct anchor is where the branch centerline intersects that main
         centerline.  A least-squares average of all three lines can drift toward
-        the branch mouth, which is exactly the Y/集合管 offset Đại ca saw.
+        the branch mouth, which is exactly the Y/雁E��管 offset Đại ca saw.
         """
         if len(infos) < 2:
             return (0.0, 0.0)
@@ -12861,7 +12861,7 @@ class MainWindow(QMainWindow):
                     if hit is not None:
                         return hit
 
-        # 2-port normal elbow / 2-port 集合管: direct intersection.
+        # 2-port normal elbow / 2-port 雁E��管: direct intersection.
         if len(lines) == 2:
             hit = self._line_intersection_anchor(lines[0], lines[1])
             if hit is not None:
@@ -12893,7 +12893,7 @@ class MainWindow(QMainWindow):
         ja, jaxes, jpts = _json_connector_data(path)
         if jaxes:
             # JSON V2 ports are the source of truth.  Do NOT apply the old TXT
-            # local-Y inversion or 集合管 axis-right correction here.  Those were
+            # local-Y inversion or 雁E��管 axis-right correction here.  Those were
             # only compatibility hacks for raw JWW/TXT libraries.  If we invert
             # JSON ports but draw JSON geometry with another rule, fittings rotate
             # randomly and U/D terminals point away from the pipe.
@@ -12908,7 +12908,7 @@ class MainWindow(QMainWindow):
             self._mouth_face_axis_cache = cache
             return []
         # Use the same anchor rule as actual placement.  For collection fittings,
-        # this is the true 集合管 center at TXT origin, not a guessed socket face center.
+        # this is the true 雁E��管 center at TXT origin, not a guessed socket face center.
         ax, ay = self.fitting_local_anchor(path, expected=expected)
         axes = []
         for info in infos:
@@ -12992,11 +12992,11 @@ class MainWindow(QMainWindow):
         """Orient a JSON fitting by the checked port/flow data, not by TXT rules.
 
         Critical rule for the new JSON database:
-        - P1/main_1 = upstream side (away from 集合管)
-        - P2/main_2/standard/downstream/out = downstream side (toward 集合管)
+        - P1/main_1 = upstream side (away from 雁E��管)
+        - P2/main_2/standard/downstream/out = downstream side (toward 雁E��管)
         - P3/branch = branch side
 
-        The graph side is decided by network distance from 集合管.  Then the JSON
+        The graph side is decided by network distance from 雁E��管.  Then the JSON
         symbol may rotate or mirror, but the port role mapping is never swapped.
         This fixes the old symptom where the same LL/Y library rotated differently
         only because node order changed.
@@ -13048,7 +13048,7 @@ class MainWindow(QMainWindow):
 
         def is_p3(po):
             n = norm_name(po); r = role(po)
-            return n == "P3" or n.endswith("_P3") or "branch" in r or "枝" in r
+            return n == "P3" or n.endswith("_P3") or "branch" in r or "极E in r
 
         n0 = self.model.nodes[nid]
         ns = self.model.neighbors(nid)
@@ -13062,7 +13062,7 @@ class MainWindow(QMainWindow):
             if p:
                 mapping.append((p, math.atan2(nb.y - n0.y, nb.x - n0.x), "terminal"))
         elif len(ns) == 2:
-            # Flow direction is absolute: P2 must face the side nearer to 集合管.
+            # Flow direction is absolute: P2 must face the side nearer to 雁E��管.
             down_nb = min(ns, key=lambda nb: (self.model.dist.get(nb, 1e100), nb))
             up_nb = max(ns, key=lambda nb: (self.model.dist.get(nb, -1e100), nb))
             nd, nu = self.model.nodes[down_nb], self.model.nodes[up_nb]
@@ -13094,7 +13094,7 @@ class MainWindow(QMainWindow):
                         nb = self.model.nodes[branch_id]
                         mapping.append((p_branch, math.atan2(nb.y - n0.y, nb.x - n0.x), "P3->branch"))
             else:
-                # 集合管/S with multiple sockets and no clear main/branch: match all
+                # 雁E��管/S with multiple sockets and no clear main/branch: match all
                 # connected directions, but still use checked JSON ports first.
                 desired = [math.atan2(self.model.nodes[nb].y - n0.y, self.model.nodes[nb].x - n0.x) for nb in ns]
                 axes = [float(po["axis"]) for po in ports]
@@ -13206,7 +13206,7 @@ class MainWindow(QMainWindow):
 
 
     def _apply_collection_clockwise_90(self, result: Tuple[float, int, int]) -> Tuple[float, int, int]:
-        """Rotate only 集合管/S/SV symbol 90 degrees clockwise in JWW coordinates.
+        """Rotate only 雁E��管/S/SV symbol 90 degrees clockwise in JWW coordinates.
 
         The Y/TMP common algorithm is intentionally untouched.  This offset is
         needed because the current unified collection TXT library is drawn one
@@ -13216,7 +13216,7 @@ class MainWindow(QMainWindow):
         return (result[0] - math.pi / 2.0, result[1], result[2])
 
     def collection_horizontal_transform(self, nid: int, fit: Fitting, fallback: Tuple[float, int, int]) -> Tuple[float, int, int]:
-        """v30 SmartMatcher for 集合管/S/SV.
+        """v30 SmartMatcher for 雁E��管/S/SV.
 
         Read candidate connection mouths from the TXT, keep the collection origin
         as the anchor, then try rotate + mirror combinations and choose the one
@@ -13337,7 +13337,7 @@ class MainWindow(QMainWindow):
 
         This is intentionally stronger than the old "longest line through origin" rule.
         The old rule can choose the 200mm branch as the main axis.  Here lc8 wins:
-        lc8 defines the main/downstream ray toward 集合管, and the branch is the
+        lc8 defines the main/downstream ray toward 雁E��管, and the branch is the
         non-parallel oblique ray from the same origin.  The upstream main ray is
         simply the opposite of the lc8 ray.
         """
@@ -13405,7 +13405,7 @@ class MainWindow(QMainWindow):
                     "anchor": (0.0, 0.0),
                     "main_axis": main_down,
                     "branch_axis": branch_axis,
-                    # lc8 direction is the downstream side toward 集合管.
+                    # lc8 direction is the downstream side toward 雁E��管.
                     "main_short_axis": main_down,
                     "main_long_axis": main_down + math.pi,
                     "main_line": main_line,
@@ -13711,7 +13711,7 @@ class MainWindow(QMainWindow):
             axis_ref = parent_id
         else:
             # Same fallback spirit as AHK: keep the detected main axis, do not
-            # guess by material family.  Prefer the nearer side to 集合管 if known.
+            # guess by material family.  Prefer the nearer side to 雁E��管 if known.
             a_id, b_id = axis[0], axis[1]
             da = self.model.dist.get(a_id, 1e100)
             db = self.model.dist.get(b_id, 1e100)
@@ -13851,7 +13851,7 @@ class MainWindow(QMainWindow):
         return main_ang, 1, flip_y
 
     def ahk_in_transform(self, nid: int, fit: Fitting, fallback: Tuple[float, int, int]) -> Tuple[float, int, int]:
-        """AHK-style inline reducer transform for IN / 異径ソケット.
+        """AHK-style inline reducer transform for IN / 異征E��ケチE��.
 
         IN is a straight inline fitting.  AHK orients it along the flowChild side
         when available; otherwise it falls back to the parent/first connected edge.
@@ -13957,7 +13957,7 @@ class MainWindow(QMainWindow):
             fallback = (ang, 1, 1)
 
             # JSON database priority: when a JSON file has checked ports/connectors,
-            # use those ports for ALL fitting types, including LL and 集合管.
+            # use those ports for ALL fitting types, including LL and 雁E��管.
             # Previous code returned fixed TXT rules here first, so JSON data was
             # effectively ignored exactly for the two cases Đại ca found.
             path_json_mid = self.resolve_fitting_library_path_for_jww(nid, fit)
@@ -13970,7 +13970,7 @@ class MainWindow(QMainWindow):
             # Normal LL/DL elbow TXT fallback only. JSON has already been handled above.
             if ftype in ["LL", "DL"]:
                 return self.fixed_port_transform(nid, fit, [0.0, math.pi/2], fallback)
-            if ftype in ["集合管", "S", "SV"]:
+            if ftype in ["雁E��管", "S", "SV"]:
                 return self.collection_horizontal_transform(nid, fit, fallback)
 
         if fallback is None:
@@ -13989,7 +13989,7 @@ class MainWindow(QMainWindow):
             return self.ahk_branch_junction_transform(nid, fit, fallback)
         if ftype == "IN":
             return self.ahk_in_transform(nid, fit, fallback)
-        if ftype in ["集合管", "S", "SV"]:
+        if ftype in ["雁E��管", "S", "SV"]:
             raw_result = self.mouth_face_transform(nid, fit, fallback, expected=self.fitting_expected_mouth_count(nid, fit))
             return self._apply_collection_clockwise_90(raw_result)
 
@@ -14148,7 +14148,7 @@ class MainWindow(QMainWindow):
         roots: List[Path] = []
         for base in [Path.cwd(), Path(__file__).resolve().parent]:
             for r in [base, base / "library", base / "Library", base / "data", base / "DATA",
-                      base / "Cút co", base / "継手", base / "集合管"]:
+                      base / "Cút co", base / "継手", base / "雁E��管"]:
                 if r.exists() and r.is_dir():
                     roots.append(r)
         # Also search parent of input/output because JWW BAT often launches from another cwd.
@@ -14223,11 +14223,11 @@ class MainWindow(QMainWindow):
         terminal = self.model.degree(nid) == 1
         stems: List[str] = []
 
-        if ftype in ["集合管", "S", "SV"]:
-            # 集合管 names vary most.  For 1 cửa (size only like 65), keep S only;
+        if ftype in ["雁E��管", "S", "SV"]:
+            # 雁E��管 names vary most.  For 1 cửa (size only like 65), keep S only;
             # do not try SV or S_65_50 style names, otherwise preview/JWW becomes 2 cửa.
             if _collection_requested_single_port(size_raw):
-                stems += [f"S_{base}", f"S{base}", f"集合管_{base}"]
+                stems += [f"S_{base}", f"S{base}", f"雁E��管_{base}"]
             else:
                 stems += [f"S_{under}", f"SV_{under}", f"S{under}", f"SV{under}", f"S{star}"]
 
@@ -14246,7 +14246,7 @@ class MainWindow(QMainWindow):
             stems += [f"t{under}", f"T_{under}", f"T{under}", f"LT_{under}", f"DT_{under}", f"HTVP_T_{under}"]
 
         elif ftype == "IN":
-            stems += [f"IN_{under}", f"IN{under}", f"異径ソケット_{under}"]
+            stems += [f"IN_{under}", f"IN{under}", f"異征E��ケチE��_{under}"]
 
         elif ftype in ["LL", "DL"]:
             # Endpoint fittings are different from normal elbows.  Terminal U/N
@@ -14308,7 +14308,7 @@ class MainWindow(QMainWindow):
         marked file but still drew the old Y_65_50.txt, so the result looked unchanged.
 
         Marked Y convention:
-          lc8 : (0,0) -> downstream/main side toward 集合管, about 130mm
+          lc8 : (0,0) -> downstream/main side toward 雁E��管, about 130mm
           another origin line : branch side, about 200mm
         """
         ftype = self.normalize_lib_type(getattr(fit, "ftype", ""))
@@ -14410,7 +14410,7 @@ class MainWindow(QMainWindow):
             return
         out_parts.append(self.jww_attr(self.jww_joint_lg, self.jww_joint_ly, self.jww_joint_color, self.jww_joint_line))
         q = chr(34)
-        out_parts.append(f"cn4\ncn{q}$<ＭＳ ゴシック>\n#\n")
+        out_parts.append(f"cn4\ncn{q}$<�E��E� ゴシチE��>\n#\n")
         for b in bs:
             try:
                 host = int(b.get("host_node")); other = int(b.get("other_node"))
@@ -14447,12 +14447,12 @@ class MainWindow(QMainWindow):
             # v59: JWW export must use EXACTLY the same transform context as
             # the detailed preview (_draw_detailed_fittings).  Previous exports
             # used collection-specific skip/invert rules here, so the preview was
-            # correct but JWW output flipped 集合管/Y/LL/DL_U after export.
+            # correct but JWW output flipped 雁E��管/Y/LL/DL_U after export.
             ftype_norm = self.normalize_lib_type(getattr(fit, "ftype", ""))
             is_json_lib = Path(path).suffix.lower() == ".json"
             self._active_fitting_axis_right = (False if is_json_lib else (
                 is_axis_right_library_name(path)
-                or ftype_norm in ["集合管", "S", "SV"]
+                or ftype_norm in ["雁E��管", "S", "SV"]
             ))
             self._active_fitting_skip_y_invert = (True if is_json_lib else (
                 ftype_norm in ["Y", "LT", "DT", "T", "IN", "HTVP"]
@@ -14553,9 +14553,9 @@ class MainWindow(QMainWindow):
         """Draw pipe centerlines using the JWW centerline style row.
 
         The original centerlines are input geometry, but Đại ca wants the final
-        JWW output to respect the UI settings for 中心線.  Therefore centerlines
+        JWW output to respect the UI settings for 中忁E��E  Therefore centerlines
         are redrawn after pipe bodies, trimmed by the same JSON-port cut values
-        used for pipe edges, and styled by the 中心線 row only.
+        used for pipe edges, and styled by the 中忁E��Erow only.
         """
         out_parts.append(self.jww_attr(self.jww_center_lg, self.jww_center_ly, self.jww_center_color, self.jww_center_line))
         for e in self.model.edges:
@@ -14584,7 +14584,7 @@ class MainWindow(QMainWindow):
     def append_pipe_labels_to_jww(self, out_parts: List[str]):
         q = chr(34)
         out_parts.append("lc2\nlt1\ncn4\n")
-        out_parts.append(f"cn{q}$<ＭＳ ゴシック>\n#\n")
+        out_parts.append(f"cn{q}$<�E��E� ゴシチE��>\n#\n")
         for e in self.model.edges:
             n1, n2 = self.model.nodes[e.a], self.model.nodes[e.b]
             mat = self.edge_material(e)
@@ -14653,7 +14653,7 @@ class MainWindow(QMainWindow):
         the completed pipe/fitting result on the original drawing.
         """
         if not self.model.nodes:
-            QMessageBox.warning(self, "NEVIS", "Chưa có dữ liệu bản vẽ để vẽ lên JWW.")
+            QMessageBox.warning(self, "NEVIS", "Chưa có dữ liệu bản vẽ đềEvẽ lên JWW.")
             return
         try:
             txt = self.build_jww()
@@ -14677,7 +14677,7 @@ class MainWindow(QMainWindow):
                 pass  # ULTRA LIGHT: JWW output debug disabled
             except Exception:
                 pass
-            self.lbl_status.setText(f"JWWへ描画データを返しました: {out_path}")
+            self.lbl_status.setText(f"JWWへ描画チE�Eタを返しました: {out_path}")
             # Do not open a save dialog and do not leave the app running.
             # JWW external transform reads this file only after the helper exits.
             QApplication.instance().quit()
@@ -14685,14 +14685,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "JWW error", str(e))
 
     def export_debug(self):
-        """Xuất file kiểm tra đầy đủ, không phải chỉ tim ống.
+        """Xuất file kiểm tra đầy đủ, không phải chềEtim ống.
 
-        Bản trước nút debug chỉ ghi lại centerline nên dễ gây hiểu nhầm là
+        Bản trước nút debug chềEghi lại centerline nên dềEgây hiểu nhầm là
         JWW không nhận được ống/cút. Từ bản này, debug cũng dùng chung
         build_jww(), nghĩa là trong jwc_out.txt phải có mép ống + cút co + nhãn.
         """
         if not self.model.nodes:
-            QMessageBox.warning(self, "NEVIS", "Chưa có dữ liệu bản vẽ để xuất kiểm tra.")
+            QMessageBox.warning(self, "NEVIS", "Chưa có dữ liệu bản vẽ đềExuất kiểm tra.")
             return
         out = self.build_jww()
         Path("jwc_out.txt").write_text(out, encoding="cp932", errors="ignore")
@@ -14737,9 +14737,9 @@ class MainWindow(QMainWindow):
             return
 
         def safe_sheet_name(name: str) -> str:
-            name = (name or "Aタイプ").strip()
+            name = (name or "AタイチE).strip()
             name = re.sub(r'[\/*?:\[\]]', '_', name)
-            return (name[:31] or "Aタイプ")
+            return (name[:31] or "AタイチE)
 
         def apply_table_style(ws):
             thin = Side(style="thin", color="000000")
@@ -14757,15 +14757,15 @@ class MainWindow(QMainWindow):
 
         def write_material_sheet(ws, sheet_type: str):
             ws.merge_cells("A1:F1")
-            ws["A1"] = "排水配管材料集計表"
+            ws["A1"] = "排水配管材料雁E��表"
             ws["A1"].font = Font(bold=True, size=14)
             ws["A1"].alignment = Alignment(horizontal="center")
-            ws.append(["種類", "サイズ", "品名", "単位", "数量", "備考"])
+            ws.append(["種顁E, "サイズ", "品名", "単佁E, "数釁E, "備老E])
             for row in self.build_material_rows(sheet_type):
                 ws.append(row)
             note_row = ws.max_row + 2
             ws.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=6)
-            ws.cell(note_row, 1).value = "※DL/LL UP立上り配管は1箇所につき500mm加算。管材は4m管換算で集計。レベルバンドは設定された最大支持間隔で集計。"
+            ws.cell(note_row, 1).value = "※DL/LL UP立上り配管は1箁E��につぁE00mm加算。管材�E4m管換算で雁E��。レベルバンド�E設定された最大支持E��隔で雁E��、E
             ws.cell(note_row, 1).alignment = Alignment(horizontal="left")
             apply_table_style(ws)
 
@@ -14774,10 +14774,10 @@ class MainWindow(QMainWindow):
                 del wb["total"]
             ws_total = wb.create_sheet("total", 0)
             ws_total.merge_cells("A1:F1")
-            ws_total["A1"] = "排水配管材料集計表 TOTAL"
+            ws_total["A1"] = "排水配管材料雁E��表 TOTAL"
             ws_total["A1"].font = Font(bold=True, size=14)
             ws_total["A1"].alignment = Alignment(horizontal="center")
-            ws_total.append(["種類", "サイズ", "品名", "単位", "数量", "備考"])
+            ws_total.append(["種顁E, "サイズ", "品名", "単佁E, "数釁E, "備老E])
 
             sums: Dict[Tuple[str,str,str,str], float] = {}
             notes: Dict[Tuple[str,str,str,str], str] = {}
@@ -14800,7 +14800,7 @@ class MainWindow(QMainWindow):
 
             first = True
             for (mat, size, item_name, unit), qty in sorted(sums.items()):
-                if abs(qty - round(qty)) < 1e-9 and unit == "個":
+                if abs(qty - round(qty)) < 1e-9 and unit == "倁E:
                     qty_out = int(round(qty))
                 else:
                     qty_out = round(qty, 2)
@@ -14808,19 +14808,19 @@ class MainWindow(QMainWindow):
 
             note_row = ws_total.max_row + 2
             ws_total.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=6)
-            ws_total.cell(note_row, 1).value = "※各シートを種類・サイズ・品名・単位で集計。Excelファイルを開いたままの場合は保存できません。"
+            ws_total.cell(note_row, 1).value = "※吁E��ートを種類�Eサイズ・品名・単位で雁E��、Excelファイルを開ぁE��ままの場合�E保存できません、E
             ws_total.cell(note_row, 1).alignment = Alignment(horizontal="left")
             apply_table_style(ws_total)
 
         project = self.edit_project.text().strip() or "NEVIS_Project"
-        sheet_name = safe_sheet_name(self.edit_area.text().strip() or "Aタイプ")
+        sheet_name = safe_sheet_name(self.edit_area.text().strip() or "AタイチE)
         desktop = Path.home() / "Desktop"
         if not desktop.exists():
             desktop = Path.home()
         path = desktop / f"{project}.xlsx"
 
         if sheet_name.lower() == "total":
-            QMessageBox.warning(self, "Excel", "'total' は集計用シート名です。別の部屋/階名を入力してください。")
+            QMessageBox.warning(self, "Excel", "'total' は雁E��用シート名です。別の部屁E階名を�E力してください、E)
             return
 
         try:
@@ -14841,13 +14841,13 @@ class MainWindow(QMainWindow):
             rebuild_total_sheet(wb)
             wb.save(path)
         except PermissionError:
-            QMessageBox.warning(self, "Excel", f"Excel file đang được mở nên không thể xuất.\nHãy đóng file rồi xuất lại.\n\n{path}")
+            QMessageBox.warning(self, "Excel", f"Excel file đang được mềEnên không thềExuất.\nHãy đóng file rồi xuất lại.\n\n{path}")
             return
         except OSError as e:
             # Windows may report a locked workbook as a generic OS error.
             msg = str(e)
             if "Permission" in msg or "access" in msg.lower() or "being used" in msg.lower():
-                QMessageBox.warning(self, "Excel", f"Excel file đang được mở nên không thể xuất.\nHãy đóng file rồi xuất lại.\n\n{path}")
+                QMessageBox.warning(self, "Excel", f"Excel file đang được mềEnên không thềExuất.\nHãy đóng file rồi xuất lại.\n\n{path}")
                 return
             raise
 
@@ -14915,7 +14915,7 @@ class MainWindow(QMainWindow):
         out = []
         def add(x):
             x = str(x or "").strip()
-            if not x or x in ["集合管", "配管"]:
+            if not x or x in ["雁E��管", "配管"]:
                 return
             key = x.upper()
             if key not in seen:
@@ -14977,7 +14977,7 @@ class MainWindow(QMainWindow):
         Expected structure:
             library/DV/Y/Y_65_50.txt
             library/DV/45°/45°_50.txt
-            library/集合管/S_65_50.txt
+            library/雁E��管/S_65_50.txt
         File names can overlap between DV/TMP/TS, so folder wins.
         """
         path_obj = Path(path)
@@ -14996,8 +14996,8 @@ class MainWindow(QMainWindow):
         def norm_type_token(tok: str) -> str:
             t = (tok or "").strip()
             tu = t.upper().replace("°", "")
-            if t in ["集合管"]:
-                return "集合管"
+            if t in ["雁E��管"]:
+                return "雁E��管"
             if tu in ["45"]:
                 return "45°"
             if tu.startswith("DL"):
@@ -15014,7 +15014,7 @@ class MainWindow(QMainWindow):
                 return "SV"
             if tu in ["S"]:
                 return "S"
-            if tu.startswith("IN") or "異径" in t:
+            if tu.startswith("IN") or "異征E in t:
                 return "IN"
             if "脚部" in t or tu == "K":
                 return "脚部"
@@ -15046,8 +15046,8 @@ class MainWindow(QMainWindow):
                     pipe = first
                     if pipe in ["トミジ", "耐火二層管"]:
                         pipe = "TMP"
-            elif pipe == "集合管":
-                ftype = "集合管"
+            elif pipe == "雁E��管":
+                ftype = "雁E��管"
             elif pipe == "脚部":
                 ftype = "脚部"
             elif len(after) >= 2:
@@ -15057,7 +15057,7 @@ class MainWindow(QMainWindow):
         up = name.upper().replace("°", "")
         if not ftype:
             if re.match(r"(?i)^S\d*[_-]", name) or re.match(r"(?i)^S_", name):
-                ftype = "集合管" if pipe == "集合管" else "S"
+                ftype = "雁E��管" if pipe == "雁E��管" else "S"
             elif up.startswith("SV_"):
                 ftype = "SV"
             elif re.match(r"(?i)^(DV|VP|VU|TMP|TS|HTVP|TAIKAVP)[_\-]?Y[_\-]", name):
@@ -15092,7 +15092,7 @@ class MainWindow(QMainWindow):
         if ftype == "45°" and nums and nums[0] == "45":
             nums = nums[1:]
         # S3_50_50_50: drop port count 3. S_65_50 keeps both sizes.
-        if (ftype in ["集合管", "S", "SV"]) and re.match(r"(?i)^S\d+[_-]", name) and len(nums) >= 2:
+        if (ftype in ["雁E��管", "S", "SV"]) and re.match(r"(?i)^S\d+[_-]", name) and len(nums) >= 2:
             nums = nums[1:]
 
         # Terminal UP/U libraries are normalized to baseSize x U.
@@ -15102,9 +15102,9 @@ class MainWindow(QMainWindow):
         else:
             size = "x".join(nums[:4]) if nums else ""
 
-        # For top-level 集合管 folder, keep all S/SV files selectable under 集合管.
-        if pipe == "集合管":
-            ftype = "集合管"
+        # For top-level 雁E��管 folder, keep all S/SV files selectable under 雁E��管.
+        if pipe == "雁E��管":
+            ftype = "雁E��管"
 
         # New standalone JSONs may already contain identity fields from the editor.
         # Folder/name rules still win when present, but missing/ambiguous values are filled from JSON.
@@ -15121,8 +15121,8 @@ class MainWindow(QMainWindow):
                     if pipe in ["トミジ", "耐火二層管"]:
                         pipe = "TMP"
                     ftype = norm_type_token(str(ftype))
-                    if pipe == "集合管":
-                        ftype = "集合管"
+                    if pipe == "雁E��管":
+                        ftype = "雁E��管"
             except Exception:
                 pass
 
@@ -15230,7 +15230,7 @@ def _nvs_role_base(role: str) -> str:
     if str(r).startswith('45'):
         return '45°'
     if r in {'S','SV','S3'}:
-        return '集合管'
+        return '雁E��管'
     return r
 
 def _nvs_role_mode(role_or_size: str) -> str:
@@ -15252,7 +15252,7 @@ def _nvs_path_role_from_item(self, item) -> str:
         role = _nvs_role_clean(folder)
         if role and role != folder:
             return role
-        if folder in {'DL','LL','DL UP','DL Down','LL UP','LL Down','脚部','集合管','IN','Y','LT','DT','T','45°','45'}:
+        if folder in {'DL','LL','DL UP','DL Down','LL UP','LL Down','脚部','雁E��管','IN','Y','LT','DT','T','45°','45'}:
             return _nvs_role_clean(folder)
     except Exception:
         pass
@@ -15271,8 +15271,8 @@ def _v10_normalize_lib_type(self, t: str) -> str:
 
 def _v10_type_aliases(self, ftype: str) -> Set[str]:
     ftype = _nvs_role_base(ftype)
-    if ftype == '集合管':
-        return {'集合管','S','SV','S3'}
+    if ftype == '雁E��管':
+        return {'雁E��管','S','SV','S3'}
     if ftype == '45°':
         return {'45°','45'}
     if ftype == 'LL':
@@ -15394,7 +15394,7 @@ def _v10_fallback_sizes_for_type(self, ftype: str, current_size: str = '') -> Li
     role = _nvs_role_clean(ftype)
     ftype_base = _nvs_role_base(role)
     mode = _nvs_role_mode(role)
-    if ftype_base == '集合管':
+    if ftype_base == '雁E��管':
         return [self.auto_base_fitting_size(self.selected_node)] if getattr(self, 'selected_node', None) else []
     if ftype_base in ['Y','LT','DT','T','SV','S']:
         main = parse_fitting_size_pair(current_size, self.cmb_main_size.currentText())[0]
@@ -15424,20 +15424,20 @@ def _v10_safe_group_code(self, text: str) -> str:
 def _v10_auto_default_fitting_for_node(self, nid: int) -> Fitting:
     main_size = self.cmb_main_size.currentText().strip() if hasattr(self, 'cmb_main_size') else ''
     terminal = self._combo_current_code(self.cmb_terminal) if hasattr(self, 'cmb_terminal') else 'DL'
-    start_type = self._combo_current_code(self.cmb_start_fitting) if hasattr(self, 'cmb_start_fitting') else '集合管'
+    start_type = self._combo_current_code(self.cmb_start_fitting) if hasattr(self, 'cmb_start_fitting') else '雁E��管'
     deg = self.model.degree(nid) if getattr(self, 'model', None) else 0
     old_fit = self.model.fittings.get(nid) if getattr(self, 'model', None) else None
     old_mat = getattr(old_fit, 'material_override', '') if old_fit else ''
     if (getattr(self.model, 'base_node', None) == nid) or (nid in getattr(self.model, 'base_nodes', set())):
-        role = _nvs_role_clean(start_type) or '集合管'
+        role = _nvs_role_clean(start_type) or '雁E��管'
         base = _nvs_role_base(role)
-        if base == '集合管':
+        if base == '雁E��管':
             size = self.auto_base_fitting_size(nid)
         else:
             _, size = self.normalize_terminal_type_size(role, main_size)
         return Fitting(nid, role, size, manual=False, material_override=old_mat)
     if deg <= 0:
-        return Fitting(nid, '要確認', '', manual=False, material_override=old_mat)
+        return Fitting(nid, '要確誁E, '', manual=False, material_override=old_mat)
     if deg == 1:
         ftype, fsize = self.normalize_terminal_type_size(terminal, main_size)
         return Fitting(nid, ftype, fsize, manual=False, material_override=old_mat)
@@ -15454,7 +15454,7 @@ def _v10_auto_default_fitting_for_node(self, nid: int) -> Fitting:
         bsize = self.default_branch_size_for(main_size)
         fsize = f'{main_size}x{bsize}' if main_size and bsize else main_size
         return Fitting(nid, ftype, fsize, manual=False, material_override=old_mat)
-    return Fitting(nid, '要確認', main_size, manual=False, material_override=old_mat)
+    return Fitting(nid, '要確誁E, main_size, manual=False, material_override=old_mat)
 
 def _v10_force_combo_text_visible(self, combo: QComboBox, text: str):
     code = _nvs_role_clean(text)
@@ -15573,20 +15573,20 @@ def _v11_auto_default_fitting_for_node(self, nid: int) -> Fitting:
     overrides = _v11_base_override_map(self)
     node_main = overrides.get(nid, main_size)
     terminal = self._combo_current_code(self.cmb_terminal) if hasattr(self, 'cmb_terminal') else 'DL'
-    start_type = self._combo_current_code(self.cmb_start_fitting) if hasattr(self, 'cmb_start_fitting') else '集合管'
+    start_type = self._combo_current_code(self.cmb_start_fitting) if hasattr(self, 'cmb_start_fitting') else '雁E��管'
     deg = self.model.degree(nid) if getattr(self, 'model', None) else 0
     old_fit = self.model.fittings.get(nid) if getattr(self, 'model', None) else None
     old_mat = getattr(old_fit, 'material_override', '') if old_fit else ''
     if (getattr(self.model, 'base_node', None) == nid) or (nid in getattr(self.model, 'base_nodes', set())):
-        role = _nvs_role_clean(start_type) or '集合管'
+        role = _nvs_role_clean(start_type) or '雁E��管'
         base = _nvs_role_base(role)
-        if base == '集合管':
+        if base == '雁E��管':
             size = self.auto_base_fitting_size(nid)
         else:
             _, size = self.normalize_terminal_type_size(role, node_main)
         return Fitting(nid, role, size, manual=False, material_override=old_mat)
     if deg <= 0:
-        return Fitting(nid, '要確認', '', manual=False, material_override=old_mat)
+        return Fitting(nid, '要確誁E, '', manual=False, material_override=old_mat)
     if deg == 1:
         ftype, fsize = self.normalize_terminal_type_size(terminal, main_size)
         return Fitting(nid, ftype, fsize, manual=False, material_override=old_mat)
@@ -15603,7 +15603,7 @@ def _v11_auto_default_fitting_for_node(self, nid: int) -> Fitting:
         bsize = self.default_branch_size_for(main_size)
         fsize = f'{main_size}x{bsize}' if main_size and bsize else main_size
         return Fitting(nid, ftype, fsize, manual=False, material_override=old_mat)
-    return Fitting(nid, '要確認', main_size, manual=False, material_override=old_mat)
+    return Fitting(nid, '要確誁E, main_size, manual=False, material_override=old_mat)
 
 def _v11_set_selected_as_base(self):
     if self._block_if_detail_readonly():
@@ -15640,7 +15640,7 @@ def _v11_apply_node(self):
         local = _v11_size_base(size)
         if local:
             _v11_base_override_map(self)[self.selected_node] = local
-    if _nvs_role_base(ftype) == '集合管':
+    if _nvs_role_base(ftype) == '雁E��管':
         self.model.base_nodes = set(getattr(self.model, 'base_nodes', set()) or [])
         self.model.base_nodes.add(self.selected_node)
         if self.model.base_node is None or self.model.base_node not in self.model.nodes:
@@ -15698,7 +15698,7 @@ def _v11_apply_branch_sizing(self, main_size: str, terminal_type: str):
         info = None
         if self.model.degree(nid) >= 4:
             if fit and not fit.manual:
-                fit.ftype = '要確認'; fit.size = incoming_size or main_size
+                fit.ftype = '要確誁E; fit.size = incoming_size or main_size
         elif self.model.degree(nid) == 3:
             info = junction_axis_info(self.model, nid)
         branch_nb = info['branch'] if info else None
@@ -15753,7 +15753,7 @@ def _v11_apply_branch_sizing(self, main_size: str, terminal_type: str):
         if e.key not in visited_edges:
             e.size = ''; disconnected_count += 1
     if disconnected_count:
-        try: self.statusBar().showMessage(f'⚠ Có {disconnected_count} đoạn ống chưa nối được về đầu nhánh/集合管 - giữ size trống')
+        try: self.statusBar().showMessage(f'⚠ Có {disconnected_count} đoạn ống chưa nối được vềEđầu nhánh/雁E��管 - giữ size trống')
         except Exception: pass
 
 def _v11_select_node(self, nid:int):
@@ -15931,7 +15931,7 @@ def _v12_apply_common(self):
         if not main_size:
             self.require_main_size_for_action()
         missing = []
-        if not sys_code: missing.append("Hệ")
+        if not sys_code: missing.append("HềE)
         if not mat_code: missing.append("Vật liệu")
         if not main_size: missing.append("Ống chính mặc định")
         msg = "Vui lòng nhập kích thước ống chính" if not main_size else "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
@@ -15985,12 +15985,12 @@ def _v12_set_selected_as_base(self):
     if local_size:
         _v11_base_override_map(self)[self.selected_node] = local_size
 
-    start_type = self._combo_current_code(self.cmb_start_fitting) if hasattr(self, 'cmb_start_fitting') else '集合管'
-    role = _nvs_role_clean(start_type) or '集合管'
+    start_type = self._combo_current_code(self.cmb_start_fitting) if hasattr(self, 'cmb_start_fitting') else '雁E��管'
+    role = _nvs_role_clean(start_type) or '雁E��管'
     base = _nvs_role_base(role)
     old_fit = self.model.fittings.get(self.selected_node)
     old_mat = getattr(old_fit, 'material_override', '') if old_fit else ''
-    if base == '集合管':
+    if base == '雁E��管':
         fsize = self.auto_base_fitting_size(self.selected_node)
     else:
         _, fsize = self.normalize_terminal_type_size(role, local_size)
@@ -16062,7 +16062,7 @@ def _v12_apply_branch_sizing(self, main_size: str, terminal_type: str):
         info = None
         if self.model.degree(nid) >= 4:
             if fit and not fit.manual:
-                fit.ftype = '要確認'; fit.size = incoming_size or main_size
+                fit.ftype = '要確誁E; fit.size = incoming_size or main_size
         elif self.model.degree(nid) == 3:
             info = junction_axis_info(self.model, nid)
         branch_nb = info['branch'] if info else None
@@ -16139,7 +16139,7 @@ def _v12_apply_node(self):
         local = _v11_size_base(size)
         if local:
             _v11_base_override_map(self)[self.selected_node] = local
-    if _nvs_role_base(ftype) == '集合管':
+    if _nvs_role_base(ftype) == '雁E��管':
         self.model.base_nodes = set(getattr(self.model, 'base_nodes', set()) or [])
         self.model.base_nodes.add(self.selected_node)
         if self.model.base_node is None or self.model.base_node not in self.model.nodes:
@@ -16204,7 +16204,7 @@ def _v13_refresh_all(self):
     try:
         missing = _v13_components_without_base(self.model)
         if missing:
-            self.statusBar().showMessage(f'⚠ Có {missing} cụm ống chưa có điểm đầu nhánh. Hãy bấm JWW #1 đúng điểm đầu hoặc chọn node → Đặt đầu nhánh.')
+            self.statusBar().showMessage(f'⚠ Có {missing} cụm ống chưa có điểm đầu nhánh. Hãy bấm JWW #1 đúng điểm đầu hoặc chọn node ↁEĐặt đầu nhánh.')
     except Exception:
         pass
 
@@ -16223,7 +16223,7 @@ def _v14_size_tokens(size: str) -> List[str]:
     return re.findall(r'\d+', str(size or ''))
 
 def _v14_norm_name(s: str) -> str:
-    return re.sub(r'[^0-9A-Za-z一-龥ぁ-んァ-ヶー]+', '_', str(s or '').upper()).strip('_')
+    return re.sub(r'[^0-9A-Za-z一-龥ぁEんァ-ヶー]+', '_', str(s or '').upper()).strip('_')
 
 def _v14_file_score_for_fit(path: str, group: str, size: str) -> int:
     """Higher score = safer match.
@@ -16706,10 +16706,10 @@ except Exception:
 # NEVIS V17 patch - strict DL/LL Down start-library selection and orientation
 # -----------------------------------------------------------------------------
 # Mục tiêu: sửa đúng lỗi bản cũ mà không đụng luồng khởi động.
-# - Đầu nhánh chọn DL Down / LL Down phải tìm thư viện ở folder DL Down / LL Down
-#   kể cả khi tên file không có hậu tố _D.
-# - Cuối nhánh DL UP / LL UP cũng được nhận theo folder UP, không chỉ theo tên file.
-# - Preview chi tiết và xuất JWW dùng cùng một resolver nên sửa tại đây sẽ đồng bộ cả hai.
+# - Đầu nhánh chọn DL Down / LL Down phải tìm thư viện ềEfolder DL Down / LL Down
+#   kềEcả khi tên file không có hậu tềE_D.
+# - Cuối nhánh DL UP / LL UP cũng được nhận theo folder UP, không chềEtheo tên file.
+# - Preview chi tiết và xuất JWW dùng cùng một resolver nên sửa tại đây sẽ đồng bềEcả hai.
 
 def _v17_role_mode_from_path_any(path: str) -> str:
     try:
@@ -16761,14 +16761,14 @@ try:
         role = _nvs_role_clean(ftype)
         fbase = self.normalize_lib_type(role)
         req_mode = _nvs_role_mode(role) or self._terminal_size_mode(str(size or ''))
-        # Chỉ can thiệp DL/LL/脚部 có vai trò U/D. Các fitting khác giữ nguyên bản cũ.
+        # ChềEcan thiệp DL/LL/脚部 có vai trò U/D. Các fitting khác giữ nguyên bản cũ.
         if fbase in {'DL', 'LL', '脚部'} and req_mode in {'U', 'D'}:
             pipe = self.current_pipe_for_node(nid)
             # 1) Tìm trực tiếp theo cây Library thật trước.
             direct = self.direct_library_path_from_folder(pipe, fbase, size)
             if direct and Path(direct).exists() and self._path_terminal_mode(direct) == req_mode:
                 return direct
-            # 2) Duyệt index nhưng bắt buộc đúng role folder / hậu tố U-D và đúng size gốc.
+            # 2) Duyệt index nhưng bắt buộc đúng role folder / hậu tềEU-D và đúng size gốc.
             aliases = self.pipe_aliases(pipe, fbase)
             type_alias = self.type_aliases(fbase)
             want_nums = re.findall(r'\d+', str(size or ''))
@@ -16805,7 +16805,7 @@ try:
             if scored:
                 scored.sort(key=lambda x: x[0], reverse=True)
                 return scored[0][1]
-            # Không được rơi về DL/LL thường khi người dùng đã chọn Down/UP.
+            # Không được rơi vềEDL/LL thường khi người dùng đã chọn Down/UP.
             return ''
         return _NEVIS_V17_ORIG_matching_library_path(self, nid, ftype, size) if _NEVIS_V17_ORIG_matching_library_path else ''
 
@@ -16825,7 +16825,7 @@ except Exception:
 # Library filename rule:
 #   Library/特/<MAT>_<SIZE>_<NAME>.json or .txt
 # Examples:
-#   DV_50_掃除口.json, TMP_65_45+45.txt, DV_75_DT+LL.json
+#   DV_50_掁E��口.json, TMP_65_45+45.txt, DV_75_DT+LL.json
 # Quantity rule:
 #   - Normal NAME is counted as a special equipment item.
 #   - Combo NAME like 45+45, DT+45, DT+DL, DT+LL expands into normal fitting counts.
@@ -16937,7 +16937,7 @@ try:
             return
         devices = _sp_v1_scan_special_devices(self)
         if not devices:
-            QMessageBox.warning(self, 'NEVIS', 'Không tìm thấy thiết bị đặc biệt trong Library/特\nTên file mẫu: DV_50_Tên.json hoặc TMP_65_45+45.txt')
+            QMessageBox.warning(self, 'NEVIS', 'Không tìm thấy thiết bềEđặc biệt trong Library/特\nTên file mẫu: DV_50_Tên.json hoặc TMP_65_45+45.txt')
             return
         mat = _sp_v1_norm_mat_name(info.get('mat', ''))
         size = _sp_v1_base_size(info.get('size', ''))
@@ -16961,8 +16961,8 @@ try:
             labels.append(label)
         if not labels:
             return
-        title = 'Thay thiết bị đặc biệt' if kind == 'node' else 'Chèn thiết bị đặc biệt'
-        label = f"{mat} {size} - chọn tên thiết bị:"
+        title = 'Thay thiết bềEđặc biệt' if kind == 'node' else 'Chèn thiết bềEđặc biệt'
+        label = f"{mat} {size} - chọn tên thiết bềE"
         chosen, ok = QInputDialog.getItem(self, title, label, labels, 0, False)
         if not ok or not chosen:
             return
@@ -17008,7 +17008,7 @@ try:
                         return
                 except Exception as ex:
                     try:
-                        QMessageBox.warning(self.mainwin, 'NEVIS', f'Lỗi thiết bị đặc biệt: {ex}')
+                        QMessageBox.warning(self.mainwin, 'NEVIS', f'Lỗi thiết bềEđặc biệt: {ex}')
                     except Exception:
                         pass
                     event.accept()
@@ -17104,21 +17104,21 @@ try:
                 continue
         if not extra:
             return rows
-        # Merge into existing 個 rows when same mat/size/name exists.
+        # Merge into existing 倁Erows when same mat/size/name exists.
         merged = False
         for mat, size, item_name in list(extra.keys()):
             cnt = extra[(mat, size, item_name)]
             done = False
             for row in rows:
                 try:
-                    if str(row[0]) == mat and str(row[1]) == size and str(row[2]) == item_name and str(row[3]) == '個':
+                    if str(row[0]) == mat and str(row[1]) == size and str(row[2]) == item_name and str(row[3]) == '倁E:
                         row[4] = int(float(row[4])) + cnt
                         done = True; merged = True
                         break
                 except Exception:
                     pass
             if not done:
-                rows.append([mat, size, item_name, '個', cnt, '特'])
+                rows.append([mat, size, item_name, '倁E, cnt, '特'])
         if merged:
             try:
                 # Keep pipe rows at the bottom; only sort the individual-count rows lightly.
@@ -17325,12 +17325,12 @@ try:
 
     def _sp_v2_build_material_rows(self, sheet_type: str = ''):
         rows = _NEVIS_SPECIAL_V2_ORIG_build_material_rows(self, sheet_type) if _NEVIS_SPECIAL_V2_ORIG_build_material_rows else []
-        # Remove blank-size 個 rows caused by auto fittings whose size was never filled,
+        # Remove blank-size 倁Erows caused by auto fittings whose size was never filled,
         # then re-add those fittings with size inferred from their connected pipe.
         repaired = []
         for r in rows:
             try:
-                if len(r) >= 4 and str(r[1]).strip() == '' and str(r[3]).strip() == '個':
+                if len(r) >= 4 and str(r[1]).strip() == '' and str(r[3]).strip() == '倁E:
                     continue
             except Exception:
                 pass
@@ -17347,7 +17347,7 @@ try:
                 item_name = self.material_kind_name(getattr(fit, 'ftype', ''))
                 size = _sp_v2_infer_size_for_fitting(self, nid, fit)
                 if not size:
-                    size = '要確認'
+                    size = '要確誁E
                 add_counts[(mat, size, item_name)] = add_counts.get((mat, size, item_name), 0) + 1
         except Exception:
             add_counts = {}
@@ -17356,14 +17356,14 @@ try:
             done = False
             for r in repaired:
                 try:
-                    if str(r[0]) == mat and str(r[1]) == size and str(r[2]) == item_name and str(r[3]) == '個':
+                    if str(r[0]) == mat and str(r[1]) == size and str(r[2]) == item_name and str(r[3]) == '倁E:
                         r[4] = int(float(r[4])) + cnt
                         done = True
                         break
                 except Exception:
                     pass
             if not done:
-                repaired.append([mat, size, item_name, '個', cnt, ''])
+                repaired.append([mat, size, item_name, '倁E, cnt, ''])
         return repaired
 
     PreviewView._draw_detailed_fittings = _sp_v2_draw_detailed_fittings
@@ -17413,8 +17413,8 @@ try:
         if not bad_nodes and not bad_edges:
             return ''
         if lang == 'vi':
-            return f'⚠ Cảnh báo: Có {len(bad_edges)} đoạn tim ống bị đứt mạng, không nối tới điểm đầu nhánh/cổ thu nước. Kiểm tra lại JWW CAD.'
-        return f'⚠ 警告: 枝始点・排水口に接続していない中心線が {len(bad_edges)} 本あります。JWW CADを確認してください。'
+            return f'⚠ Cảnh báo: Có {len(bad_edges)} đoạn tim ống bềEđứt mạng, không nối tới điểm đầu nhánh/cềEthu nước. Kiểm tra lại JWW CAD.'
+        return f'⚠ 警呁E 枝始点・排水口に接続してぁE��ぁE��忁E��が {len(bad_edges)} 本あります、EWW CADを確認してください、E
 
     def _nevis_orphan_v3_show_warning(mainwin, popup: bool = False):
         msg = _nevis_orphan_v3_message(mainwin)
@@ -17680,8 +17680,8 @@ try:
             pass
         msg = _nevis_conn_v2_msg(
             mainwin,
-            'Đã nối tim ống. NEVIS tự phân loại lại theo góc: 135°→45°, nhánh 45°→Y, 90°→LL/LT.',
-            '中心線を接続しました。角度から自動判定：135°→45°、45°枝→Y、90°→LL/LT。'
+            'Đã nối tim ống. NEVIS tự phân loại lại theo góc: 135°ↁE5°, nhánh 45°→Y, 90°→LL/LT.',
+            '中忁E��を接続しました。角度から自動判定！E35°ↁE5°、E5°枝�EY、E0°→LL/LT、E
         )
         try:
             mainwin.lbl_status.setText(msg)
@@ -17703,8 +17703,8 @@ try:
             view._nevis_conn_v2_pending_scene = None
         msg = _nevis_conn_v2_msg(
             mw,
-            'Đã chọn đầu mút rời. Click vào ống/cút cần nối tới. Esc để hủy.',
-            '未接続端点を選択しました。接続先の配管・継手をクリックしてください。Escで取消。'
+            'Đã chọn đầu mút rời. Click vào ống/cút cần nối tới. Esc đềEhủy.',
+            '未接続端点を選択しました。接続�Eの配管・継手をクリチE��してください、Escで取消、E
         )
         try:
             mw.lbl_status.setText(msg)
@@ -17729,8 +17729,8 @@ try:
         mw.orphan_connect_mode = 'start'
         msg = _nevis_conn_v2_msg(
             mw,
-            'Lệnh T - nối tim ống rời: click vào đầu mút màu đỏ trước. Esc để hủy.',
-            'Tコマンド - 未接続中心線を接続：まず赤い端点をクリックしてください。Escで取消。'
+            'Lệnh T - nối tim ống rời: click vào đầu mút màu đềEtrước. Esc đềEhủy.',
+            'TコマンチE- 未接続中忁E��を接続：まず赤ぁE��点をクリチE��してください、Escで取消、E
         )
         try:
             mw.lbl_status.setText(msg)
@@ -17764,7 +17764,7 @@ try:
             if k:
                 target_nid = _nevis_conn_v2_split_edge_or_endpoint(mw, k, view.mapToScene(event.pos()))
         if target_nid is None or target_nid == start:
-            msg = _nevis_conn_v2_msg(mw, 'Không tìm thấy đối tượng nối hợp lệ.', '接続先が見つかりません。')
+            msg = _nevis_conn_v2_msg(mw, 'Không tìm thấy đối tượng nối hợp lềE', '接続�Eが見つかりません、E)
             try:
                 mw.lbl_status.setText(msg)
                 mw.statusBar().showMessage(msg, 6000)
@@ -17793,7 +17793,7 @@ try:
             except Exception:
                 view.update()
         else:
-            msg = _nevis_conn_v2_msg(mw, 'Không thể nối: trùng điểm hoặc đoạn nối đã tồn tại.', '接続できません。同一点または既存接続です。')
+            msg = _nevis_conn_v2_msg(mw, 'Không thềEnối: trùng điểm hoặc đoạn nối đã tồn tại.', '接続できません。同一点また�E既存接続です、E)
             try:
                 mw.lbl_status.setText(msg)
                 mw.statusBar().showMessage(msg, 6000)
@@ -17812,7 +17812,7 @@ try:
                 if nid is not None:
                     _nevis_conn_v2_set_start(self, int(nid))
                 else:
-                    msg = _nevis_conn_v2_msg(mw, 'Chưa bắt được đầu mút đỏ. Hãy click sát vòng tròn đỏ.', '赤い端点を取得できません。赤丸の近くをクリックしてください。')
+                    msg = _nevis_conn_v2_msg(mw, 'Chưa bắt được đầu mút đềE Hãy click sát vòng tròn đềE', '赤ぁE��点を取得できません。赤丸の近くをクリチE��してください、E)
                     try:
                         mw.lbl_status.setText(msg)
                         mw.statusBar().showMessage(msg, 6000)
@@ -17846,8 +17846,8 @@ try:
             self.mainwin.orphan_connect_mode = None
             self._nevis_conn_v2_pending_scene = None
             try:
-                self.mainwin.lbl_status.setText(_nevis_conn_v2_msg(self.mainwin, 'Đã hủy lệnh nối tim ống.', '接続コマンドを取消しました。'))
-                self.mainwin.statusBar().showMessage(_nevis_conn_v2_msg(self.mainwin, 'Đã hủy lệnh nối tim ống.', '接続コマンドを取消しました。'), 5000)
+                self.mainwin.lbl_status.setText(_nevis_conn_v2_msg(self.mainwin, 'Đã hủy lệnh nối tim ống.', '接続コマンドを取消しました、E))
+                self.mainwin.statusBar().showMessage(_nevis_conn_v2_msg(self.mainwin, 'Đã hủy lệnh nối tim ống.', '接続コマンドを取消しました、E), 5000)
                 self.viewport().setCursor(Qt.OpenHandCursor)
             except Exception:
                 pass
@@ -17940,7 +17940,7 @@ def _nevis_conn_v3_force_auto_fittings(mainwin, node_ids):
                     b = mainwin.default_branch_size_for(main_size) if hasattr(mainwin, 'default_branch_size_for') else lower_pipe_size(main_size)
                     new_fit = Fitting(nid, t, f'{main_size}x{b}' if main_size and b else main_size)
                 elif deg >= 4:
-                    new_fit = Fitting(nid, '要確認', '')
+                    new_fit = Fitting(nid, '要確誁E, '')
             if new_fit:
                 new_fit.manual = False
                 if old_mat:
@@ -18004,8 +18004,8 @@ def _nevis_conn_v2_reclassify_after_connect(mainwin, a: int, b: int):
         pass
     msg = _nevis_conn_v2_msg(
         mainwin,
-        'Đã nối và tạo lại cút phù hợp theo hình học: 135°→45°, nhánh 45°→Y, 90°→LL/LT.',
-        '接続完了。形状から継手を再生成しました：135°→45°、45°枝→Y、90°→LL/LT。'
+        'Đã nối và tạo lại cút phù hợp theo hình học: 135°ↁE5°, nhánh 45°→Y, 90°→LL/LT.',
+        '接続完亁E��形状から継手を�E生�Eしました�E�E35°ↁE5°、E5°枝�EY、E0°→LL/LT、E
     )
     try:
         mainwin.lbl_status.setText(msg)
@@ -18125,7 +18125,7 @@ def _nevis_conn_v4_refit_node(mainwin, nid: int):
     try:
         main_size = _nevis_conn_v4_node_pipe_size(mainwin, nid)
         if nid in bases:
-            nf = mainwin._auto_default_fitting_for_node(nid) if hasattr(mainwin, '_auto_default_fitting_for_node') else Fitting(nid, '集合管', main_size)
+            nf = mainwin._auto_default_fitting_for_node(nid) if hasattr(mainwin, '_auto_default_fitting_for_node') else Fitting(nid, '雁E��管', main_size)
         elif deg <= 0:
             if nid in m.fittings:
                 del m.fittings[nid]
@@ -18154,12 +18154,12 @@ def _nevis_conn_v4_refit_node(mainwin, nid: int):
                 nf = Fitting(nid, 'LL', main_size, manual=False)
             else:
                 # Unknown bend: keep visible as check instead of guessing.
-                nf = Fitting(nid, '要確認', main_size, manual=False)
+                nf = Fitting(nid, '要確誁E, main_size, manual=False)
         elif deg == 3:
             ftype, fsize = _nevis_conn_v4_junction_type_and_size(mainwin, nid)
             nf = Fitting(nid, ftype, fsize, manual=False)
         else:
-            nf = Fitting(nid, '要確認', main_size, manual=False)
+            nf = Fitting(nid, '要確誁E, main_size, manual=False)
         nf.manual = False
         if old_mat:
             nf.material_override = old_mat
@@ -18216,8 +18216,8 @@ def _nevis_conn_v2_reclassify_after_connect(mainwin, a: int, b: int):
         pass
     msg = _nevis_conn_v2_msg(
         mainwin,
-        'Đã nối và tái tạo cút theo topology mới. Cút cũ đã bỏ; node 2 hướng/3 hướng được tính lại theo góc.',
-        '接続完了。古い継手を破棄し、新しい接続形状から継手を再生成しました。'
+        'Đã nối và tái tạo cút theo topology mới. Cút cũ đã bềE node 2 hướng/3 hướng được tính lại theo góc.',
+        '接続完亁E��古ぁE��手を破棁E��、新しい接続形状から継手を�E生�Eしました、E
     )
     try:
         mainwin.lbl_status.setText(msg)
@@ -18388,7 +18388,7 @@ def _nevis_conn_v2_reclassify_after_connect(mainwin, a: int, b: int):
                 msg = _nevis_conn_v2_msg(
                     mainwin,
                     f'Đã nối và gộp {len(merged)} điểm tim ống thẳng thành ống liền.',
-                    f'接続完了。直線上の分割配管 {len(merged)} 箇所を1本に結合しました。'
+                    f'接続完亁E��直線上�E刁E��配管 {len(merged)} 箁E��めE本に結合しました、E
                 )
                 mainwin.lbl_status.setText(msg)
                 mainwin.statusBar().showMessage(msg, 10000)
@@ -18427,7 +18427,7 @@ def _nevis_v6_extra_clean_trim(self, nid:int, other:int, size:str, mat:str) -> f
         # Conservative visual cut minimums.  These only enlarge the no-pipe zone
         # when the library connector/table trim is too short.  They do not affect
         # model topology or quantity length.
-        if ftype in {'集合管','S','SV'}:
+        if ftype in {'雁E��管','S','SV'}:
             return max(150.0, od * 2.15)
         if deg >= 3 and ftype in {'Y','LT','DT','T','HTVP'}:
             info = junction_axis_info(self.model, int(nid))
@@ -18481,7 +18481,7 @@ def _nevis_conn_v6_merge_straight_pipe_nodes(mainwin, seeds=None):
             ftype = mainwin.normalize_lib_type(getattr(fit, 'ftype', ''))
         except Exception:
             ftype = str(getattr(fit, 'ftype', '') or '')
-        return ang >= 170.0 and ftype in {'', 'pass', '通過', 'LL', 'DL', '45°', '要確認'}
+        return ang >= 170.0 and ftype in {'', 'pass', '通過', 'LL', 'DL', '45°', '要確誁E}
 
     changed = True
     while changed:
@@ -18559,7 +18559,7 @@ def _nevis_v36_norm_ftype_for_snap(fit) -> str:
         s = str(getattr(fit, 'ftype', '') or '').strip().upper()
     except Exception:
         s = ''
-    if s in {'Ｙ'}:
+    if s in {'�E�'}:
         return 'Y'
     if 'Y' == s or s.endswith('-Y') or s.endswith('_Y'):
         return 'Y'
@@ -18619,7 +18619,7 @@ def nevis_v36_snap_branch_junction_nodes(model, mainwin=None, only_node=None) ->
             fit = model.fittings.get(nid)
             ftype = _nevis_v36_norm_ftype_for_snap(fit)
             # If fitting is not classified yet, infer from geometry.
-            if not ftype or ftype in {'PASS','要確認'}:
+            if not ftype or ftype in {'PASS','要確誁E}:
                 ftype = classify_junction_type(model, nid, getattr(fit, 'size', '') if fit else '')
             if ftype not in {'Y','LT','DT','T','HTVP'}:
                 continue
@@ -18785,7 +18785,7 @@ def _nevis_v38_snap_branch_junction_nodes(model, mainwin=None, only_node=None) -
             # determine fitting type; do not force Y when it is truly near 90
             fit = model.fittings.get(nid)
             ftype = _nevis_v36_norm_ftype_for_snap(fit)
-            if not ftype or ftype in {'PASS','要確認'}:
+            if not ftype or ftype in {'PASS','要確誁E}:
                 ftype = classify_junction_type(model, nid, getattr(fit, 'size', '') if fit else '')
             if ftype not in {'Y','LT','DT','T','HTVP'}:
                 continue
@@ -19009,7 +19009,7 @@ def _nevis_conn_v40_split_edge_or_endpoint(mainwin, edge_key_s: str, scene_pos) 
                 # If no legal 8-direction ray intersects the clicked pipe, reject
                 # instead of creating an odd-angle fitting.
                 try:
-                    mainwin.lbl_status.setText('⚠ Không nối được: điểm click này sẽ tạo góc lẻ. Hãy click gần vị trí giao của hướng 0/45/90/135 trên ống chính.')
+                    mainwin.lbl_status.setText('⚠ Không nối được: điểm click này sẽ tạo góc lẻ. Hãy click gần vềEtrí giao của hướng 0/45/90/135 trên ống chính.')
                     mainwin.statusBar().showMessage('Không nối được vì góc lẻ.', 6000)
                 except Exception:
                     pass
@@ -19050,8 +19050,8 @@ print('NEVIS_V40_8DIR_CONNECT_SNAP_READY')
 # - Right double-click inserted/replaced special devices must not keep an arbitrary
 #   pipe angle.  They are rotated from the selected library's own P1/P2/P3/ports
 #   to the real NEVIS water-flow directions around the host pipe/fitting.
-# - P2/downstream/out/base faces the side nearer to 集合管; P1/upstream/in faces
-#   away from 集合管; P3/branch faces the branch.  TXT fallback uses detected
+# - P2/downstream/out/base faces the side nearer to 雁E��管; P1/upstream/in faces
+#   away from 雁E��管; P3/branch faces the branch.  TXT fallback uses detected
 #   mouth-face axes.  Drawing still uses the JSON/TXT anchor, so trim and symbol
 #   position stay consistent with the library.
 # =============================================================================
@@ -19072,15 +19072,15 @@ try:
 
     def _sp_v3_is_p2(po, std=''):
         n = _sp_v3_port_name(po); r = _sp_v3_port_role(po)
-        return (std and n == std) or n == 'P2' or n.endswith('_P2') or 'main_2' in r or 'down' in r or 'out' in r or 'base' in r or '下流' in r
+        return (std and n == std) or n == 'P2' or n.endswith('_P2') or 'main_2' in r or 'down' in r or 'out' in r or 'base' in r or '下流E in r
 
     def _sp_v3_is_p1(po):
         n = _sp_v3_port_name(po); r = _sp_v3_port_role(po)
-        return n == 'P1' or n.endswith('_P1') or 'main_1' in r or 'up' in r or 'in' in r or '上流' in r
+        return n == 'P1' or n.endswith('_P1') or 'main_1' in r or 'up' in r or 'in' in r or '上流E in r
 
     def _sp_v3_is_p3(po):
         n = _sp_v3_port_name(po); r = _sp_v3_port_role(po)
-        return n == 'P3' or n.endswith('_P3') or 'branch' in r or '枝' in r
+        return n == 'P3' or n.endswith('_P3') or 'branch' in r or '极E in r
 
     def _sp_v3_pick_port(ports, preds, default_index=None, used=None):
         used = used or set()
@@ -19137,7 +19137,7 @@ try:
         if not e or e.a not in m.nodes or e.b not in m.nodes:
             return []
         n1, n2 = m.nodes[e.a], m.nodes[e.b]
-        # P2/downstream side is nearer to 集合管.  P1/upstream is farther.
+        # P2/downstream side is nearer to 雁E��管.  P1/upstream is farther.
         if m.dist.get(e.a, 1e100) <= m.dist.get(e.b, 1e100):
             down_id, up_id = e.a, e.b
         else:
@@ -19685,7 +19685,7 @@ try:
             return
         devices = _sp_v1_scan_special_devices(self) if '_sp_v1_scan_special_devices' in globals() else []
         if not devices:
-            QMessageBox.warning(self, 'NEVIS', 'Không tìm thấy thiết bị đặc biệt trong Library/特\nTên file mẫu: DV_50_Tên.json hoặc TMP_65_Tên.txt')
+            QMessageBox.warning(self, 'NEVIS', 'Không tìm thấy thiết bềEđặc biệt trong Library/特\nTên file mẫu: DV_50_Tên.json hoặc TMP_65_Tên.txt')
             return
         host_mat, host_size = _sp_v5_host_mat_size(self, kind, val)
         mat = _sp_v1_norm_mat_name(host_mat or info.get('mat', '')) if '_sp_v1_norm_mat_name' in globals() else str(host_mat or info.get('mat',''))
@@ -19706,8 +19706,8 @@ try:
             label_map[label] = d; labels.append(label)
         if not labels:
             return
-        title = 'Thay thiết bị đặc biệt' if kind == 'node' else 'Chèn thiết bị đặc biệt'
-        label = f"{mat} {size} - chọn thiết bị 特:"
+        title = 'Thay thiết bềEđặc biệt' if kind == 'node' else 'Chèn thiết bềEđặc biệt'
+        label = f"{mat} {size} - chọn thiết bềE特:"
         chosen, ok = QInputDialog.getItem(self, title, label, labels, 0, False)
         if not ok or not chosen:
             return
@@ -20053,8 +20053,8 @@ except Exception as _nevis_special_v6_patch_error:
 # =============================================================================
 # NEVIS SPECIAL EQUIPMENT V7 - uniform system blue color for inserted 特
 # =============================================================================
-# Đại ca chốt: thiết bị đặc biệt chèn vào ống phải cùng màu với hệ thống đang vẽ,
-# không đổi theo vật liệu/thư viện và không còn đỏ/tím/xanh nhạt lẫn lộn.
+# Đại ca chốt: thiết bềEđặc biệt chèn vào ống phải cùng màu với hềEthống đang vẽ,
+# không đổi theo vật liệu/thư viện và không còn đềEtím/xanh nhạt lẫn lộn.
 try:
     def _sp_v7_system_pipe_blue(mw=None):
         try:
@@ -20080,11 +20080,11 @@ except Exception as _nevis_special_v7_patch_error:
 # =============================================================================
 # NEVIS SPECIAL EQUIPMENT V8 - auto scale special library to host pipe size
 # =============================================================================
-# Khi Library/特 chỉ có size 50, NEVIS vẫn cho phép đặt lên 40/65/75/... bằng cách:
+# Khi Library/特 chềEcó size 50, NEVIS vẫn cho phép đặt lên 40/65/75/... bằng cách:
 #   1) nhận size thật của ống/cút đang chèn;
 #   2) nhận size gốc của thư viện từ metadata hoặc tên file;
-#   3) scale toàn bộ hình theo OD ống Nhật thông dụng, fallback theo DN nếu thiếu;
-#   4) màu vẫn dùng màu xanh hệ thống đang vẽ.
+#   3) scale toàn bềEhình theo OD ống Nhật thông dụng, fallback theo DN nếu thiếu;
+#   4) màu vẫn dùng màu xanh hềEthống đang vẽ.
 try:
     _NEVIS_SPECIAL_V8_ORIG_CHOOSE = globals().get('_sp_v1_choose_special_device', None)
 
@@ -20169,7 +20169,7 @@ try:
             return
         devices = _sp_v1_scan_special_devices(self) if '_sp_v1_scan_special_devices' in globals() else []
         if not devices:
-            QMessageBox.warning(self, 'NEVIS', 'Không tìm thấy thiết bị đặc biệt trong Library/特\nTên file mẫu: DV_50_Tên.json hoặc TMP_65_Tên.txt')
+            QMessageBox.warning(self, 'NEVIS', 'Không tìm thấy thiết bềEđặc biệt trong Library/特\nTên file mẫu: DV_50_Tên.json hoặc TMP_65_Tên.txt')
             return
         host_mat, host_size = _sp_v5_host_mat_size(self, kind, val) if '_sp_v5_host_mat_size' in globals() else ('', '')
         mat = _sp_v1_norm_mat_name(host_mat or info.get('mat', '')) if '_sp_v1_norm_mat_name' in globals() else str(host_mat or info.get('mat',''))
@@ -20195,8 +20195,8 @@ try:
             label_map[label] = d; labels.append(label)
         if not labels:
             return
-        title = 'Thay thiết bị đặc biệt' if kind == 'node' else 'Chèn thiết bị đặc biệt'
-        label = f"{mat} {size} - chọn thiết bị 特:"
+        title = 'Thay thiết bềEđặc biệt' if kind == 'node' else 'Chèn thiết bềEđặc biệt'
+        label = f"{mat} {size} - chọn thiết bềE特:"
         chosen, ok = QInputDialog.getItem(self, title, label, labels, 0, False)
         if not ok or not chosen:
             return
@@ -20230,7 +20230,7 @@ try:
             self.select_node(int(val))
         else:
             self.select_edge(str(val))
-        note = f"Đã gán 特: hệ {mat} {size}"
+        note = f"Đã gán 特: hềE{mat} {size}"
         if lib_size and lib_size != size:
             note += f" / thư viện {lib_size} scale x{scale:.3g}"
         self.lbl_status.setText(note)
@@ -20313,7 +20313,7 @@ except Exception as _nevis_special_v8_patch_error:
 # =============================================================================
 # NEVIS SPECIAL EQUIPMENT V9 - trim follows autoscaled library size
 # =============================================================================
-# V8 đã phóng to/thu nhỏ hình 特 theo size ống thực tế, nhưng khoảng cắt ống vẫn
+# V8 đã phóng to/thu nhềEhình 特 theo size ống thực tế, nhưng khoảng cắt ống vẫn
 # lấy theo kích thước gốc của thư viện (ví dụ library 50 đặt lên 65/75 vẫn cắt
 # theo 50).  V9 khóa lại: khoảng cắt ống = miệng P1/P2 hoặc bbox thư viện * scale
 # đã lưu trong special_equipments.
@@ -20367,14 +20367,14 @@ except Exception as _nevis_special_v9_patch_error:
 #   DV 40xU DL UP      -> DV 40 DL継手
 #   DV 40 DL立上り     -> DV 40 DL継手
 #   TMP 50xU DL UP     -> TMP 50 DL継手
-# Kích thước trong bảng vật tư chỉ được là A hoặc AxB, trong đó A/B là số.
+# Kích thước trong bảng vật tư chềEđược là A hoặc AxB, trong đó A/B là sềE
 try:
     _NEVIS_MAT_V10_ORIG_material_kind_name = getattr(MainWindow, 'material_kind_name', None)
     _NEVIS_MAT_V10_ORIG_build_material_rows = getattr(MainWindow, 'build_material_rows', None)
 
     def _mat_v10_norm_group_name(ftype: object, old_name: object = '') -> str:
         raw = (str(ftype or '') + ' ' + str(old_name or '')).upper()
-        raw = raw.replace('ＤＬ', 'DL').replace('ＬＬ', 'LL')
+        raw = raw.replace('�E��E�', 'DL').replace('�E��E�', 'LL')
         raw = raw.replace('_', ' ').replace('-', ' ')
         if 'DL' in raw:
             return 'DL継手'
@@ -20388,7 +20388,7 @@ try:
             return ''
         # Normalize separators first.  U/D/UP/DOWN are orientation marks only,
         # never material size.
-        s2 = s.upper().replace('×', 'X').replace('*', 'X')
+        s2 = s.upper().replace('ÁE, 'X').replace('*', 'X')
         nums = re.findall(r'\d+', s2)
         if not nums:
             return ''
@@ -20449,7 +20449,7 @@ try:
             if not row:
                 continue
             try:
-                if str(row[3]) == '個' and abs(float(row[4]) - round(float(row[4]))) < 1e-9:
+                if str(row[3]) == '倁E and abs(float(row[4]) - round(float(row[4]))) < 1e-9:
                     row[4] = int(round(float(row[4])))
                 elif isinstance(row[4], float):
                     row[4] = round(row[4], 3)
@@ -20712,7 +20712,7 @@ try:
             self._special_move_undo_saved = False
             try:
                 self.mainwin.refresh_all()
-                self.mainwin.lbl_status.setText('Đã di chuyển thiết bị 特 trên ống.')
+                self.mainwin.lbl_status.setText('Đã di chuyển thiết bềE特 trên ống.')
             except Exception:
                 pass
             self.viewport().setCursor(Qt.OpenHandCursor)
@@ -21014,12 +21014,12 @@ except Exception as _nevis_special_v12_patch_error:
 # =============================================================================
 # NEVIS PERFORMANCE V53 - cache special libraries + light drag redraw
 # =============================================================================
-# V52 làm đúng chức năng 特/JWW/trim/drag nhưng khi rê chuột phải đã redraw toàn bộ
-# model ở mọi mouseMove.  Với thư viện JSON/TXT nhiều nét, cảm giác chậm gần gấp đôi.
-# V53 chỉ tối ưu hiệu năng, không đổi hình học:
+# V52 làm đúng chức năng 特/JWW/trim/drag nhưng khi rê chuột phải đã redraw toàn bềE
+# model ềEmọi mouseMove.  Với thư viện JSON/TXT nhiều nét, cảm giác chậm gần gấp đôi.
+# V53 chềEtối ưu hiệu năng, không đổi hình học:
 # - Cache parse thư viện theo path + mtime + size.
-# - Khi kéo 特: cập nhật t liên tục nhưng chỉ redraw nhẹ ~20 FPS, refresh_all khi thả chuột.
-# - Bỏ redraw nếu vị trí t thay đổi quá nhỏ.
+# - Khi kéo 特: cập nhật t liên tục nhưng chềEredraw nhẹ ~20 FPS, refresh_all khi thả chuột.
+# - BềEredraw nếu vềEtrí t thay đổi quá nhềE
 try:
     _NEVIS_PERF_V53_ORIG_PARSE_LIB = globals().get('parse_jww_library_geometry', None)
     _NEVIS_PERF_V53_LIB_CACHE = {}
@@ -21115,10 +21115,10 @@ except Exception as _nevis_perf_v53_error:
 # NEVIS 2.02 V82 - quick replace tree dialog with preview, lightweight apply path
 # =============================================================================
 # Đại ca chốt: double-right-click không dùng thuật toán riêng nữa.
-# - Cút: chỉ mở 2 nhóm: loại cút hiện hữu + 特.  Đổi size cùng loại gọi lại apply_node().
-# - Ống: chỉ mở 異径ソケット + 特.  異径ソケット gọi lại pending_reducer/confirm_insert_reducer().
-# - Có vòng vàng để biết đối tượng đang được thao tác.
-# - Preview nhỏ đọc trực tiếp file thư viện, cache theo path/mtime/size để nhẹ.
+# - Cút: chềEmềE2 nhóm: loại cút hiện hữu + 特.  Đổi size cùng loại gọi lại apply_node().
+# - Ống: chềEmềE異征E��ケチE�� + 特.  異征E��ケチE�� gọi lại pending_reducer/confirm_insert_reducer().
+# - Có vòng vàng đềEbiết đối tượng đang được thao tác.
+# - Preview nhềEđọc trực tiếp file thư viện, cache theo path/mtime/size đềEnhẹ.
 try:
     NEVIS_202_VERSION = '2.02'
     _NEVIS_V82_PREVIEW_CACHE = {}
@@ -21128,8 +21128,8 @@ try:
     def _v82_norm_ftype(ftype: str) -> str:
         s = str(ftype or '').strip()
         up = s.upper()
-        if '集合' in s or up.startswith('S_') or up.startswith('SV'):
-            return '集合管'
+        if '雁E��' in s or up.startswith('S_') or up.startswith('SV'):
+            return '雁E��管'
         if '45' in s:
             return '45°'
         for k in ('LT','DT','Y','LL','DL','IN','CO'):
@@ -21141,7 +21141,7 @@ try:
         stem = Path(str(name)).stem
         nums = re.findall(r'\d+', stem)
         ft = _v82_norm_ftype(ftype)
-        if len(nums) >= 2 and ft in {'Y','LT','DT','IN','集合管'}:
+        if len(nums) >= 2 and ft in {'Y','LT','DT','IN','雁E��管'}:
             return f'{nums[-2]}x{nums[-1]}'
         if nums:
             return nums[-1]
@@ -21150,8 +21150,8 @@ try:
     def _v82_material_for_node(mw, nid: int) -> str:
         try:
             fit = mw.model.fittings.get(int(nid))
-            if _v82_norm_ftype(getattr(fit, 'ftype', '')) == '集合管':
-                return '集合管'
+            if _v82_norm_ftype(getattr(fit, 'ftype', '')) == '雁E��管':
+                return '雁E��管'
         except Exception:
             pass
         try:
@@ -21225,14 +21225,14 @@ try:
     def _v82_is_tokushu(p: Path) -> bool:
         parts = [x.upper() for x in p.parts]
         stem = p.stem.upper()
-        return ('特' in p.parts) or ('特殊' in ''.join(p.parts)) or stem.startswith('SPECIAL_') or ('特殊' in stem)
+        return ('特' in p.parts) or ('特殁E in ''.join(p.parts)) or stem.startswith('SPECIAL_') or ('特殁E in stem)
 
     def _v82_is_current_type_file(p: Path, ftype: str) -> bool:
         ft = _v82_norm_ftype(ftype)
         stem = p.stem.upper()
         parts = [x.upper() for x in p.parts]
-        if ft == '集合管':
-            return ('集合管' in p.parts) or stem.startswith('S_') or stem.startswith('SV') or '集合' in stem
+        if ft == '雁E��管':
+            return ('雁E��管' in p.parts) or stem.startswith('S_') or stem.startswith('SV') or '雁E��' in stem
         if ft == '45°':
             return ('45' in stem) or ('45' in parts)
         token = ft.upper()
@@ -21244,7 +21244,7 @@ try:
 
     def _v82_is_reducer_file(p: Path, mat: str, edge_size: str='') -> bool:
         stem = p.stem.upper()
-        if not ('異径' in p.stem or 'IN' in stem or 'ソケット' in p.stem):
+        if not ('異征E in p.stem or 'IN' in stem or 'ソケチE��' in p.stem):
             return False
         if not _v82_path_has_material(p, mat):
             return False
@@ -21309,8 +21309,8 @@ try:
     def _v83_draw_preview_same_as_taskpane(scene, view, path: str):
         """Preview dùng cùng logic với ô preview Đối tượng đang chọn.
 
-        V82 tự scale bằng tay nên hình bị méo/xấu và thiếu P1/P2/P3/FLOW.
-        V83 giữ nguyên hình học thư viện, chỉ dùng display_point + fitInView,
+        V82 tự scale bằng tay nên hình bềEméo/xấu và thiếu P1/P2/P3/FLOW.
+        V83 giữ nguyên hình học thư viện, chềEdùng display_point + fitInView,
         đồng thời vẽ overlay connector giống MainWindow.draw_library_preview().
         """
         scene.clear()
@@ -21416,7 +21416,7 @@ try:
             right = QVBoxLayout()
             self.preview = QGraphicsView(); self.preview_scene = QGraphicsScene(self); self.preview.setScene(self.preview_scene)
             self.preview.setMinimumSize(280,170); self.preview.setBackgroundBrush(QColor(252,253,255))
-            self.info = QLabel('Chọn thư viện để xem preview')
+            self.info = QLabel('Chọn thư viện đềExem preview')
             self.info.setWordWrap(True)
             btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
             btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
@@ -21435,7 +21435,7 @@ try:
                 fit=mw.model.fittings.get(nid)
                 ftype=_v82_norm_ftype(getattr(fit,'ftype',''))
                 mat=_v82_material_for_node(mw, nid)
-                root_title = ftype if ftype == '集合管' else f'{ftype}（{mat}）'
+                root_title = ftype if ftype == '雁E��管' else f'{ftype}�E�Emat}�E�E
                 root1=QTreeWidgetItem(self.tree,[root_title])
                 current=[]
                 for p in files:
@@ -21463,7 +21463,7 @@ try:
                 mat=_v82_material_for_edge(mw, key)
                 e=next((x for x in mw.model.edges if x.key==key), None)
                 esize=str(getattr(e,'size','') or '')
-                r1=QTreeWidgetItem(self.tree,[f'異径ソケット（{mat} {esize}）'])
+                r1=QTreeWidgetItem(self.tree,[f'異征E��ケチE���E�Emat} {esize}�E�E])
                 for p in sorted([p for p in files if _v82_is_reducer_file(p, mat, esize)], key=lambda x:x.stem):
                     sz=_v82_nums_size_from_name(p.stem, 'IN')
                     _v82_add_file_item(r1, sz or p.stem, p, 'insert_reducer', sz, 'IN')
@@ -21666,16 +21666,16 @@ except Exception as _nevis_v84_err:
 # NEVIS 2.02 V85 - compact quick dialog + closed tree + VP/VU pipe display
 # =============================================================================
 # Đại ca chốt:
-# - Cửa sổ thay nhanh nhỏ gọn hơn.
-# - Cây dữ liệu mở ở trạng thái đóng, chỉ hiện nhóm chính; click mới mở.
-# - Trong thống kê vật tư: cút thoát dùng DV là đúng, nhưng ống phải hiển thị VP/VU.
-#   Vì vậy chỉ đổi dòng ống DVパイプ/DV pipe thành VP/VUパイプ; không đổi cút DV.
+# - Cửa sềEthay nhanh nhềEgọn hơn.
+# - Cây dữ liệu mềEềEtrạng thái đóng, chềEhiện nhóm chính; click mới mềE
+# - Trong thống kê vật tư: cút thoát dùng DV là đúng, nhưng ống phải hiển thềEVP/VU.
+#   Vì vậy chềEđổi dòng ống DVパイチEDV pipe thành VP/VUパイチE không đổi cút DV.
 try:
     _NEVIS_V85_ORIG_build_material_rows = getattr(MainWindow, 'build_material_rows', None)
 
     def _v85_is_pipe_item_name(name: object) -> bool:
         s = str(name or '').strip().upper()
-        return ('パイプ' in s) or ('PIPE' in s) or ('配管' in s)
+        return ('パイチE in s) or ('PIPE' in s) or ('配管' in s)
 
     def _v85_build_material_rows(self, sheet_type: str = ''):
         rows = _NEVIS_V85_ORIG_build_material_rows(self, sheet_type) if _NEVIS_V85_ORIG_build_material_rows else []
@@ -21690,8 +21690,8 @@ try:
                 # Only pipe rows are displayed as VP/VU.  DV fittings remain DV継手.
                 if mat.upper() == 'DV' and _v85_is_pipe_item_name(item):
                     row[0] = 'VP/VU'
-                    if 'パイプ' in item or 'PIPE' in item.upper():
-                        row[2] = 'VP/VUパイプ'
+                    if 'パイチE in item or 'PIPE' in item.upper():
+                        row[2] = 'VP/VUパイチE
                 out.append(row)
             except Exception:
                 out.append(r)
@@ -21729,7 +21729,7 @@ try:
                 # Select no child by default; user opens the group they want.
                 self.tree.setCurrentItem(None)
                 self.preview_scene.clear()
-                self.info.setText('Mở nhóm bên trái để chọn thư viện. Preview dùng cùng thuật toán vùng Đối tượng đang chọn.')
+                self.info.setText('MềEnhóm bên trái đềEchọn thư viện. Preview dùng cùng thuật toán vùng Đối tượng đang chọn.')
             except Exception:
                 pass
 
@@ -21745,8 +21745,8 @@ except Exception as _nevis_v85_err:
 # NEVIS 2.02 V89 - pending ghost placement for pipe quick insert
 # =============================================================================
 # Đại ca chốt luồng nhẹ:
-# - Double phải vào ống -> chọn 異径ソケット hoặc 特 -> OK: CHƯA đặt thật.
-# - Chỉ tạo vòng vàng/ghost tạm trên ống, kéo chuột phải để trượt dọc ống.
+# - Double phải vào ống -> chọn 異征E��ケチE�� hoặc 特 -> OK: CHƯA đặt thật.
+# - ChềEtạo vòng vàng/ghost tạm trên ống, kéo chuột phải đềEtrượt dọc ống.
 # - Bấm chuột trái hoặc Enter mới commit thật: cắt ống, đổi size, thống kê, refresh 1 lần.
 # - Không đụng thuật toán đổi size/cắt ống đang ổn; commit gọi lại confirm_insert_reducer()
 #   hoặc append special_equipments theo engine 特 hiện có.
@@ -21872,7 +21872,7 @@ try:
         }
         try:
             mw.select_edge(str(edge_key))
-            mw.lbl_status.setText('Đang đặt tạm: kéo chuột phải để trượt trên ống, bấm chuột trái hoặc Enter để xác nhận.')
+            mw.lbl_status.setText('Đang đặt tạm: kéo chuột phải đềEtrượt trên ống, bấm chuột trái hoặc Enter đềExác nhận.')
         except Exception:
             pass
         _v89_draw_pending_overlay(mw)
@@ -21901,7 +21901,7 @@ try:
                 except Exception: pass
                 mw.pending_reducer = {'edge_key': key, 'size': size, 't': t}
                 mw.confirm_insert_reducer()
-                try: mw.lbl_status.setText(f'Đã đặt 異径ソケット {size}.')
+                try: mw.lbl_status.setText(f'Đã đặt 異征E��ケチE�� {size}.')
                 except Exception: pass
                 return True
             if act == 'special_edge':
@@ -21946,7 +21946,7 @@ try:
                 return True
         except Exception as ex:
             try:
-                QMessageBox.warning(mw, 'NEVIS', f'Lỗi đặt thiết bị: {ex}')
+                QMessageBox.warning(mw, 'NEVIS', f'Lỗi đặt thiết bềE {ex}')
             except Exception:
                 pass
             return False
@@ -22048,7 +22048,7 @@ try:
     _NEVIS_V91_ORIG_REFRESH_LANG = getattr(MainWindow, 'refresh_language_texts', None)
 
     def _v91_disable_old_reducer_panel(self):
-        """Hide the obsolete 異径ソケット設定 panel.
+        """Hide the obsolete 異征E��ケチE��設宁Epanel.
 
         IN/特 insertion is now handled by double-right-click + ghost commit, so
         keeping this panel visible only duplicates workflow and causes extra Qt
@@ -22077,7 +22077,7 @@ try:
                 g.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
                 # Remove from the grid entirely so its row doesn't reserve
                 # any spacing/margins, which previously left a visible gap
-                # between "特殊枝配管材質" and "支持バンド設定".
+                # between "特殊枝配管材質" and "支持バンド設宁E.
                 try:
                     sgrid = getattr(self, 'g_sel', None)
                     sgrid_layout = sgrid.layout() if sgrid is not None else None
@@ -22324,10 +22324,10 @@ except Exception as _nevis_v91_err:
 # =============================================================================
 # NEVIS 2.02 V92 - quick dialog is final selection, no second special dialog
 # =============================================================================
-# Đại ca chốt: sau khi chọn trong cửa sổ "NEVIS 2.02 - Thay nhanh" thì áp dụng
-# trực tiếp.  Không gọi lại QInputDialog "Thay thiết bị đặc biệt" nữa.
+# Đại ca chốt: sau khi chọn trong cửa sềE"NEVIS 2.02 - Thay nhanh" thì áp dụng
+# trực tiếp.  Không gọi lại QInputDialog "Thay thiết bềEđặc biệt" nữa.
 # - Cút/node + nhánh 特: gán đúng file đã chọn vào special_equipments của node.
-# - Ống/edge + 異径ソケット hoặc 特: vẫn giữ pending ghost V89, không đặt thật ngay.
+# - Ống/edge + 異征E��ケチE�� hoặc 特: vẫn giữ pending ghost V89, không đặt thật ngay.
 # - Cùng loại cút: vẫn dùng lại apply_node() ổn định của vùng "Đối tượng đang chọn".
 try:
     _NEVIS_V92_PREV_APPLY_PAYLOAD = globals().get('_v82_apply_payload', None)
@@ -22517,7 +22517,7 @@ try:
 
     def _v93_update_material_table(self):
         # Rebuild the table here so the alias key always refers to the canonical
-        # system name before user replacement.  Only 品名 is editable; 種類/サイズ
+        # system name before user replacement.  Only 品名 is editable; 種顁Eサイズ
         # remain algorithmic to keep NEVIS quantity logic safe.
         try:
             rows = self.build_material_rows("")
@@ -22525,7 +22525,7 @@ try:
             self.table_mat.blockSignals(True)
             self.table_mat.setRowCount(len(rows))
             self.table_mat.setColumnCount(6)
-            self.table_mat.setHorizontalHeaderLabels(["種類", "サイズ", "品名", "単位", "数量", "備考"])
+            self.table_mat.setHorizontalHeaderLabels(["種顁E, "サイズ", "品名", "単佁E, "数釁E, "備老E])
             try:
                 self.table_mat.verticalHeader().setVisible(False)
                 self.table_mat.setWordWrap(False)
@@ -22547,7 +22547,7 @@ try:
                     if c == 2:
                         item.setData(Qt.UserRole, key)
                         item.setData(Qt.UserRole + 1, canonical_name)
-                        item.setToolTip("Có thể sửa tên hiển thị rồi bấm 'Lưu tên vật tư'.")
+                        item.setToolTip("Có thềEsửa tên hiển thềErồi bấm 'Lưu tên vật tư'.")
                         item.setFlags(item.flags() | Qt.ItemIsEditable)
                     else:
                         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
@@ -22598,7 +22598,7 @@ try:
             except Exception:
                 pass
             try:
-                QMessageBox.information(self, "NEVIS 2.02", f"Đã lưu tên vật tư.\nFile: {p}\nSửa mới: {changed}\nTrả về mặc định: {removed}")
+                QMessageBox.information(self, "NEVIS 2.02", f"Đã lưu tên vật tư.\nFile: {p}\nSửa mới: {changed}\nTrả vềEmặc định: {removed}")
             except Exception:
                 pass
             self.update_material_table()
@@ -22613,7 +22613,7 @@ try:
         try:
             if not hasattr(self, "btn_save_material_alias"):
                 self.btn_save_material_alias = QPushButton("Lưu tên vật tư")
-                self.btn_save_material_alias.setToolTip("Sửa trực tiếp cột 品名 trong bảng vật tư, rồi bấm để lưu cách gọi tên vào Library/Settings/material_alias.json")
+                self.btn_save_material_alias.setToolTip("Sửa trực tiếp cột 品名 trong bảng vật tư, rồi bấm đềElưu cách gọi tên vào Library/Settings/material_alias.json")
                 self.btn_save_material_alias.clicked.connect(lambda: _v93_save_material_alias_from_table(self))
                 lay = self.table_mat.parentWidget().layout() if self.table_mat and self.table_mat.parentWidget() else None
                 if lay is not None:
@@ -22643,11 +22643,11 @@ except Exception as _nevis_v93_err:
 # =============================================================================
 # Đại ca chốt:
 # - Khung "Đối tượng đang chọn" gọn hơn: ẩn các nút ít dùng Mặc định / Xóa cút.
-# - Thay nhanh khi double chuột phải phải hiểu đúng biến thể U/D của DL/LL,
-#   không gom chung toàn bộ DL/LL nữa.
-# - Nếu đang chọn DL UP / LL UP / size dạng 50xU thì chỉ mở đúng dòng thư viện U/UP.
-# - Nếu là D/DOWN thì ưu tiên đúng dòng D/DOWN. Nếu thư viện không có biến thể rõ ràng,
-#   fallback về danh sách cùng loại như cũ để không khóa người dùng.
+# - Thay nhanh khi double chuột phải phải hiểu đúng biến thềEU/D của DL/LL,
+#   không gom chung toàn bềEDL/LL nữa.
+# - Nếu đang chọn DL UP / LL UP / size dạng 50xU thì chềEmềEđúng dòng thư viện U/UP.
+# - Nếu là D/DOWN thì ưu tiên đúng dòng D/DOWN. Nếu thư viện không có biến thềErõ ràng,
+#   fallback vềEdanh sách cùng loại như cũ đềEkhông khóa người dùng.
 try:
     def _nevis_v94_after_init_slim_taskpane(self):
         try:
@@ -22695,7 +22695,7 @@ try:
         # Be conservative: UP/U in size like 50xU is very explicit.
         if re.search(r'(^|[^A-Z0-9])UP([^A-Z0-9]|$)', txt) or re.search(r'X\s*U($|[^A-Z0-9])', txt) or re.search(r'(^|[^A-Z0-9])U($|[^A-Z0-9])', txt):
             return 'U'
-        if '立上' in txt or '立ち上' in txt:
+        if '立丁E in txt or '立ち丁E in txt:
             return 'U'
         if re.search(r'(^|[^A-Z0-9])DOWN([^A-Z0-9]|$)', txt) or re.search(r'(^|[^A-Z0-9])D($|[^A-Z0-9])', txt):
             return 'D'
@@ -22705,7 +22705,7 @@ try:
         stem = str(getattr(p, 'stem', p)).upper()
         parent = ' '.join([str(x).upper() for x in getattr(p, 'parts', [])])
         txt = stem + ' ' + parent
-        if re.search(r'(^|[_\-\s])UP($|[_\-\s])', txt) or re.search(r'(^|[_\-\s])U($|[_\-\s])', txt) or '立上' in txt or '立ち上' in txt:
+        if re.search(r'(^|[_\-\s])UP($|[_\-\s])', txt) or re.search(r'(^|[_\-\s])U($|[_\-\s])', txt) or '立丁E in txt or '立ち丁E in txt:
             return 'U'
         if re.search(r'(^|[_\-\s])DOWN($|[_\-\s])', txt) or re.search(r'(^|[_\-\s])D($|[_\-\s])', txt):
             return 'D'
@@ -22730,7 +22730,7 @@ try:
                 mat = _v82_material_for_node(mw, nid)
                 subtype = _nevis_v94_ud_subtype_from_fit(fit) if ftype in {'DL', 'LL'} else ''
                 suffix = f' {subtype}' if subtype else ''
-                root1 = QTreeWidgetItem(self.tree, [f'{ftype}{suffix}（{mat}）'])
+                root1 = QTreeWidgetItem(self.tree, [f'{ftype}{suffix}�E�Emat}�E�E])
                 current_all = []
                 for p in files:
                     if _v82_is_tokushu(p):
@@ -22761,7 +22761,7 @@ try:
                 mat = _v82_material_for_edge(mw, key)
                 e = next((x for x in mw.model.edges if x.key == key), None)
                 esize = str(getattr(e, 'size', '') or '')
-                r1 = QTreeWidgetItem(self.tree, [f'異径ソケット（{mat} {esize}）'])
+                r1 = QTreeWidgetItem(self.tree, [f'異征E��ケチE���E�Emat} {esize}�E�E])
                 reducers = [p for p in files if _v82_is_reducer_file(p, mat, esize)]
                 for p in sorted(reducers, key=lambda x: x.stem):
                     sz = _v82_nums_size_from_name(p.stem, 'IN')
@@ -22774,7 +22774,7 @@ try:
             self.tree.collapseAll()
             self.tree.setCurrentItem(None)
             self.preview_scene.clear()
-            self.info.setText('Mở nhóm bên trái để chọn thư viện. Preview dùng cùng thuật toán vùng Đối tượng đang chọn.')
+            self.info.setText('MềEnhóm bên trái đềEchọn thư viện. Preview dùng cùng thuật toán vùng Đối tượng đang chọn.')
         except Exception as ex:
             try:
                 self.info.setText(f'Lỗi đọc thư viện: {ex}')
@@ -22800,31 +22800,31 @@ try:
     APP_TEXT.setdefault('vi', {}).update({
         'quick_replace_title': 'NEVIS 2.02 - Thay nhanh',
         'quick_library': 'Thư viện',
-        'quick_open_group_hint': 'Mở nhóm bên trái để chọn thư viện. Preview dùng cùng thuật toán vùng Đối tượng đang chọn.',
-        'quick_pick_hint': 'Chọn thư viện để xem preview',
+        'quick_open_group_hint': 'MềEnhóm bên trái đềEchọn thư viện. Preview dùng cùng thuật toán vùng Đối tượng đang chọn.',
+        'quick_pick_hint': 'Chọn thư viện đềExem preview',
         'quick_name': 'Tên',
         'quick_group': 'Nhóm',
         'quick_size': 'Size',
         'quick_path': 'Đường dẫn',
         'quick_read_error': 'Lỗi đọc thư viện',
         'quick_current_object': 'Đối tượng',
-        'quick_reducer': '異径ソケット',
+        'quick_reducer': '異征E��ケチE��',
         'quick_special': '特',
         'bom_col_kind': 'Loại',
         'bom_col_size': 'Size',
         'bom_col_name': 'Tên vật tư',
-        'bom_col_unit': 'Đơn vị',
-        'bom_col_qty': 'Số lượng',
+        'bom_col_unit': 'Đơn vềE,
+        'bom_col_qty': 'SềElượng',
         'bom_col_note': 'Ghi chú',
         'save_material_alias': 'Lưu tên vật tư',
-        'save_material_alias_tip': 'Sửa trực tiếp cột Tên vật tư rồi bấm để lưu cách gọi tên vào Library/Settings/material_alias.json',
+        'save_material_alias_tip': 'Sửa trực tiếp cột Tên vật tư rồi bấm đềElưu cách gọi tên vào Library/Settings/material_alias.json',
         'material_alias_saved_status': 'Đã lưu cách gọi tên vật tư',
         'material_alias_saved_title': 'Đã lưu tên vật tư',
         'material_alias_file': 'File',
         'material_alias_changed': 'Sửa mới',
-        'material_alias_removed': 'Trả về mặc định',
+        'material_alias_removed': 'Trả vềEmặc định',
         'material_alias_save_failed': 'Không lưu được tên vật tư',
-        'material_alias_edit_tip': 'Có thể sửa tên hiển thị rồi bấm Lưu tên vật tư.',
+        'material_alias_edit_tip': 'Có thềEsửa tên hiển thềErồi bấm Lưu tên vật tư.',
         'selected_node_prefix': 'Node',
         'selected_pipe_prefix': 'Ống',
         'preview_p1': 'P1',
@@ -22837,42 +22837,42 @@ try:
         'error': 'Lỗi',
     })
     APP_TEXT.setdefault('jp', {}).update({
-        'quick_replace_title': 'NEVIS 2.02 - クイック変更',
+        'quick_replace_title': 'NEVIS 2.02 - クイチE��変更',
         'quick_library': 'ライブラリ',
-        'quick_open_group_hint': '左のグループを開いてライブラリを選択してください。プレビューは「選択中」欄と同じ処理です。',
-        'quick_pick_hint': 'ライブラリを選択するとプレビューを表示します',
+        'quick_open_group_hint': '左のグループを開いてライブラリを選択してください。�Eレビューは「選択中」欁E��同じ処琁E��す、E,
+        'quick_pick_hint': 'ライブラリを選択するとプレビューを表示しまぁE,
         'quick_name': '名称',
-        'quick_group': 'グループ',
+        'quick_group': 'グルーチE,
         'quick_size': 'サイズ',
         'quick_path': 'パス',
         'quick_read_error': 'ライブラリ読込エラー',
         'quick_current_object': '対象',
-        'quick_reducer': '異径ソケット',
+        'quick_reducer': '異征E��ケチE��',
         'quick_special': '特',
-        'bom_col_kind': '種類',
+        'bom_col_kind': '種顁E,
         'bom_col_size': 'サイズ',
         'bom_col_name': '品名',
-        'bom_col_unit': '単位',
-        'bom_col_qty': '数量',
-        'bom_col_note': '備考',
-        'save_material_alias': '品名を保存',
-        'save_material_alias_tip': '材料表の品名を直接編集し、Library/Settings/material_alias.json に保存します',
+        'bom_col_unit': '単佁E,
+        'bom_col_qty': '数釁E,
+        'bom_col_note': '備老E,
+        'save_material_alias': '品名を保孁E,
+        'save_material_alias_tip': '材料表の品名を直接編雁E��、Library/Settings/material_alias.json に保存しまぁE,
         'material_alias_saved_status': '品名の呼び方を保存しました',
         'material_alias_saved_title': '品名を保存しました',
         'material_alias_file': 'ファイル',
         'material_alias_changed': '変更',
-        'material_alias_removed': '既定へ戻す',
+        'material_alias_removed': '既定へ戻ぁE,
         'material_alias_save_failed': '品名を保存できませんでした',
-        'material_alias_edit_tip': '表示名を編集して「品名を保存」を押してください。',
-        'selected_node_prefix': 'ノード',
+        'material_alias_edit_tip': '表示名を編雁E��て「品名を保存」を押してください、E,
+        'selected_node_prefix': 'ノ�EチE,
         'selected_pipe_prefix': '配管',
         'preview_p1': 'P1',
         'preview_p2': 'P2',
         'preview_p3': 'P3',
-        'preview_center': '中心',
-        'preview_flow': '流れ方向',
+        'preview_center': '中忁E,
+        'preview_flow': '流れ方吁E,
         'ok': 'OK',
-        'cancel': '取消',
+        'cancel': '取涁E,
         'error': 'エラー',
     })
 
@@ -22995,9 +22995,9 @@ try:
                 for i in range(root.childCount()):
                     item = root.child(i)
                     txt = item.text(0)
-                    if '異径ソケット' in txt:
+                    if '異征E��ケチE��' in txt:
                         # Preserve size/material context after the localized fixed label.
-                        extra = txt.replace('異径ソケット', '').strip()
+                        extra = txt.replace('異征E��ケチE��', '').strip()
                         item.setText(0, (mw.tr('quick_reducer') + (' ' + extra if extra else '')).strip())
                     elif txt.strip() == '特':
                         item.setText(0, mw.tr('quick_special'))
@@ -23063,7 +23063,7 @@ try:
         sizing, library, reducer, fire, support-band or JWW algorithms.
         """
         try:
-            # ---------- Common settings / 共通設定 ----------
+            # ---------- Common settings / 共通設宁E----------
             g = getattr(self, 'g_common', None)
             grid = g.layout() if g is not None else None
             if grid is not None:
@@ -23220,7 +23220,7 @@ try:
                 except Exception:
                     pass
 
-            # ---------- Support band settings / 支持バンド設定 ----------
+            # ---------- Support band settings / 支持バンド設宁E----------
             gs = getattr(self, 'g_support', None)
             sv = gs.layout() if gs is not None else None
             if sv is not None:
@@ -23350,7 +23350,7 @@ try:
             pass
 
     def _v98_order_common_panel(self):
-        """Rebuild only the visual layout of 共通設定 into a strict work order.
+        """Rebuild only the visual layout of 共通設宁Einto a strict work order.
 
         Order is: project -> system/main -> branch rule -> start/end -> fire range ->
         materials -> action buttons.  No model/size/fire calculation is touched.
@@ -23395,7 +23395,7 @@ try:
                 # spacer column (4) that absorbs any extra width.
                 # Widths recalculated from the longest label/value strings in
                 # BOTH languages, including Vietnamese "Trong phạm vi" /
-                # "Ngoài phạm vi" (~117px) and "1サイズ下げる" / "Giảm 1 bậc"
+                # "Ngoài phạm vi" (~117px) and "1サイズ下げめE / "Giảm 1 bậc"
                 # (~115px), so nothing gets truncated or overlaps.
                 for c, w in enumerate(cols):
                     grid.setColumnMinimumWidth(c, int(w))
@@ -23466,19 +23466,19 @@ try:
                 self.edit_project.setMinimumHeight(30); self.edit_project.setMaximumHeight(34)
             except Exception:
                 pass
-            # Cột 1 (lớn) chứa combo có chữ dài: 1サイズ下げる, 集合管, TMP, 1200
+            # Cột 1 (lớn) chứa combo có chữ dài: 1サイズ下げめE 雁E��管, TMP, 1200
             _v98_style_field(getattr(self,'cmb_branch_rule',None), c1, c1 + 45)
             _v98_style_field(getattr(self,'cmb_start_fitting',None), c1, c1 + 30)
             _v98_style_field(getattr(self,'cmb_fire_mat',None), c1, c1 + 30)
             _v98_style_field(getattr(self,'edit_fire_len',None), max(60, c2 - 20), c2)
 
-            # Cột 3 (nhỏ) chứa giá trị ngắn: 65, 50, DL UP, DV
-            # -> MIN nhỏ hơn MAX để không bị "nở" lấp đầy cả cột so với label.
+            # Cột 3 (nhềE chứa giá trềEngắn: 65, 50, DL UP, DV
+            # -> MIN nhềEhơn MAX đềEkhông bềE"nềE lấp đầy cả cột so với label.
             _v98_style_field(getattr(self,'cmb_main_size',None), max(60, c3 - 55), c3)
             _v98_style_field(getattr(self,'cmb_branch_size',None), max(60, c3 - 55), c3)
             _v98_style_field(getattr(self,'cmb_terminal',None), max(60, c3 - 45), c3)
             _v98_style_field(getattr(self,'cmb_normal_mat',None), max(60, c3 - 55), c3)
-            # Căn trái các combo giá trị ngắn trong ô của chúng (cột 3)
+            # Căn trái các combo giá trềEngắn trong ô của chúng (cột 3)
             for _nm in ('cmb_main_size','cmb_branch_size','cmb_terminal','cmb_normal_mat'):
                 _w = getattr(self, _nm, None)
                 if _w is not None:
@@ -23573,17 +23573,17 @@ def _nevis_deep_remove_widget(root_layout, widget):
 # gọi nó sau _build_ui(), ví dụ trong _v98_build_ui:
 #     apply_custom_layout(self)
 #
-# LƯU Ý: nếu widget thuộc g_common, mỗi lần đổi ngôn ngữ
-# (_v98_order_common_panel chạy lại) sẽ RESET vị trí về mặc định.
+# LƯU ÁE nếu widget thuộc g_common, mỗi lần đổi ngôn ngữ
+# (_v98_order_common_panel chạy lại) sẽ RESET vềEtrí vềEmặc định.
 # Nếu cần giữ khi đổi ngôn ngữ, gọi apply_custom_layout(self) lại
 # ngay sau self.refresh_language_texts(), hoặc copy thủ công các
-# số row/col/span dưới đây vào trong _v98_order_common_panel().
+# sềErow/col/span dưới đây vào trong _v98_order_common_panel().
 def apply_custom_layout(self):
     """NEVIS left common panel layout patch: fixed 450px left panel.
 
-    共通設定 dùng 4 cột thật + 3 cột đệm:
-    C1 nhỏ, C2/C3 rộng hơn, C4 đủ cho size/DL UP.
-    Chỉ thay đổi bố cục UI, không đụng thuật toán.
+    共通設宁Edùng 4 cột thật + 3 cột đệm:
+    C1 nhềE C2/C3 rộng hơn, C4 đủ cho size/DL UP.
+    ChềEthay đổi bềEcục UI, không đụng thuật toán.
     """
     try:
         lay = self.g_common.layout()
@@ -23602,7 +23602,7 @@ def apply_custom_layout(self):
 
         try:
             lay.setContentsMargins(10, 18, 10, 10)
-            lay.setHorizontalSpacing(0)   # khoảng hở dùng bằng cột đệm GAP
+            lay.setHorizontalSpacing(0)   # khoảng hềEdùng bằng cột đệm GAP
             lay.setVerticalSpacing(8)
 
             for c in range(8):
@@ -23675,30 +23675,30 @@ def apply_custom_layout(self):
         put('lbl_project', 0, 0)
         put('edit_project', 0, 1, 1, 3, align=Qt.AlignLeft | Qt.AlignVCenter)
 
-        # Row 1: 系統 cố định 2 cột + 主管サイズ + combobox.
+        # Row 1: 系統 cềEđịnh 2 cột + 主管サイズ + combobox.
         put('lbl_fixed_system', 1, 0, 1, 2)
         put('lbl_main_size', 1, 2)
         put('cmb_main_size', 1, 3)
 
-        # Row 2: 主管サイズ / 1サイズ下げる / 枝サイズ / size.
+        # Row 2: 主管サイズ / 1サイズ下げめE/ 枝サイズ / size.
         put('lbl_branch_rule', 2, 0)
         put('cmb_branch_rule', 2, 1)
         put('lbl_branch_size_v98', 2, 2)
         put('cmb_branch_size', 2, 3)
 
-        # Row 3: 枝始点 / 集合管 / 枝端部 / DL UP.
+        # Row 3: 枝始点 / 雁E��管 / 枝端部 / DL UP.
         put('lbl_start_fitting', 3, 0)
         put('cmb_start_fitting', 3, 1)
         put('lbl_terminal', 3, 2)
         put('cmb_terminal', 3, 3)
 
-        # Row 4: 防火適用 / 範囲 / 1200 / mm.
+        # Row 4: 防火適用 / 篁E�� / 1200 / mm.
         put('chk_fire', 4, 0)
         put('lbl_fire_len', 4, 1)
         put('edit_fire_len', 4, 2, align=Qt.AlignLeft | Qt.AlignVCenter)
         put('lbl_fire_unit', 4, 3, align=Qt.AlignLeft | Qt.AlignVCenter)
 
-        # Row 5: 範囲内 / TMP / 範囲外 / DV.
+        # Row 5: 篁E��冁E/ TMP / 篁E��夁E/ DV.
         put('lbl_inside', 5, 0)
         put('cmb_fire_mat', 5, 1)
         put('lbl_outside', 5, 2)
@@ -23708,7 +23708,7 @@ def apply_custom_layout(self):
         put('btn_common_list', 6, 0, 1, 2)
         put('btn_apply_common', 6, 2, 1, 2)
 
-        # Style/align giữ đồng nhất, tránh chữ bị dồn về mép.
+        # Style/align giữ đồng nhất, tránh chữ bềEdồn vềEmép.
         for name in (
             'lbl_project', 'lbl_fixed_system', 'lbl_main_size',
             'lbl_branch_rule', 'lbl_branch_size_v98', 'lbl_start_fitting',
@@ -23722,7 +23722,7 @@ def apply_custom_layout(self):
                 except Exception:
                     pass
 
-        # Ẩn combo hệ thống cũ nếu còn tồn tại.
+        # Ẩn combo hềEthống cũ nếu còn tồn tại.
         try:
             if hasattr(self, 'lbl_system'):
                 self.lbl_system.setVisible(False)
@@ -23731,7 +23731,7 @@ def apply_custom_layout(self):
         except Exception:
             pass
 
-        # Khóa các group bên trái theo panel 450, không để ruột tự bung.
+        # Khóa các group bên trái theo panel 450, không đềEruột tự bung.
         for gname in ('g_common', 'g_sel', 'g_branch_mat', 'g_support'):
             g = getattr(self, gname, None)
             if g is not None:
@@ -23742,7 +23742,7 @@ def apply_custom_layout(self):
                 except Exception:
                     pass
 
-        # Các hint dài ở vùng dưới không ép bung panel.
+        # Các hint dài ềEvùng dưới không ép bung panel.
         for name, group_name, args in (
             ('lbl_branch_mat_hint', 'g_branch_mat', ('insert', 1)),
             ('lbl_support_hint', 'g_support', ('grid', 2, 0, 1, 5)),
@@ -23813,9 +23813,9 @@ def apply_custom_layout(self):
 # =============================================================================
 # NEVIS 2.02 V102 - Quick replace branch-start choices
 # =============================================================================
-# Branch start must not be locked to 集合管 only.  When right-double-clicking a
-# branch-start node, show four selectable groups: 集合管 / DL_D / LL_D / 特.
-# 集合管 files are grouped by actual port count/shape so repeated size names are
+# Branch start must not be locked to 雁E��管 only.  When right-double-clicking a
+# branch-start node, show four selectable groups: 雁E��管 / DL_D / LL_D / 特.
+# 雁E��管 files are grouped by actual port count/shape so repeated size names are
 # readable: 1 cửa, 2 cửa thẳng, 2 cửa vuông góc, 3 cửa.
 try:
     if '_NevisV82QuickReplaceDialog' in globals():
@@ -23837,22 +23837,22 @@ try:
         def _nevis_v102_node_pipe_material(mw, nid: int) -> str:
             """Material used to find DL_D/LL_D alternatives at a start node.
 
-            集合管 itself is material-independent, but DL/LL_D alternatives still
+            雁E��管 itself is material-independent, but DL/LL_D alternatives still
             belong to the nearby pipe material.  Do not reuse _v82_material_for_node
-            when it returns 集合管.
+            when it returns 雁E��管.
             """
             try:
                 for nb in mw.model.neighbors(int(nid)):
                     e = edge_obj(mw.model, int(nid), nb)
                     if e is not None:
                         mat = str(mw.edge_material(e) if hasattr(mw, 'edge_material') else '').strip()
-                        if mat and mat != '集合管':
+                        if mat and mat != '雁E��管':
                             return mat
             except Exception:
                 pass
             try:
                 mat = str(mw.edge_material_for_node(int(nid)) or '').strip()
-                if mat and mat != '集合管':
+                if mat and mat != '雁E��管':
                     return mat
             except Exception:
                 pass
@@ -23868,22 +23868,22 @@ try:
             lang = _nevis_v102_lang(mw)
             labels = {
                 'vi': {
-                    'collection': '集合管',
+                    'collection': '雁E��管',
                     'one': '1 cửa',
                     'straight2': '2 cửa thẳng',
                     'corner2': '2 cửa vuông góc',
                     'review2': '2 cửa / cần xem preview',
                     'three': '3 cửa',
-                    'hint': 'Mở nhóm bên trái để chọn thư viện.',
+                    'hint': 'MềEnhóm bên trái đềEchọn thư viện.',
                 },
                 'jp': {
-                    'collection': '集合管',
+                    'collection': '雁E��管',
                     'one': '1口',
-                    'straight2': '2口・直線',
-                    'corner2': '2口・直角',
-                    'review2': '2口・要確認',
+                    'straight2': '2口・直緁E,
+                    'corner2': '2口・直见E,
+                    'review2': '2口・要確誁E,
                     'three': '3口',
-                    'hint': '左のグループを開いてライブラリを選択してください。',
+                    'hint': '左のグループを開いてライブラリを選択してください、E,
                 },
             }
             return labels.get(lang, labels['vi']).get(key, key)
@@ -23896,15 +23896,15 @@ try:
                     return True
             except Exception:
                 pass
-            return _v82_norm_ftype(ftype) == '集合管'
+            return _v82_norm_ftype(ftype) == '雁E��管'
 
         def _nevis_v102_collection_info(path: Path, mw=None):
-            """Return (group_label, size_label, port_count) for a 集合管 file.
+            """Return (group_label, size_label, port_count) for a 雁E��管 file.
 
             Library naming rule used by NEVIS drainage:
             - S_65          : 1口 / 1 cửa
-            - S_65_50       : 2口直線 / 2 cửa thẳng
-            - SV_65_50      : 2口直角 / 2 cửa vuông góc
+            - S_65_50       : 2口直緁E/ 2 cửa thẳng
+            - SV_65_50      : 2口直见E/ 2 cửa vuông góc
             - S3_65_50_75   : 3口 / 3 cửa
 
             JSON port count is used as extra confirmation, but SV is never 3 cửa.
@@ -23984,7 +23984,7 @@ try:
                 try:
                     if _v82_is_tokushu(p):
                         continue
-                    if not _v82_is_current_type_file(p, '集合管'):
+                    if not _v82_is_current_type_file(p, '雁E��管'):
                         continue
                     group, size_label, _pc = _nevis_v102_collection_info(p, mw)
                     buckets.setdefault(group, []).append((size_label, p))
@@ -23998,7 +23998,7 @@ try:
                 used = set()
                 for size_label, p in sorted(vals, key=_nevis_v102_sort_key_from_title):
                     title = _nevis_v102_unique_title(used, size_label or Path(p).stem, Path(p))
-                    _v82_add_file_item(gr, title, Path(p), 'apply_same_type', size_label, '集合管')
+                    _v82_add_file_item(gr, title, Path(p), 'apply_same_type', size_label, '雁E��管')
             return root
 
         def _nevis_v102_add_down_group(tree, files, label: str, base_type: str, mat: str):
@@ -24217,7 +24217,7 @@ except Exception as _nevis_v103_err:
 # =============================================================================
 # NEVIS 2.02 V107S - safe startup + lightweight selection cache
 # =============================================================================
-# Patch này chỉ giảm lag khi chọn đối tượng/preview thư viện.  Nó không đổi thuật
+# Patch này chềEgiảm lag khi chọn đối tượng/preview thư viện.  Nó không đổi thuật
 # toán tính tuyến, tính size, trim miệng cút hay xuất JWW.
 try:
     def _nevis_v107s_lower_size(mw, size: str) -> str:
@@ -24393,9 +24393,9 @@ except Exception as _nevis_v107s_err:
 # =============================================================================
 # NEVIS 2.02 V108 - collection fitting BOM is material-independent
 # =============================================================================
-# 集合管 is a special device.  Even when it is located inside the fire-protection
+# 雁E��管 is a special device.  Even when it is located inside the fire-protection
 # range, it must not be listed as TMP/DV/VP-VU in the material table.  Keep size,
-# name, unit and quantity, but leave 種類 blank.
+# name, unit and quantity, but leave 種顁Eblank.
 try:
     _NEVIS_V108_PREV_BUILD_MATERIAL_ROWS = getattr(MainWindow, 'build_material_rows', None)
 
@@ -24407,9 +24407,9 @@ try:
             name = str(vals[2] or '').strip()
             note = str(vals[5] or '').strip()
             blob = f'{mat} {size} {name} {note}'.upper()
-            if '集合管' in blob:
+            if '雁E��管' in blob:
                 return True
-            # Library names for 集合管 are commonly S_*, SV_* or S3_*.
+            # Library names for 雁E��管 are commonly S_*, SV_* or S3_*.
             # Keep this narrow so normal pipe/fitting rows are not affected.
             name2 = name.upper().replace('-', '_').replace(' ', '_')
             return bool(re.search(r'(^|_)S3?(_|$)', name2) or re.search(r'(^|_)SV(_|$)', name2))
@@ -24426,9 +24426,9 @@ try:
                     row.append('')
                 if _nevis_v108_is_collection_bom_row(row):
                     row[0] = ''
-                    # 集合管 is counted as an individual fitting/device.
+                    # 雁E��管 is counted as an individual fitting/device.
                     if not str(row[3] or '').strip():
-                        row[3] = '個'
+                        row[3] = '倁E
                 out.append(row)
             except Exception:
                 out.append(r)
@@ -24447,17 +24447,17 @@ except Exception as _nevis_v108_err:
 # Show that limitation as a short orange badge, localized by current UI language.
 try:
     APP_TEXT.setdefault('vi', {}).update({
-        'fixed_system': 'Đường ống thoát dưới sàn cho căn hộ',
+        'fixed_system': 'Đường ống thoát dưới sàn cho căn hềE,
     })
     APP_TEXT.setdefault('jp', {}).update({
-        'fixed_system': '住宅排水転がし配管専用',
+        'fixed_system': '住宁E��水転がし配管専用',
     })
 
     def _nevis_v109_fixed_system_text(mw) -> str:
         try:
             return mw.tr('fixed_system')
         except Exception:
-            return '住宅排水転がし配管専用'
+            return '住宁E��水転がし配管専用'
 
     def _nevis_v109_style_fixed_system(mw):
         try:
@@ -24473,7 +24473,7 @@ try:
                 'border:1px solid #F0A34A; border-radius:6px; padding:3px 7px;'
             )
             try:
-                w.setToolTip('住宅排水転がし配管専用' if getattr(mw, 'lang', 'jp') != 'vi' else 'Đường ống thoát dưới sàn cho căn hộ.')
+                w.setToolTip('住宁E��水転がし配管専用' if getattr(mw, 'lang', 'jp') != 'vi' else 'Đường ống thoát dưới sàn cho căn hềE')
             except Exception:
                 pass
         except Exception:
@@ -24642,9 +24642,9 @@ try:
             if parts:
                 for part in parts:
                     item_name = mw.material_kind_name(part) if hasattr(mw, 'material_kind_name') else part
-                    rows.append([mat, size, item_name, '個', qty, ''])
+                    rows.append([mat, size, item_name, '倁E, qty, ''])
             else:
-                rows.append([mat, size, name, '個', qty, '特'])
+                rows.append([mat, size, name, '倁E, qty, '特'])
         except Exception:
             pass
         return rows
@@ -24696,7 +24696,7 @@ try:
             mat = str(r.get('mat', sp.get('mat', '')) or '').strip()
             size = str(r.get('size', sp.get('size', '')) or '').strip()
             name = str(r.get('name', '') or '').strip()
-            unit = str(r.get('unit', '個') or '個').strip()
+            unit = str(r.get('unit', '倁E) or '倁E).strip()
             note = str(r.get('note', '特') or '').strip()
             try:
                 qty = float(r.get('qty', 1) or 1) * mult
@@ -24777,17 +24777,17 @@ try:
             right.addWidget(self.info)
 
             self.table = QTableWidget(0, 6)
-            self.table.setHorizontalHeaderLabels(['種類', 'サイズ', '品名', '単位', '数量', '備考'])
+            self.table.setHorizontalHeaderLabels(['種顁E, 'サイズ', '品名', '単佁E, '数釁E, '備老E])
             self.table.horizontalHeader().setStretchLastSection(True)
             right.addWidget(self.table, 1)
 
             btns = QHBoxLayout()
-            self.btn_new = QPushButton('新規/1行')
+            self.btn_new = QPushButton('新要E1衁E)
             self.btn_combo = QPushButton('45°+45° mẫu')
-            self.btn_add = QPushButton('+ 行')
-            self.btn_del = QPushButton('- 行')
-            self.btn_save = QPushButton('保存')
-            self.btn_close = QPushButton('閉じる')
+            self.btn_add = QPushButton('+ 衁E)
+            self.btn_del = QPushButton('- 衁E)
+            self.btn_save = QPushButton('保孁E)
+            self.btn_close = QPushButton('閉じめE)
             for b in (self.btn_new, self.btn_combo, self.btn_add, self.btn_del, self.btn_save, self.btn_close):
                 btns.addWidget(b)
             right.addLayout(btns)
@@ -24795,7 +24795,7 @@ try:
 
             self.btn_new.clicked.connect(self._default_one_row)
             self.btn_combo.clicked.connect(self._default_combo_rows)
-            self.btn_add.clicked.connect(lambda: self._add_row('', '', '', '個', 1, '特'))
+            self.btn_add.clicked.connect(lambda: self._add_row('', '', '', '倁E, 1, '特'))
             self.btn_del.clicked.connect(self._delete_row)
             self.btn_save.clicked.connect(self._save_current)
             self.btn_close.clicked.connect(self.accept)
@@ -24817,7 +24817,7 @@ try:
                     path = str(f.get('path','') or '')
                     keys = [_nevis_v111_rel_key(path), Path(path).name if path else '', Path(path).stem if path else '']
                     if any(k in self.defs for k in keys):
-                        it.setText(0, '✓ ' + title)
+                        it.setText(0, '✁E' + title)
             self.tree.expandAll()
 
         def _on_current(self, cur, old=None):
@@ -24865,11 +24865,11 @@ try:
             rec = next((self.defs.get(k) for k in keys if isinstance(self.defs.get(k), dict)), None)
             if rec:
                 for r in rec.get('rows', []):
-                    self._add_row(r.get('mat',''), r.get('size',''), r.get('name',''), r.get('unit','個'), r.get('qty',1), r.get('note','特'))
+                    self._add_row(r.get('mat',''), r.get('size',''), r.get('name',''), r.get('unit','倁E), r.get('qty',1), r.get('note','特'))
             else:
                 self._default_guess_rows(data)
 
-        def _add_row(self, mat, size, name, unit='個', qty=1, note='特'):
+        def _add_row(self, mat, size, name, unit='倁E, qty=1, note='特'):
             row = self.table.rowCount()
             self.table.insertRow(row)
             vals = [mat, size, name, unit, qty, note]
@@ -24890,21 +24890,21 @@ try:
             if parts:
                 for part in parts:
                     item = self.mw.material_kind_name(part) if hasattr(self.mw, 'material_kind_name') else part
-                    self._add_row(mat, size, item, '個', 1, '特')
+                    self._add_row(mat, size, item, '倁E, 1, '特')
             else:
-                self._add_row(mat, size, name, '個', 1, '特')
+                self._add_row(mat, size, name, '倁E, 1, '特')
 
         def _default_one_row(self):
             data = self._current_file_data()
             self.table.setRowCount(0)
-            self._add_row(data.get('mat',''), data.get('size',''), data.get('name',''), '個', 1, '特')
+            self._add_row(data.get('mat',''), data.get('size',''), data.get('name',''), '倁E, 1, '特')
 
         def _default_combo_rows(self):
             data = self._current_file_data()
             self.table.setRowCount(0)
             mat = data.get('mat',''); size = data.get('size','')
             name45 = self.mw.material_kind_name('45°') if hasattr(self.mw, 'material_kind_name') else '45°'
-            self._add_row(mat, size, name45, '個', 2, '特')
+            self._add_row(mat, size, name45, '倁E, 2, '特')
 
         def _delete_row(self):
             rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -24928,7 +24928,7 @@ try:
                     qty = float(vals[4] or 1)
                 except Exception:
                     qty = 1
-                rows.append({'mat': vals[0], 'size': vals[1], 'name': vals[2], 'unit': vals[3] or '個', 'qty': qty, 'note': vals[5]})
+                rows.append({'mat': vals[0], 'size': vals[1], 'name': vals[2], 'unit': vals[3] or '倁E, 'qty': qty, 'note': vals[5]})
             if not rows:
                 QMessageBox.warning(self, 'NEVIS', 'Chưa có dòng vật tư.')
                 return
@@ -25014,14 +25014,14 @@ try:
         try:
             vals = list(row) + [''] * 6
             blob = ' '.join(str(v or '') for v in vals[:6])
-            deferred_tokens = ('TMP', 'トミジ', '耐火二層管', '耐火VP', '耐火DV', '集合管')
+            deferred_tokens = ('TMP', 'トミジ', '耐火二層管', '耐火VP', '耐火DV', '雁E��管')
             return any(tok in blob for tok in deferred_tokens)
         except Exception:
             return True
 
     def _nevis_203_bom_is_pipe_item(name: object) -> bool:
         s = str(name or '').strip().upper()
-        return ('パイプ' in s) or ('PIPE' in s) or ('配管' in s)
+        return ('パイチE in s) or ('PIPE' in s) or ('配管' in s)
 
     def _nevis_203_bom_is_standard_fitting_item(name: object) -> bool:
         s = str(name or '').strip().upper()
@@ -25029,8 +25029,8 @@ try:
             return False
         return (
             ('継手' in s) or
-            ('エルボ' in s) or
-            ('ソケット' in s) or
+            ('エルチE in s) or
+            ('ソケチE��' in s) or
             ('ブッシング' in s) or
             s.startswith('45')
         )
@@ -25039,7 +25039,7 @@ try:
         s = str(size or '').strip()
         if not s:
             return ''
-        s2 = s.upper().replace('×', 'X').replace('*', 'X')
+        s2 = s.upper().replace('ÁE, 'X').replace('*', 'X')
         nums = re.findall(r'\d+', s2)
         if len(nums) >= 2:
             return f'{nums[0]}x{nums[1]}'
@@ -25056,8 +25056,8 @@ try:
         unit_s = str(unit or '').strip()
 
         if mat_s == '耐火VP' and unit_s == 'm' and _nevis_203_bom_is_pipe_item(item_s):
-            return [mat_s, size_s, '耐火VP パイプ', unit_s, qty, note]
-        if mat_s == '耐火VP' and unit_s == '個' and _nevis_203_bom_is_standard_fitting_item(item_s):
+            return [mat_s, size_s, '耐火VP パイチE, unit_s, qty, note]
+        if mat_s == '耐火VP' and unit_s == '倁E and _nevis_203_bom_is_standard_fitting_item(item_s):
             return ['耐火DV', size_s, item_s, unit_s, qty, note]
 
         if _nevis_203_bom_is_deferred_material_row(vals):
@@ -25067,7 +25067,7 @@ try:
         if mat_s in normal_mats:
             if _nevis_203_bom_is_pipe_item(item_s):
                 mat_s = 'VP/VU'
-                item_s = 'VP/VU パイプ'
+                item_s = 'VP/VU パイチE
             elif _nevis_203_bom_is_standard_fitting_item(item_s):
                 mat_s = 'DV'
 
@@ -25119,7 +25119,7 @@ try:
             if not row:
                 continue
             try:
-                if str(row[3]) == '個' and abs(float(row[4]) - round(float(row[4]))) < 1e-9:
+                if str(row[3]) == '倁E and abs(float(row[4]) - round(float(row[4]))) < 1e-9:
                     row[4] = int(round(float(row[4])))
                 elif isinstance(row[4], float):
                     row[4] = round(row[4], 3)
@@ -25248,7 +25248,7 @@ APP_TEXT.setdefault("vi", {}).update({
     "pipe_check_close": "Đóng",
     "pipe_check_error_count": "Lỗi: {count}",
     "pipe_check_warning_count": "Cảnh báo: {count}",
-    "pipe_check_col_severity": "Mức độ",
+    "pipe_check_col_severity": "Mức đềE,
     "pipe_check_col_item": "Loại lỗi",
     "pipe_check_col_target": "Đối tượng",
     "pipe_check_col_message": "Nội dung",
@@ -25257,7 +25257,7 @@ APP_TEXT.setdefault("vi", {}).update({
     "pipe_check_item_library": "Cỡ hoặc vật liệu ống",
     "pipe_check_item_fitting": "Phụ kiện",
     "pipe_check_item_bom": "Bảng vật tư",
-    "pipe_check_item_slope": "Định dạng độ dốc",
+    "pipe_check_item_slope": "Định dạng đềEdốc",
     "pipe_check_target_pipe": "Ống {id}",
     "pipe_check_target_fitting": "Phụ kiện {id}",
     "pipe_check_target_bom": "Bảng vật tư",
@@ -25267,37 +25267,37 @@ APP_TEXT.setdefault("vi", {}).update({
     "pipe_check_fitting_library_missing": "{ftype} {size}: thiếu thư viện",
     "pipe_check_fitting_size_missing": "{ftype} {size}: không có trong thư viện",
     "pipe_check_bom_mismatch": "Bảng vật tư chưa khớp model",
-    "pipe_check_slope_format": "Độ dốc phải có dạng 1/N",
-    "pipe_check_empty": "Không phát hiện vấn đề trong dữ liệu ống.",
+    "pipe_check_slope_format": "ĐềEdốc phải có dạng 1/N",
+    "pipe_check_empty": "Không phát hiện vấn đềEtrong dữ liệu ống.",
 })
 APP_TEXT.setdefault("jp", {}).update({
-    "pipe_check_button": "配管チェック",
-    "pipe_check_title": "配管チェック結果",
-    "pipe_check_recheck": "再チェック",
-    "pipe_check_close": "閉じる",
+    "pipe_check_button": "配管チェチE��",
+    "pipe_check_title": "配管チェチE��結果",
+    "pipe_check_recheck": "再チェチE��",
+    "pipe_check_close": "閉じめE,
     "pipe_check_error_count": "エラー: {count}",
-    "pipe_check_warning_count": "警告: {count}",
+    "pipe_check_warning_count": "警呁E {count}",
     "pipe_check_col_severity": "重要度",
-    "pipe_check_col_item": "チェック項目",
+    "pipe_check_col_item": "チェチE��頁E��",
     "pipe_check_col_target": "対象",
-    "pipe_check_col_message": "内容",
+    "pipe_check_col_message": "冁E��",
     "pipe_check_severity_error": "エラー",
-    "pipe_check_severity_warning": "警告",
+    "pipe_check_severity_warning": "警呁E,
     "pipe_check_item_library": "管サイズ・材質",
     "pipe_check_item_fitting": "継手",
     "pipe_check_item_bom": "数量表",
-    "pipe_check_item_slope": "勾配形式",
+    "pipe_check_item_slope": "勾配形弁E,
     "pipe_check_target_pipe": "配管 {id}",
     "pipe_check_target_fitting": "継手 {id}",
     "pipe_check_target_bom": "数量表",
-    "pipe_check_missing_size": "管サイズ未設定",
-    "pipe_check_size_missing": "{material}: サイズ{size}なし",
-    "pipe_check_fitting_incomplete": "継手の種類/サイズ未設定",
-    "pipe_check_fitting_library_missing": "{ftype} {size}: ライブラリなし",
-    "pipe_check_fitting_size_missing": "{ftype} {size}: 該当サイズなし",
-    "pipe_check_bom_mismatch": "数量表がモデルと未一致",
-    "pipe_check_slope_format": "勾配は1/N形式",
-    "pipe_check_empty": "配管データに問題は見つかりませんでした。",
+    "pipe_check_missing_size": "管サイズ未設宁E,
+    "pipe_check_size_missing": "{material}: サイズ{size}なぁE,
+    "pipe_check_fitting_incomplete": "継手の種顁Eサイズ未設宁E,
+    "pipe_check_fitting_library_missing": "{ftype} {size}: ライブラリなぁE,
+    "pipe_check_fitting_size_missing": "{ftype} {size}: 該当サイズなぁE,
+    "pipe_check_bom_mismatch": "数量表がモチE��と未一致",
+    "pipe_check_slope_format": "勾配�E1/N形弁E,
+    "pipe_check_empty": "配管チE�Eタに問題�E見つかりませんでした、E,
 })
 
 
@@ -25459,9 +25459,9 @@ def build_pipe_quick_check_issues(main_window: object) -> List[Dict[str, object]
                     available_sizes = list(main_window.library_sizes(pipe, ftype) or [])
                 except Exception:
                     pass
-                requested_size = str(size).strip().replace("×", "x").lower()
+                requested_size = str(size).strip().replace("ÁE, "x").lower()
                 normalized_available = {
-                    str(value).strip().replace("×", "x").lower()
+                    str(value).strip().replace("ÁE, "x").lower()
                     for value in available_sizes
                 }
                 size_missing = bool(normalized_available and requested_size not in normalized_available)
@@ -25766,7 +25766,7 @@ def _nevis_render_reference_pdf(path: str, parent=None) -> QPixmap:
         import fitz
     except ImportError as exc:
         raise RuntimeError(
-            "Không thể nạp PDF vì thiếu PyMuPDF (fitz). Ảnh PNG/JPG vẫn có thể sử dụng."
+            "Không thềEnạp PDF vì thiếu PyMuPDF (fitz). Ảnh PNG/JPG vẫn có thềEsử dụng."
         ) from exc
 
     try:
@@ -25783,7 +25783,7 @@ def _nevis_render_reference_pdf(path: str, parent=None) -> QPixmap:
             pixmap.loadFromData(rendered.tobytes("png"), "PNG")
             return pixmap
     except Exception as exc:
-        raise RuntimeError(f"Không thể render trang đầu PDF: {exc}") from exc
+        raise RuntimeError(f"Không thềErender trang đầu PDF: {exc}") from exc
 
 
 def _nevis_reference_background_item(self):
@@ -25835,7 +25835,7 @@ def _nevis_start_reference_background_alignment(self, checked: bool = False) -> 
         _nevis_cancel_reference_background_alignment(self)
         return
     if item is None or not item.isVisible():
-        _nevis_cancel_reference_background_alignment(self, "Vui lòng nạp và hiển thị nền PDF/ảnh")
+        _nevis_cancel_reference_background_alignment(self, "Vui lòng nạp và hiển thềEnền PDF/ảnh")
         return
     self._reference_background_aligning = True
     self._reference_background_align_point_a = None
@@ -25855,7 +25855,7 @@ def _nevis_handle_reference_background_alignment_click(self, scene_point) -> boo
         return False
     item = _nevis_reference_background_item(self)
     if item is None or not item.isVisible():
-        _nevis_cancel_reference_background_alignment(self, "Nền PDF/ảnh không còn hiển thị")
+        _nevis_cancel_reference_background_alignment(self, "Nền PDF/ảnh không còn hiển thềE)
         return True
     if not _nevis_reference_background_contains_scene_point(item, scene_point):
         _nevis_reference_background_status(self, "Hãy click điểm nằm trên nền PDF/ảnh")
@@ -25903,7 +25903,7 @@ def _nevis_handle_reference_background_alignment_click(self, scene_point) -> boo
     _nevis_cancel_reference_background_alignment(self, "")
     _nevis_reference_background_status(
         self,
-        f"Đã căn thẳng về {abs(target_angle):.0f}° | Góc nền: {new_rotation:.2f}°",
+        f"Đã căn thẳng vềE{abs(target_angle):.0f}° | Góc nền: {new_rotation:.2f}°",
     )
     return True
 
@@ -25931,7 +25931,7 @@ def _nevis_ensure_reference_background(self) -> None:
 def _nevis_open_reference_background(self) -> None:
     path, _ = QFileDialog.getOpenFileName(
         self,
-        "Mở nền PDF/ảnh",
+        "MềEnền PDF/ảnh",
         "",
         "PDF/Ảnh (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff);;Tất cả (*.*)",
     )
@@ -25943,7 +25943,7 @@ def _nevis_open_reference_background(self) -> None:
         QMessageBox.warning(self, "Nền PDF/ảnh", str(exc))
         return
     if pixmap.isNull():
-        QMessageBox.warning(self, "Nền PDF/ảnh", "Không thể render file nền đã chọn.")
+        QMessageBox.warning(self, "Nền PDF/ảnh", "Không thềErender file nền đã chọn.")
         return
     self._reference_background_pixmap = pixmap
     self._reference_background_path = path
@@ -26136,9 +26136,9 @@ def main():
     else:
         if not ensure_activation_or_show():
             sys.exit(2)
-    # BẢN THƯỜNG / 通常版:
-    # Không kiểm tra license.dat để tiện test, copy thư mục, chạy nội bộ.
-    # Khi phát hành bản khóa máy, bật lại hàm nevis_license_valid() ở bản license.
+    # BẢN THƯỜNG / 通常牁E
+    # Không kiểm tra license.dat đềEtiện test, copy thư mục, chạy nội bềE
+    # Khi phát hành bản khóa máy, bật lại hàm nevis_license_valid() ềEbản license.
     temp = sys.argv[1] if len(sys.argv)>1 else None
     w = MainWindow(temp)
     w.show()
