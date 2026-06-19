@@ -28009,10 +28009,11 @@ def _nevis_t19_build_ui(self):
     for i, etype in enumerate(_NEVIS_T19_STRUCTURAL_TYPES):
         btn = QPushButton(labels.get(etype, etype))
         btn.setCheckable(True)
-        btn.setMinimumHeight(28)
+        btn.setFixedHeight(24)
+        btn.setStyleSheet("font-size:11px; padding:0 2px;")
         btn.setProperty("structural_type", etype)
         self._type_btn_group.addButton(btn)
-        type_grid.addWidget(btn, i // 2, i % 2)
+        type_grid.addWidget(btn, i // 3, i % 3)
         self._type_btns[etype] = btn
         btn.clicked.connect(lambda checked, et=etype: self._on_type_btn_clicked(et))
     # Select default
@@ -28803,6 +28804,7 @@ def _nevis_t23c_set_workspace_mode(self, mode: str) -> None:
         try:
             inner = self.left_scroll.widget()
             if inner is not None:
+                inner.setMinimumWidth(w)
                 inner.setMaximumWidth(w)
         except AttributeError:
             pass
