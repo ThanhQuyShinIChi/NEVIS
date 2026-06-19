@@ -26046,14 +26046,67 @@ PreviewView.mousePressEvent = _nevis_reference_background_mouse_press
 # =============================================================================
 # Structural element rectangle drawing
 # =============================================================================
-_NEVIS_STRUCTURAL_TYPE_LABELS = {
-    "slab": "Sàn / スラブ",
-    "beam": "Dầm / 梁",
-    "column": "Cột / 柱",
-    "wall_rc": "Tường RC / RC壁",
-    "wall_lgs": "Vách LGS / 軽量鉄骨壁",
-    "ceiling": "Trần / 天井",
-}
+APP_TEXT.setdefault("vi", {}).update({
+    "undo": "Hoàn tác",
+    "undo_done": "Đã hoàn tác",
+    "redo": "Làm lại",
+    "structural_title": "Kết cấu",
+    "structural_type_label": "Loại",
+    "structural_width": "Rộng",
+    "structural_length": "Dài",
+    "structural_height": "Cao",
+    "structural_radius": "B.Kính",
+    "structural_has_arc": "Cung tròn",
+    "structural_confirm": "Xác nhận",
+    "structural_cancel": "Hủy",
+    "structural_invalid_dimension": "Kích thước không hợp lệ (tối đa 99999 mm).",
+    "structural_draw_hint": "Kéo từ góc thứ nhất đến góc đối diện.",
+    "structural_invalid_region": "Rộng và Dài phải lớn hơn 0.",
+    "structural_created": "Đã tạo {label}: Rộng {width:g} × Dài {length:g} mm",
+    "structural_updated": "Đã cập nhật {label}: Rộng {width:g} × Dài {length:g} × Cao {height:g} mm",
+    "structural_moved": "Đã di chuyển {label}.",
+    "structural_resized": "Đã đổi cỡ {label}: Rộng {width:g} × Dài {length:g} mm",
+    "structural_type_slab": "Sàn",
+    "structural_type_beam": "Dầm",
+    "structural_type_column": "Cột",
+    "structural_type_wall_rc": "Tường RC",
+    "structural_type_wall_lgs": "Vách LGS",
+    "structural_type_ceiling": "Trần",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "undo": "元に戻す",
+    "undo_done": "元に戻しました",
+    "redo": "やり直し",
+    "structural_title": "構造要素",
+    "structural_type_label": "要素種別",
+    "structural_width": "幅",
+    "structural_length": "長さ",
+    "structural_height": "高さ",
+    "structural_radius": "半径",
+    "structural_has_arc": "円弧",
+    "structural_confirm": "確定",
+    "structural_cancel": "キャンセル",
+    "structural_invalid_dimension": "寸法が不正です（最大99999 mm）。",
+    "structural_draw_hint": "1点目から対角までドラッグしてください。",
+    "structural_invalid_region": "幅と長さは0より大きくしてください。",
+    "structural_created": "{label}を作成: 幅 {width:g} × 長さ {length:g} mm",
+    "structural_updated": "{label}を更新: 幅 {width:g} × 長さ {length:g} × 高さ {height:g} mm",
+    "structural_moved": "{label}を移動しました。",
+    "structural_resized": "{label}をリサイズ: 幅 {width:g} × 長さ {length:g} mm",
+    "structural_type_slab": "スラブ",
+    "structural_type_beam": "梁",
+    "structural_type_column": "柱",
+    "structural_type_wall_rc": "RC壁",
+    "structural_type_wall_lgs": "軽量鉄骨壁",
+    "structural_type_ceiling": "天井",
+})
+
+
+def _nevis_structural_type_labels(mainwin) -> dict[str, str]:
+    return {
+        element_type: mainwin.tr(f"structural_type_{element_type}")
+        for element_type in ("slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling")
+    }
 
 
 def _nevis_structural_has_visible_underlay(mainwin) -> bool:
@@ -26105,7 +26158,7 @@ def _nevis_structural_set_draw_mode(self, enabled: bool) -> None:
             self.cancel_reference_background_alignment("")
         self.preview.setDragMode(QGraphicsView.NoDrag)
         self.preview.viewport().setCursor(Qt.CrossCursor)
-        self.lbl_status.setText("Vẽ kết cấu: kéo chuột từ góc thứ nhất đến góc đối diện")
+        self.lbl_status.setText(self.tr("structural_draw_hint"))
     else:
         self.preview.setDragMode(QGraphicsView.ScrollHandDrag)
         self.preview.viewport().setCursor(Qt.OpenHandCursor)
@@ -26114,10 +26167,10 @@ def _nevis_structural_set_draw_mode(self, enabled: bool) -> None:
 
 def _nevis_structural_edit_dialog(self, width: float, length: float, center, element=None):
     dialog = QDialog(self)
-    dialog.setWindowTitle("Phần tử kết cấu / 構造要素")
+    dialog.setWindowTitle(self.tr("structural_title"))
     layout = QFormLayout(dialog)
     type_combo = QComboBox(dialog)
-    for element_type, label in _NEVIS_STRUCTURAL_TYPE_LABELS.items():
+    for element_type, label in _nevis_structural_type_labels(self).items():
         type_combo.addItem(label, element_type)
     if element is not None:
         current_index = type_combo.findData(str(getattr(element, "element_type", "")))
@@ -26130,15 +26183,15 @@ def _nevis_structural_edit_dialog(self, width: float, length: float, center, ele
     initial_height = float(getattr(element, "height", 0.0) or 0.0) if element is not None else 0.0
     height_edit = QLineEdit(f"{initial_height:g}" if initial_height > 0.0 else "100", dialog)
     initial_radius = float(getattr(element, "arc_radius", 0.0) or 0.0) if element is not None else 0.0
-    arc_checkbox = QCheckBox("Có cung tròn / 円弧あり", dialog)
+    arc_checkbox = QCheckBox(self.tr("structural_has_arc"), dialog)
     arc_checkbox.setChecked(initial_radius > 0.0)
     radius_edit = QLineEdit(f"{initial_radius:g}", dialog)
-    layout.addRow("Loại / 種類", type_combo)
-    layout.addRow("W (mm)", width_edit)
-    layout.addRow("L (mm)", length_edit)
-    layout.addRow("H (mm)", height_edit)
+    layout.addRow(self.tr("structural_type_label"), type_combo)
+    layout.addRow(f"{self.tr('structural_width')} (mm)", width_edit)
+    layout.addRow(f"{self.tr('structural_length')} (mm)", length_edit)
+    layout.addRow(f"{self.tr('structural_height')} (mm)", height_edit)
     layout.addRow(arc_checkbox)
-    layout.addRow("C (mm)", radius_edit)
+    layout.addRow(f"{self.tr('structural_radius')} (mm)", radius_edit)
     radius_label = layout.labelForField(radius_edit)
     radius_edit.setVisible(arc_checkbox.isChecked())
     if radius_label is not None:
@@ -26146,6 +26199,8 @@ def _nevis_structural_edit_dialog(self, width: float, length: float, center, ele
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
+    buttons.button(QDialogButtonBox.Ok).setText(self.tr("structural_confirm"))
+    buttons.button(QDialogButtonBox.Cancel).setText(self.tr("structural_cancel"))
     layout.addRow(buttons)
 
     preview_pen = QPen(QColor(35, 125, 205), 2.0, Qt.DashLine)
@@ -26179,7 +26234,7 @@ def _nevis_structural_edit_dialog(self, width: float, length: float, center, ele
         edited_radius, radius_error = validate_dimension(radius_edit.text().strip() if arc_checkbox.isChecked() else 0.0, "C")
         error = width_error or length_error or height_error or radius_error
         if error:
-            QMessageBox.warning(dialog, "Kích thước", error)
+            QMessageBox.warning(dialog, self.tr("structural_title"), self.tr("structural_invalid_dimension"))
             continue
         if preview_item.scene() is not None:
             preview_item.scene().removeItem(preview_item)
@@ -26193,7 +26248,7 @@ def _nevis_structural_create_from_drag(self, start, end) -> bool:
     raw_width = abs(float(end[0]) - float(start[0]))
     raw_length = abs(float(end[1]) - float(start[1]))
     if raw_width < EPS or raw_length < EPS:
-        self.lbl_status.setText("Vùng kết cấu phải có W và L lớn hơn 0")
+        self.lbl_status.setText(self.tr("structural_invalid_region"))
         return False
     center = ((float(start[0]) + float(end[0])) / 2.0, (float(start[1]) + float(end[1])) / 2.0)
     result = self._structural_edit_dialog(raw_width, raw_length, center)
@@ -26205,7 +26260,7 @@ def _nevis_structural_create_from_drag(self, start, end) -> bool:
     element = StructuralElement(
         id=next_id,
         element_type=element_type,
-        label=_NEVIS_STRUCTURAL_TYPE_LABELS[element_type],
+        label=_nevis_structural_type_labels(self)[element_type],
         points=rect_from_center_wl(center[0], center[1], width, length),
         width=width,
         length=length,
@@ -26216,7 +26271,7 @@ def _nevis_structural_create_from_drag(self, start, end) -> bool:
     self.model.structural_elements.append(element)
     self.selected_structural_id = element.id
     self.preview.draw_model()
-    self.lbl_status.setText(f"Đã tạo {element.label}: W {width:g} x L {length:g} mm")
+    self.lbl_status.setText(self.tr("structural_created").format(label=element.label, width=width, length=length))
     return True
 
 
@@ -26239,7 +26294,7 @@ def _nevis_structural_edit_existing(self, element_id: int) -> bool:
     element_type, width, length, height, arc_radius = result
     self.save_undo_snapshot("edit_structural_element")
     element.element_type = element_type
-    element.label = _NEVIS_STRUCTURAL_TYPE_LABELS[element_type]
+    element.label = _nevis_structural_type_labels(self)[element_type]
     element.points = rect_from_center_wl(center[0], center[1], width, length)
     element.width = width
     element.length = length
@@ -26247,7 +26302,7 @@ def _nevis_structural_edit_existing(self, element_id: int) -> bool:
     element.arc_radius = arc_radius
     element.bottom_elevation = element.top_elevation - element.height
     self.preview.draw_model()
-    self.lbl_status.setText(f"Đã cập nhật {element.label}: W {width:g} x L {length:g} x H {height:g} mm")
+    self.lbl_status.setText(self.tr("structural_updated").format(label=element.label, width=width, length=length, height=height))
     return True
 
 
@@ -26267,7 +26322,10 @@ def _nevis_structural_draw_items(view) -> None:
         item.setData(0, ("structural_element", int(element.id)))
         item_bounds = item.sceneBoundingRect()
         bounds = item_bounds if bounds is None else bounds.united(item_bounds)
-        label = str(getattr(element, "label", "") or _NEVIS_STRUCTURAL_TYPE_LABELS.get(element.element_type, element.element_type))
+        label = _nevis_structural_type_labels(view.mainwin).get(
+            element.element_type,
+            str(getattr(element, "label", "") or element.element_type),
+        )
         text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
         text.setDefaultTextColor(QColor(85, 90, 98))
         text.setZValue(13)
@@ -26339,12 +26397,12 @@ def _nevis_structural_build_ui(self):
     self.structural_grid_mm = 100.0
     self.selected_structural_id = None
     self._nevis_redo_stack = []
-    self.act_redo = QAction("Redo", self)
+    self.act_redo = QAction(self.tr("redo"), self)
     self.act_redo.setShortcut("Ctrl+Y")
     self.act_redo.setEnabled(False)
     self.act_redo.triggered.connect(self.redo_last_action)
     self.menu_view.addAction(self.act_redo)
-    self.btn_structural_draw = QPushButton("Vẽ kết cấu / 構造要素")
+    self.btn_structural_draw = QPushButton(self.tr("structural_title"))
     self.btn_structural_draw.setCheckable(True)
     self.btn_structural_draw.setMinimumHeight(28)
     self.btn_structural_draw.toggled.connect(self.set_structural_draw_mode)
@@ -26457,9 +26515,10 @@ def _nevis_structural_mouse_release(self, event):
         if transform["moved"]:
             element = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
             if element is not None:
+                status_key = "structural_moved" if transform["kind"] == "move" else "structural_resized"
+                label = _nevis_structural_type_labels(self.mainwin).get(element.element_type, element.label)
                 self.mainwin.lbl_status.setText(
-                    f"Đã {('di chuyển' if transform['kind'] == 'move' else 'resize')} "
-                    f"{element.label}: W {element.width:g} x L {element.length:g} mm"
+                    self.mainwin.tr(status_key).format(label=label, width=element.width, length=element.length)
                 )
             self.draw_model()
         elif transform["kind"] == "move":
@@ -26471,6 +26530,7 @@ def _nevis_structural_mouse_release(self, event):
 
 _NEVIS_TASK9_PREV_SAVE_UNDO = MainWindow.save_undo_snapshot
 _NEVIS_TASK9_PREV_UNDO = MainWindow.undo_last_action
+_NEVIS_STRUCTURAL_PREV_REFRESH_LANGUAGE = MainWindow.refresh_language_texts
 
 
 def _nevis_task9_current_snapshot(self, action: str) -> dict[str, object]:
@@ -26537,6 +26597,17 @@ def _nevis_task9_redo(self):
     _nevis_task9_update_redo(self)
 
 
+def _nevis_structural_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_STRUCTURAL_PREV_REFRESH_LANGUAGE(self, *args, **kwargs)
+    if hasattr(self, "btn_structural_draw"):
+        self.btn_structural_draw.setText(self.tr("structural_title"))
+    if hasattr(self, "act_redo"):
+        self.act_redo.setText(self.tr("redo"))
+    if hasattr(self, "preview"):
+        self.preview.draw_model()
+    return result
+
+
 MainWindow._build_ui = _nevis_structural_build_ui
 MainWindow.set_structural_draw_mode = _nevis_structural_set_draw_mode
 MainWindow._structural_edit_dialog = _nevis_structural_edit_dialog
@@ -26545,6 +26616,7 @@ MainWindow._structural_edit_existing = _nevis_structural_edit_existing
 MainWindow.save_undo_snapshot = _nevis_task9_save_undo
 MainWindow.undo_last_action = _nevis_task9_undo
 MainWindow.redo_last_action = _nevis_task9_redo
+MainWindow.refresh_language_texts = _nevis_structural_refresh_language
 PreviewView.draw_model = _nevis_structural_draw_model
 PreviewView.mousePressEvent = _nevis_structural_mouse_press
 PreviewView.mouseMoveEvent = _nevis_structural_mouse_move
