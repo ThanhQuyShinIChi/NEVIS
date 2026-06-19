@@ -28521,6 +28521,133 @@ PreviewView.draw_model = _nevis_t21_draw_model
 
 
 # =============================================================================
+# TASK 23a — Sửa vẽ được tất cả 6 loại phần tử kết cấu
+# 1. Click type button → kích hoạt draw mode ngay, nút sáng lên
+# 2. Cho phép drag theo 1 chiều (sàn mỏng, dầm ngang...) — bỏ check OR thành AND
+# 3. Nút active style rõ ràng (#1976D2 xanh đậm)
+# =============================================================================
+_T23A_ACTIVE_BTN_STYLE = (
+    "QPushButton:checked {"
+    "  background-color: #1976D2;"
+    "  color: white;"
+    "  border: 1px solid #1565C0;"
+    "  border-radius: 3px;"
+    "}"
+)
+
+# Kích thước mặc định theo loại khi drag 1 chiều (mm)
+_T23A_DEFAULT_DIM = {
+    "slab":     (3640.0, 150.0),
+    "beam":     (300.0, 600.0),
+    "column":   (500.0, 500.0),
+    "wall_rc":  (200.0, 2800.0),
+    "wall_lgs": (100.0, 2700.0),
+    "ceiling":  (3640.0, 30.0),
+}
+
+
+def _nevis_t23a_on_type_btn_clicked(self, element_type: str) -> None:
+    """Click type button: set type + activate draw mode + style button."""
+    self.structural_default_type = element_type
+    # Sync legacy combo
+    idx = self.cmb_structural_type.findData(element_type)
+    if idx >= 0:
+        self.cmb_structural_type.blockSignals(True)
+        self.cmb_structural_type.setCurrentIndex(idx)
+        self.cmb_structural_type.blockSignals(False)
+    # Apply style sheet to button group container
+    if hasattr(self, "_type_btn_grid_widget"):
+        self._type_btn_grid_widget.setStyleSheet(_T23A_ACTIVE_BTN_STYLE)
+    # Activate draw mode
+    if hasattr(self, "set_structural_draw_mode"):
+        self.set_structural_draw_mode(True)
+    # Keep btn_structural_draw in sync
+    if hasattr(self, "btn_structural_draw"):
+        self.btn_structural_draw.blockSignals(True)
+        self.btn_structural_draw.setChecked(True)
+        self.btn_structural_draw.blockSignals(False)
+    # Update status bar hint
+    label = _nevis_structural_type_labels(self).get(element_type, element_type)
+    self.lbl_status.setText(
+        "{} [{}] — {}".format(
+            self.tr("structural_draw_hint"),
+            label,
+            self.tr("structural_escape_hint") if self.tr("structural_escape_hint") != "structural_escape_hint" else "Escape để thoát",
+        )
+    )
+
+
+def _nevis_t23a_create_from_drag(self, start, end) -> bool:
+    """Fixed version: allows 1-axis drag (e.g. horizontal slab)."""
+    raw_width = abs(float(end[0]) - float(start[0]))
+    raw_length = abs(float(end[1]) - float(start[1]))
+    # Reject only if user barely clicked (point, not drag)
+    if raw_width < EPS and raw_length < EPS:
+        self.lbl_status.setText(self.tr("structural_invalid_region"))
+        return False
+    # If one dimension is 0, fill with sensible default for the current type
+    etype_default = str(getattr(self, "structural_default_type", "slab"))
+    def_w, def_l = _T23A_DEFAULT_DIM.get(etype_default, (500.0, 500.0))
+    if raw_width < EPS:
+        raw_width = def_w
+    if raw_length < EPS:
+        raw_length = def_l
+    center = ((float(start[0]) + float(end[0])) / 2.0, (float(start[1]) + float(end[1])) / 2.0)
+    result = self._structural_edit_dialog(raw_width, raw_length, center)
+    if result is None:
+        return False
+    if len(result) == 7:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
+    else:
+        element_type, width, length, height, arc_radius = result
+        top_elevation, bottom_elevation = 0.0, -height
+    existing = list(getattr(self.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
+    element = StructuralElement(
+        id=next_id,
+        element_type=element_type,
+        label=_nevis_structural_type_labels(self)[element_type],
+        points=rect_from_center_wl(center[0], center[1], width, length),
+        width=width,
+        length=length,
+        height=height,
+        arc_radius=arc_radius,
+        top_elevation=top_elevation,
+        bottom_elevation=bottom_elevation,
+    )
+    self.save_undo_snapshot("create_structural_element")
+    self.model.structural_elements.append(element)
+    self.selected_structural_id = element.id
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_created").format(
+        label=element.label, width=width, length=length))
+    return True
+
+
+def _nevis_t23a_set_draw_mode_off_deselect(self, enabled: bool) -> None:
+    """After draw mode turns off, deselect all type buttons."""
+    _nevis_structural_set_draw_mode(self, enabled)
+    if not enabled and hasattr(self, "_type_btn_group"):
+        checked = self._type_btn_group.checkedButton()
+        if checked is not None:
+            self._type_btn_group.setExclusive(False)
+            checked.setChecked(False)
+            self._type_btn_group.setExclusive(True)
+
+
+APP_TEXT.setdefault("vi", {}).update({
+    "structural_escape_hint": "Escape để thoát",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "structural_escape_hint": "Escapeで終了",
+})
+
+MainWindow._on_type_btn_clicked = _nevis_t23a_on_type_btn_clicked
+MainWindow._structural_create_from_drag = _nevis_t23a_create_from_drag
+MainWindow.set_structural_draw_mode = _nevis_t23a_set_draw_mode_off_deselect
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
