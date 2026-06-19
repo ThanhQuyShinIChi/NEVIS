@@ -51,6 +51,41 @@ def find_nearest_axis_intersection(x: float, y: float, axes: list, tolerance: fl
     return best
 
 
+def next_axis_name(axes: list, direction: str) -> str:
+    """Auto-generate next name like X1, X2, Y1, Y2 for the given direction."""
+    prefix = direction.upper()
+    existing = [a for a in axes if a.direction == direction]
+    return "{}{}".format(prefix, len(existing) + 1)
+
+
+def rename_axes_prefix(axes: list, direction: str, new_prefix: str) -> list:
+    """Return new list with all axes of given direction renamed to new_prefix+index.
+
+    Axes of other direction are unchanged. Index restarts from 1.
+    """
+    new_prefix = new_prefix.upper().strip() or direction.upper()
+    result = []
+    counter = 1
+    for a in axes:
+        if a.direction == direction:
+            result.append(GridAxis(
+                name="{}{}".format(new_prefix, counter),
+                direction=a.direction,
+                position=a.position,
+            ))
+            counter += 1
+        else:
+            result.append(a)
+    return result
+
+
+def sort_axes_xy(axes: list) -> list:
+    """Return axes sorted: X-direction first (by position), then Y-direction (by position)."""
+    x = sorted([a for a in axes if a.direction == "X"], key=lambda a: a.position)
+    y = sorted([a for a in axes if a.direction == "Y"], key=lambda a: a.position)
+    return x + y
+
+
 def axes_from_spacing(direction: str, start: float, count: int, spacing: float,
                        prefix: str = "") -> list:
     """Generate evenly-spaced axes. E.g. direction='X', start=0, count=3, spacing=3640 → X1,X2,X3."""
