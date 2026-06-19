@@ -28762,6 +28762,107 @@ PreviewView.mouseMoveEvent = _nevis_t23b_mouse_move
 
 
 # =============================================================================
+# TASK 23c — Panel kết cấu thu hẹp 180px, ẩn tab Vật tư + Kiểm tra ống
+# =============================================================================
+_T23C_PANEL_WIDTH_STRUCTURAL = 180
+_T23C_PANEL_WIDTH_MEP = 450   # giá trị gốc
+
+
+def _t23c_set_tab_visible(tabs, index: int, visible: bool) -> None:
+    """Hide/show tab — dùng setTabVisible (Qt 5.15+) hoặc setTabEnabled."""
+    if index < 0 or index >= tabs.count():
+        return
+    try:
+        tabs.setTabVisible(index, visible)
+    except AttributeError:
+        tabs.setTabEnabled(index, visible)
+
+
+_T23C_PREV_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t23c_set_workspace_mode(self, mode: str) -> None:
+    _T23C_PREV_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "mep") == "structural"
+    # --- Panel width ---
+    if hasattr(self, "left_shell"):
+        w = _T23C_PANEL_WIDTH_STRUCTURAL if structural else _T23C_PANEL_WIDTH_MEP
+        self.left_shell.setMinimumWidth(w)
+        self.left_shell.setMaximumWidth(w)
+        try:
+            inner = self.left_scroll.widget()
+            if inner is not None:
+                inner.setMaximumWidth(w)
+        except AttributeError:
+            pass
+    # --- Tabs visibility ---
+    tabs = getattr(self, "tabs", None)
+    if tabs is not None:
+        # Tab 0 = Vật tư / 材料
+        _t23c_set_tab_visible(tabs, 0, not structural)
+        # Pipe-check tab
+        pc_idx = getattr(self, "_pipe_check_tab_index", -1)
+        _t23c_set_tab_visible(tabs, pc_idx, not structural)
+        # If switching to structural, move to first visible tab
+        if structural:
+            for i in range(tabs.count()):
+                try:
+                    visible = tabs.isTabVisible(i)
+                except AttributeError:
+                    visible = tabs.isTabEnabled(i)
+                if visible:
+                    tabs.setCurrentIndex(i)
+                    break
+
+
+MainWindow.set_workspace_mode = _nevis_t23c_set_workspace_mode
+
+
+# =============================================================================
+# TASK 23d — Nút draw active: style #1976D2 áp dụng từ đầu; Escape đã có ở T19
+# =============================================================================
+# _T23A_ACTIVE_BTN_STYLE đã được định nghĩa trong Task 23a.
+# Đảm bảo stylesheet được áp dụng ngay khi _build_ui chạy (không chỉ khi click).
+_T23D_PREV_BUILD_UI = MainWindow._build_ui
+
+
+def _nevis_t23d_build_ui(self):
+    result = _T23D_PREV_BUILD_UI(self)
+    # Apply active-button stylesheet once UI is built
+    if hasattr(self, "_type_btn_grid_widget"):
+        self._type_btn_grid_widget.setStyleSheet(_T23A_ACTIVE_BTN_STYLE)
+    return result
+
+
+MainWindow._build_ui = _nevis_t23d_build_ui
+
+
+# =============================================================================
+# TASK 23e — wheelEvent zoom tại vị trí chuột (QGraphicsView anchor trick)
+# =============================================================================
+_T23E_PREV_WHEEL = PreviewView.wheelEvent
+
+
+def _nevis_t23e_wheel_event(self, event):
+    delta = event.angleDelta().y()
+    if delta == 0:
+        return _T23E_PREV_WHEEL(self, event)
+    factor = 1.15 if delta > 0 else (1.0 / 1.15)
+    # Zoom centred on mouse cursor using QGraphicsView transform anchor
+    old_anchor = self.transformationAnchor()
+    self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+    self.scale(factor, factor)
+    self.setTransformationAnchor(old_anchor)
+    # In structural mode, refresh overlays (handles, grid, elevation labels)
+    if getattr(self.mainwin, "workspace_mode", "mep") == "structural":
+        self.draw_model()
+    event.accept()
+
+
+PreviewView.wheelEvent = _nevis_t23e_wheel_event
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
