@@ -30,6 +30,8 @@ from modules.elevation_input import validate_node_z_input
 from modules.elevation_display import compute_edge_slope
 from modules.structural_element import StructuralElement
 from modules.structural_geometry import grid_points_in_view, nearest_snap_point, rect_from_two_points, snap_to_grid
+from modules.grid_axis import GridAxis, build_axis_intersections, find_nearest_axis_intersection, grid_axis_from_dict, grid_axis_to_dict
+from modules.section_view import compute_ch, compute_fl, elements_intersect_cut_line, sort_elements_by_elevation
 from modules.structural_input import rect_from_center_wl, validate_dimension
 from modules.structural_transform import move_element, resize_element
 from modules.stepped_slab import compute_stepped_slab_elevation, validate_stepped_slab_bounds
@@ -443,6 +445,7 @@ class PipeModel:
     model_schema_version: int = 1
     level_datums: Dict[str, LevelDatum] = field(default_factory=dict)
     structural_elements: List[object] = field(default_factory=list)
+    grid_axes: List[object] = field(default_factory=list)
     drawing_scale: float = 1.0
     scale_origin: Tuple[float, float] = (0.0, 0.0)
 
@@ -7950,6 +7953,10 @@ class MainWindow(QMainWindow):
             m.structural_elements = [structural_element_from_dict(d) for d in data.get("structural_elements", [])]
         except Exception:
             m.structural_elements = []
+        try:
+            m.grid_axes = [grid_axis_from_dict(d) for d in data.get("grid_axes", [])]
+        except Exception:
+            m.grid_axes = []
         for k, d in data.get("level_datums", {}).items():
             try:
                 if not isinstance(d, dict):
@@ -27301,6 +27308,491 @@ PreviewView.wheelEvent = _nevis_structural_wheel_event
 PreviewView.mousePressEvent = _nevis_structural_mouse_press
 PreviewView.mouseMoveEvent = _nevis_structural_mouse_move
 PreviewView.mouseReleaseEvent = _nevis_structural_mouse_release
+
+
+# =============================================================================
+# TASK 14 — Grid axis 通り芯 (Toori-shin)
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "grid_axis_group": "Trục tọa độ (通り芯)",
+    "grid_axis_add": "Thêm trục",
+    "grid_axis_delete": "Xóa trục",
+    "grid_axis_name": "Tên",
+    "grid_axis_dir": "Chiều",
+    "grid_axis_pos": "Vị trí (mm)",
+    "grid_axis_dir_x": "X (dọc)",
+    "grid_axis_dir_y": "Y (ngang)",
+    "grid_axis_add_title": "Thêm trục tọa độ",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "grid_axis_group": "通り芯",
+    "grid_axis_add": "追加",
+    "grid_axis_delete": "削除",
+    "grid_axis_name": "名称",
+    "grid_axis_dir": "方向",
+    "grid_axis_pos": "位置 (mm)",
+    "grid_axis_dir_x": "X（縦）",
+    "grid_axis_dir_y": "Y（横）",
+    "grid_axis_add_title": "通り芯を追加",
+})
+
+_NEVIS_T14_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T14_PREV_DRAW_MODEL = PreviewView.draw_model
+_NEVIS_T14_PREV_REFRESH_LANGUAGE = MainWindow.refresh_language_texts
+
+
+def _nevis_t14_build_ui(self):
+    result = _NEVIS_T14_PREV_BUILD_UI(self)
+    if not hasattr(self.model, "grid_axes"):
+        self.model.grid_axes = []
+    # --- Axis panel (inside g_structural_workspace) ---
+    self.g_grid_axis = QGroupBox(self.tr("grid_axis_group"))
+    axis_layout = QVBoxLayout(self.g_grid_axis)
+    axis_layout.setContentsMargins(6, 10, 6, 6)
+    axis_layout.setSpacing(4)
+    self.list_grid_axes = QListWidget(self.g_grid_axis)
+    self.list_grid_axes.setMaximumHeight(120)
+    axis_layout.addWidget(self.list_grid_axes)
+    axis_btns = QHBoxLayout()
+    self.btn_grid_axis_add = QPushButton(self.tr("grid_axis_add"))
+    self.btn_grid_axis_delete = QPushButton(self.tr("grid_axis_delete"))
+    self.btn_grid_axis_add.clicked.connect(self.add_grid_axis)
+    self.btn_grid_axis_delete.clicked.connect(self.delete_grid_axis)
+    axis_btns.addWidget(self.btn_grid_axis_add)
+    axis_btns.addWidget(self.btn_grid_axis_delete)
+    axis_layout.addLayout(axis_btns)
+    # Insert after the structural workspace group
+    left_layout = self.left_scroll.widget().layout()
+    left_layout.insertWidget(3, self.g_grid_axis)
+    self.g_grid_axis.setVisible(False)
+    _nevis_t14_refresh_axis_list(self)
+    return result
+
+
+def _nevis_t14_refresh_axis_list(mainwin) -> None:
+    if not hasattr(mainwin, "list_grid_axes"):
+        return
+    axes = list(getattr(mainwin.model, "grid_axes", []) or [])
+    mainwin.list_grid_axes.clear()
+    for axis in axes:
+        dir_label = mainwin.tr("grid_axis_dir_x") if axis.direction == "X" else mainwin.tr("grid_axis_dir_y")
+        mainwin.list_grid_axes.addItem(f"{axis.name}  [{dir_label}]  {axis.position:g} mm")
+
+
+def _nevis_t14_add_grid_axis(self) -> None:
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("grid_axis_add_title"))
+    form = QFormLayout(dialog)
+    edit_name = QLineEdit(dialog)
+    cmb_dir = QComboBox(dialog)
+    cmb_dir.addItem(self.tr("grid_axis_dir_x"), "X")
+    cmb_dir.addItem(self.tr("grid_axis_dir_y"), "Y")
+    edit_pos = QLineEdit("0", dialog)
+    form.addRow(self.tr("grid_axis_name"), edit_name)
+    form.addRow(self.tr("grid_axis_dir"), cmb_dir)
+    form.addRow(self.tr("grid_axis_pos"), edit_pos)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    if dialog.exec() != QDialog.Accepted:
+        return
+    name = edit_name.text().strip() or "A"
+    direction = cmb_dir.currentData()
+    try:
+        position = float(edit_pos.text().strip())
+    except (ValueError, TypeError):
+        position = 0.0
+    axis = GridAxis(name=name, direction=direction, position=position)
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    axes.append(axis)
+    self.model.grid_axes = axes
+    _nevis_t14_refresh_axis_list(self)
+    self.preview.draw_model()
+
+
+def _nevis_t14_delete_grid_axis(self) -> None:
+    if not hasattr(self, "list_grid_axes"):
+        return
+    row = self.list_grid_axes.currentRow()
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    if 0 <= row < len(axes):
+        axes.pop(row)
+        self.model.grid_axes = axes
+        _nevis_t14_refresh_axis_list(self)
+        self.preview.draw_model()
+
+
+def _nevis_t14_draw_axes(view) -> None:
+    mainwin = view.mainwin
+    if getattr(mainwin, "workspace_mode", get_default_mode()) != "structural":
+        return
+    axes = list(getattr(mainwin.model, "grid_axes", []) or [])
+    if not axes:
+        return
+    visible = view.mapToScene(view.viewport().rect()).boundingRect()
+    scale = abs(float(view.transform().m11())) or 1.0
+    pen = QPen(QColor(210, 50, 50, 100), 1.5 / scale, Qt.DashLine)
+    font = QFont("Segoe UI", int(max(7, 9 / scale)))
+    for axis in axes:
+        if axis.direction == "X":
+            canvas_x, _ = _nevis_real_to_canvas_point(mainwin, (axis.position, 0.0))
+            line = view.scene.addLine(canvas_x, visible.top(), canvas_x, visible.bottom(), pen)
+            line.setZValue(-50)
+            line.setAcceptedMouseButtons(Qt.NoButton)
+            label = view.scene.addText(axis.name, font)
+            label.setDefaultTextColor(QColor(210, 50, 50))
+            label.setZValue(-49)
+            label.setAcceptedMouseButtons(Qt.NoButton)
+            label.setPos(canvas_x + 2 / scale, visible.top() + 2 / scale)
+        else:
+            _, canvas_y = _nevis_real_to_canvas_point(mainwin, (0.0, axis.position))
+            line = view.scene.addLine(visible.left(), canvas_y, visible.right(), canvas_y, pen)
+            line.setZValue(-50)
+            line.setAcceptedMouseButtons(Qt.NoButton)
+            label = view.scene.addText(axis.name, font)
+            label.setDefaultTextColor(QColor(210, 50, 50))
+            label.setZValue(-49)
+            label.setAcceptedMouseButtons(Qt.NoButton)
+            label.setPos(visible.left() + 2 / scale, canvas_y - label.boundingRect().height() / scale)
+
+
+def _nevis_t14_draw_model(self, *args, **kwargs):
+    result = _NEVIS_T14_PREV_DRAW_MODEL(self, *args, **kwargs)
+    _nevis_t14_draw_axes(self)
+    return result
+
+
+def _nevis_t14_set_workspace_mode_patch(self, mode: str) -> None:
+    _NEVIS_T14_ORIG_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "") == "structural"
+    if hasattr(self, "g_grid_axis"):
+        self.g_grid_axis.setVisible(structural)
+
+
+_NEVIS_T14_ORIG_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t14_snap_with_axes(view, scene_point) -> tuple[float, float]:
+    """Extend structural snap: try axis intersections first (tolerance 15px)."""
+    x, y = _nevis_canvas_to_real_point(view.mainwin, (scene_point.x(), scene_point.y()))
+    axes = list(getattr(view.mainwin.model, "grid_axes", []) or [])
+    if axes and getattr(view.mainwin, "workspace_mode", get_default_mode()) == "structural":
+        scale = abs(float(view.transform().m11())) or 1.0
+        tolerance_real = (15.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+        pt = find_nearest_axis_intersection(x, y, axes, tolerance_real)
+        if pt is not None:
+            return pt
+    return _nevis_structural_snap_scene_point(view, scene_point)
+
+
+def _nevis_t14_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_T14_PREV_REFRESH_LANGUAGE(self, *args, **kwargs)
+    if hasattr(self, "g_grid_axis"):
+        self.g_grid_axis.setTitle(self.tr("grid_axis_group"))
+        self.btn_grid_axis_add.setText(self.tr("grid_axis_add"))
+        self.btn_grid_axis_delete.setText(self.tr("grid_axis_delete"))
+        _nevis_t14_refresh_axis_list(self)
+    return result
+
+
+MainWindow._build_ui = _nevis_t14_build_ui
+MainWindow.add_grid_axis = _nevis_t14_add_grid_axis
+MainWindow.delete_grid_axis = _nevis_t14_delete_grid_axis
+MainWindow.set_workspace_mode = _nevis_t14_set_workspace_mode_patch
+MainWindow.refresh_language_texts = _nevis_t14_refresh_language
+PreviewView.draw_model = _nevis_t14_draw_model
+
+
+def _nevis_t14_save_payload_patch(self) -> dict:
+    data = _NEVIS_T14_ORIG_PROJECT_PAYLOAD(self)
+    data["grid_axes"] = [grid_axis_to_dict(a) for a in list(getattr(self.model, "grid_axes", []) or [])]
+    return data
+
+
+_NEVIS_T14_ORIG_PROJECT_PAYLOAD = MainWindow._project_payload
+MainWindow._project_payload = _nevis_t14_save_payload_patch
+
+
+_NEVIS_T14_ORIG_OPEN_PROJECT = MainWindow.open_project
+
+
+def _nevis_t14_open_project_patch(self):
+    _NEVIS_T14_ORIG_OPEN_PROJECT(self)
+    # grid_axes already in data; re-read from model (patched below via load path)
+    _nevis_t14_refresh_axis_list(self)
+
+
+def _nevis_t14_load_axes_from_data(mainwin, data: dict) -> None:
+    try:
+        mainwin.model.grid_axes = [grid_axis_from_dict(d) for d in data.get("grid_axes", [])]
+    except Exception:
+        mainwin.model.grid_axes = []
+
+
+# Monkey-patch the open_project to also load grid_axes
+_NEVIS_T14_ORIG_LOAD = getattr(MainWindow, "_load_project_data", None)
+
+
+# =============================================================================
+# TASK 15 — Mặt cắt GL/SL/FL/CH
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "section_btn": "Mặt cắt",
+    "section_title": "Mặt cắt kết cấu",
+    "section_click1": "Click điểm 1 đường cắt.",
+    "section_click2": "Click điểm 2 đường cắt.",
+    "section_finish_thickness": "Lớp hoàn thiện (mm)",
+    "section_no_elements": "Không có phần tử nào cắt qua đường này.",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "section_btn": "断面図",
+    "section_title": "構造断面図",
+    "section_click1": "断面線の1点目をクリック。",
+    "section_click2": "断面線の2点目をクリック。",
+    "section_finish_thickness": "仕上げ厚 (mm)",
+    "section_no_elements": "断面線上に要素がありません。",
+})
+
+_NEVIS_T15_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T15_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_t15_build_ui(self):
+    result = _NEVIS_T15_PREV_BUILD_UI(self)
+    self._section_cut_active = False
+    self._section_cut_p1 = None
+    self._section_cut_marker = None
+    # "Mặt cắt" button on toolbar (both modes)
+    self.btn_section_cut = QPushButton(self.tr("section_btn"))
+    self.btn_section_cut.setCheckable(True)
+    self.btn_section_cut.setMinimumHeight(28)
+    self.btn_section_cut.toggled.connect(self.start_section_cut)
+    self._preview_background_widgets.append(self.btn_section_cut)
+    return result
+
+
+def _nevis_t15_start_section_cut(self, checked: bool = False) -> None:
+    if not checked:
+        self._section_cut_active = False
+        self._section_cut_p1 = None
+        _nevis_t15_remove_cut_marker(self)
+        if hasattr(self, "preview"):
+            self.preview.viewport().setCursor(Qt.OpenHandCursor)
+        return
+    self._section_cut_active = True
+    self._section_cut_p1 = None
+    _nevis_t15_remove_cut_marker(self)
+    if hasattr(self, "preview"):
+        self.preview.viewport().setCursor(Qt.CrossCursor)
+    self.lbl_status.setText(self.tr("section_click1"))
+
+
+def _nevis_t15_remove_cut_marker(self) -> None:
+    marker = getattr(self, "_section_cut_marker", None)
+    self._section_cut_marker = None
+    if marker is not None and marker.scene() is not None:
+        marker.scene().removeItem(marker)
+
+
+def _nevis_t15_handle_cut_click(mainwin, scene_point) -> bool:
+    if not getattr(mainwin, "_section_cut_active", False):
+        return False
+    pt = _nevis_canvas_to_real_point(mainwin, (scene_point.x(), scene_point.y()))
+    if mainwin._section_cut_p1 is None:
+        mainwin._section_cut_p1 = pt
+        scale = abs(float(mainwin.preview.transform().m11())) or 1.0
+        r = 5.0 / scale
+        marker = mainwin.preview.scene.addEllipse(
+            scene_point.x() - r, scene_point.y() - r, r * 2, r * 2,
+            QPen(QColor(180, 40, 40), 2.0 / scale), QBrush(Qt.NoBrush),
+        )
+        marker.setZValue(1300)
+        mainwin._section_cut_marker = marker
+        mainwin.lbl_status.setText(mainwin.tr("section_click2"))
+        return True
+    p1 = mainwin._section_cut_p1
+    p2 = pt
+    mainwin._section_cut_active = False
+    mainwin._section_cut_p1 = None
+    _nevis_t15_remove_cut_marker(mainwin)
+    if hasattr(mainwin, "btn_section_cut"):
+        mainwin.btn_section_cut.blockSignals(True)
+        mainwin.btn_section_cut.setChecked(False)
+        mainwin.btn_section_cut.blockSignals(False)
+    if hasattr(mainwin, "preview"):
+        mainwin.preview.viewport().setCursor(Qt.OpenHandCursor)
+    _nevis_t15_show_section_dialog(mainwin, p1, p2)
+    return True
+
+
+def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    cut_elements = elements_intersect_cut_line(elements, p1, p2)
+    cut_elements = sort_elements_by_elevation(cut_elements)
+
+    finish_thickness = 30.0
+
+    dialog = QDialog(mainwin)
+    dialog.setWindowTitle(mainwin.tr("section_title"))
+    dialog.resize(520, 420)
+    main_layout = QVBoxLayout(dialog)
+
+    # Finish thickness control
+    ctrl_row = QHBoxLayout()
+    lbl_ft = QLabel(mainwin.tr("section_finish_thickness"))
+    edit_ft = QLineEdit(str(int(finish_thickness)))
+    edit_ft.setMaximumWidth(80)
+    ctrl_row.addWidget(lbl_ft)
+    ctrl_row.addWidget(edit_ft)
+    ctrl_row.addStretch()
+    main_layout.addLayout(ctrl_row)
+
+    # Drawing area
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene, dialog)
+    view.setRenderHint(view.renderHints() | QPainter.Antialiasing)
+    main_layout.addWidget(view, 1)
+
+    def _redraw():
+        scene.clear()
+        try:
+            ft = float(edit_ft.text().strip())
+        except (ValueError, TypeError):
+            ft = 30.0
+        sl = 0.0
+        fl = compute_fl(sl, ft)
+
+        # Find elevation range
+        all_elev = [sl, fl]
+        for e in cut_elements:
+            all_elev.append(float(getattr(e, "top_elevation", 0.0) or 0.0))
+            all_elev.append(float(getattr(e, "bottom_elevation", 0.0) or 0.0))
+        ceiling_elements = [e for e in cut_elements if getattr(e, "element_type", "") == "ceiling"]
+        if ceiling_elements:
+            ceil_bottom = min(float(getattr(e, "bottom_elevation", 0.0) or 0.0) for e in ceiling_elements)
+            ch = compute_ch(ceil_bottom, fl)
+            all_elev.append(ceil_bottom)
+        else:
+            ch = None
+        if not all_elev:
+            return
+
+        elev_min = min(all_elev) - 200
+        elev_max = max(all_elev) + 500
+        elev_range = elev_max - elev_min or 1
+        W, H = 440.0, 320.0
+        margin_left = 80.0
+        px_per_mm = H / elev_range
+
+        def ey(elev):
+            return H - (float(elev) - elev_min) * px_per_mm
+
+        # Background
+        scene.addRect(margin_left, 0, W, H, QPen(Qt.NoPen), QBrush(QColor(248, 248, 252)))
+
+        # SL line
+        sl_y = ey(sl)
+        scene.addLine(margin_left, sl_y, margin_left + W, sl_y,
+                      QPen(QColor(30, 90, 190), 2.0))
+        lbl = scene.addText("SL ±0", QFont("Segoe UI", 7, QFont.Bold))
+        lbl.setDefaultTextColor(QColor(30, 90, 190))
+        lbl.setPos(0, sl_y - 9)
+
+        # FL line
+        fl_y = ey(fl)
+        scene.addLine(margin_left, fl_y, margin_left + W, fl_y,
+                      QPen(QColor(60, 150, 60), 1.5, Qt.DashLine))
+        lbl_fl = scene.addText(f"FL +{ft:g}", QFont("Segoe UI", 7))
+        lbl_fl.setDefaultTextColor(QColor(60, 150, 60))
+        lbl_fl.setPos(0, fl_y - 9)
+
+        # GL line (assume below SL by 150mm if no data)
+        gl = sl - 150.0
+        gl_y = ey(gl)
+        scene.addLine(margin_left, gl_y, margin_left + W, gl_y,
+                      QPen(QColor(130, 100, 60), 1.5, Qt.DotLine))
+        lbl_gl = scene.addText("GL", QFont("Segoe UI", 7))
+        lbl_gl.setDefaultTextColor(QColor(130, 100, 60))
+        lbl_gl.setPos(0, gl_y - 9)
+
+        # CH arrow if ceiling found
+        if ch is not None and ceiling_elements:
+            ceil_y = ey(ceil_bottom)
+            scene.addLine(margin_left + W - 10, fl_y, margin_left + W - 10, ceil_y,
+                          QPen(QColor(80, 80, 80), 1.5))
+            ch_mid = (fl_y + ceil_y) / 2.0
+            lbl_ch = scene.addText(f"CH {ch:g}", QFont("Segoe UI", 7))
+            lbl_ch.setDefaultTextColor(QColor(60, 60, 60))
+            lbl_ch.setPos(margin_left + W - 55, ch_mid - 9)
+
+        # Structural elements
+        elem_w = (W - 20) / max(len(cut_elements), 1)
+        type_colors = {
+            "slab": QColor(100, 140, 200, 160),
+            "beam": QColor(140, 100, 180, 160),
+            "column": QColor(180, 130, 60, 160),
+            "wall_rc": QColor(160, 160, 160, 160),
+            "wall_lgs": QColor(200, 190, 140, 160),
+            "ceiling": QColor(120, 190, 160, 160),
+        }
+        for idx, elem in enumerate(cut_elements):
+            top_e = float(getattr(elem, "top_elevation", 0.0) or 0.0)
+            bot_e = float(getattr(elem, "bottom_elevation", 0.0) or 0.0)
+            if abs(top_e - bot_e) < 1.0:
+                top_e = bot_e + max(float(getattr(elem, "height", 200.0) or 200.0), 50.0)
+            rect_y = ey(top_e)
+            rect_h = abs(ey(bot_e) - ey(top_e))
+            rect_x = margin_left + 10 + idx * elem_w
+            color = type_colors.get(getattr(elem, "element_type", "slab"), QColor(120, 140, 160, 120))
+            scene.addRect(rect_x, rect_y, elem_w - 4, rect_h,
+                          QPen(color.darker(130), 1.5), QBrush(color))
+            type_labels = _nevis_structural_type_labels(mainwin)
+            name = type_labels.get(getattr(elem, "element_type", ""), getattr(elem, "label", "?"))
+            lbl_e = scene.addText(name, QFont("Segoe UI", 6))
+            lbl_e.setDefaultTextColor(QColor(30, 30, 30))
+            lbl_e.setPos(rect_x + 2, rect_y + 2)
+
+        if not cut_elements:
+            msg = scene.addText(mainwin.tr("section_no_elements"), QFont("Segoe UI", 9))
+            msg.setDefaultTextColor(QColor(140, 140, 140))
+            msg.setPos(margin_left + 20, H / 2 - 10)
+
+        scene.setSceneRect(scene.itemsBoundingRect().adjusted(-10, -10, 10, 10))
+        view.fitInView(scene.sceneRect(), Qt.KeepAspectRatio)
+
+    edit_ft.editingFinished.connect(_redraw)
+    _redraw()
+
+    close_btn = QPushButton("OK")
+    close_btn.clicked.connect(dialog.accept)
+    main_layout.addWidget(close_btn)
+    dialog.exec()
+
+
+def _nevis_t15_mouse_press(self, event):
+    if getattr(self.mainwin, "_section_cut_active", False) and event.button() == Qt.LeftButton:
+        try:
+            view_pos = event.position().toPoint()
+        except AttributeError:
+            view_pos = event.pos()
+        _nevis_t15_handle_cut_click(self.mainwin, self.mapToScene(view_pos))
+        event.accept()
+        return
+    if getattr(self.mainwin, "_section_cut_active", False) and event.button() == Qt.RightButton:
+        self.mainwin.start_section_cut(False)
+        if hasattr(self.mainwin, "btn_section_cut"):
+            self.mainwin.btn_section_cut.blockSignals(True)
+            self.mainwin.btn_section_cut.setChecked(False)
+            self.mainwin.btn_section_cut.blockSignals(False)
+        event.accept()
+        return
+    return _NEVIS_T15_PREV_MOUSE_PRESS(self, event)
+
+
+MainWindow._build_ui = _nevis_t15_build_ui
+MainWindow.start_section_cut = _nevis_t15_start_section_cut
+PreviewView.mousePressEvent = _nevis_t15_mouse_press
 
 
 # =============================================================================
