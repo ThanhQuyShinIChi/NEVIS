@@ -57,7 +57,7 @@ try:
         QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget,
         QTreeWidgetItem, QInputDialog, QHeaderView, QGraphicsView, QGraphicsScene, QGraphicsItem,
         QScrollArea, QSizePolicy, QDialog, QTextEdit, QDialogButtonBox, QListWidget, QListWidgetItem, QFrame,
-        QDockWidget, QSpinBox, QSlider, QFormLayout, QAbstractItemView, QMenu
+        QDockWidget, QSpinBox, QSlider, QFormLayout, QAbstractItemView, QMenu, QToolTip
     )
 except Exception as e:
     print("PySide6 is required. Install with: py -m pip install pyside6")
@@ -27015,9 +27015,12 @@ def _nevis_structural_mouse_move(self, event):
         end = _nevis_structural_raw_scene_point(self, event)
         item = getattr(self, "_stepped_slab_preview_item", None)
         if item is not None:
-            canvas_start = _nevis_real_to_canvas_point(self.mainwin, stepped_start)
-            canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
-            item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+            try:
+                canvas_start = _nevis_real_to_canvas_point(self.mainwin, stepped_start)
+                canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
+                item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+            except RuntimeError:
+                self._stepped_slab_preview_item = None
         event.accept()
         return
     start = getattr(self, "_structural_drag_start", None)
@@ -27025,9 +27028,12 @@ def _nevis_structural_mouse_move(self, event):
         end = _nevis_structural_raw_scene_point(self, event)
         item = getattr(self, "_structural_preview_item", None)
         if item is not None:
-            canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
-            canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
-            item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+            try:
+                canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
+                canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
+                item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+            except RuntimeError:
+                self._structural_preview_item = None
         event.accept()
         return
     transform = getattr(self, "_structural_transform", None)
