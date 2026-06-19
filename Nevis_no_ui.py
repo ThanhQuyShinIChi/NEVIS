@@ -30388,22 +30388,36 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
     ex, ey = end
     axis = getattr(mainwin, _T29_SECTION_AXIS, "X")
 
-    SCALE = 0.3   # mm → scene pixels; 1:1 at 606mm = 606 scene units = too large, use 0.3x
-    cut_y_scene = 30.0
+    # Determine horiz extent from cut line so we can normalize coords
+    if axis == "X":
+        horiz_min_cut = min(sx, ex)
+        horiz_max_cut = max(sx, ex)
+    else:
+        horiz_min_cut = min(sy, ey)
+        horiz_max_cut = max(sy, ey)
+    cut_span = max(horiz_max_cut - horiz_min_cut, 1.0)
+
+    VIEW_WIDTH = 500.0   # section scene horizontal width in scene units
+    MARGIN_LEFT = 30.0
+    EL_SCALE = 0.5       # elevation mm → scene units (px)
+    gl_y = 120.0         # GL at this scene Y; elements grow upward (smaller Y)
+
+    def _real_x_to_scene(rx):
+        return MARGIN_LEFT + (rx - horiz_min_cut) / cut_span * VIEW_WIDTH
 
     # Title
     title = scene.addText("断面図", QFont("Segoe UI", 9, QFont.Bold))
     title.setDefaultTextColor(QColor(55, 95, 145))
-    title.setPos(5, 2)
+    title.setPos(MARGIN_LEFT, 2)
     title.setZValue(10)
 
     # GL reference line always present
-    gl_y = cut_y_scene + 60
-    cut_line = scene.addLine(-20, gl_y, 1000, gl_y, QPen(QColor(180, 0, 0), 1.0, Qt.DashLine))
+    cut_line = scene.addLine(MARGIN_LEFT - 10, gl_y, MARGIN_LEFT + VIEW_WIDTH + 10, gl_y,
+                             QPen(QColor(180, 0, 0), 1.0, Qt.DashLine))
     cut_line.setZValue(8)
     gl_label = scene.addText("GL±0", QFont("Segoe UI", 7))
     gl_label.setDefaultTextColor(QColor(180, 0, 0))
-    gl_label.setPos(2, gl_y - 18)
+    gl_label.setPos(2, gl_y - 16)
     gl_label.setZValue(9)
 
     if not elements:
@@ -30447,13 +30461,12 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
             horiz_end   = y1
             in_view = True
 
-        # Draw element in section: X axis = horizontal span, Y axis = elevation
-        # Use absolute position so multiple elements align correctly
-        scene_x0 = horiz_start * SCALE + 20
-        scene_x1 = horiz_end   * SCALE + 20
-        # Elevation: upward = negative scene Y from gl_y
-        scene_yt = gl_y - top_e * SCALE
-        scene_yb = gl_y - bot_e * SCALE
+        # Draw element in section: X = normalized horiz span, Y = elevation
+        scene_x0 = _real_x_to_scene(horiz_start)
+        scene_x1 = _real_x_to_scene(horiz_end)
+        # Elevation: upward = smaller scene Y; at GL=0 → scene_y = gl_y
+        scene_yt = gl_y - top_e * EL_SCALE
+        scene_yb = gl_y - bot_e * EL_SCALE  # bot_e < top_e so scene_yb > scene_yt
 
         if bool(getattr(element, "is_stepped", False)):
             pen   = QPen(QColor(55, 95, 145), 2.0, Qt.SolidLine)
