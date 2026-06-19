@@ -30308,54 +30308,53 @@ def _nevis_t29_section_compute(mainwin):
 
 
 def _nevis_t29_show_split_view(mainwin, start, end, side):
-    """Replace center widget with a QSplitter(plan | section)."""
-    from PySide6.QtWidgets import QSplitter as _QSpl, QGraphicsView, QGraphicsScene
-    from PySide6.QtGui import QPen, QColor, QFont, QBrush
-    from PySide6.QtCore import Qt, QRectF, QPointF
+    """Add section panel directly into main splitter at index 2 (where right_shell was)."""
+    from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QWidget, QVBoxLayout, QLabel
+    from PySide6.QtGui import QBrush, QColor, QFont
+    from PySide6.QtCore import Qt
 
-    # Tear down existing section splitter if any
+    # Tear down any existing section view
     _nevis_t29_section_exit(mainwin)
 
-    # Center widget is index 1 in the main splitter
-    center_widget = mainwin.splitter.widget(1)
+    # Build section widget
+    section_container = QWidget()
+    sec_layout = QVBoxLayout(section_container)
+    sec_layout.setContentsMargins(0, 0, 0, 0)
+    sec_layout.setSpacing(0)
 
-    # Wrap existing preview in a container if needed
-    # Create inner splitter: left=plan (existing preview), right=section
-    inner = _QSpl(Qt.Horizontal, center_widget)
-    inner.setHandleWidth(6)
-    inner.setStyleSheet("QSplitter::handle { background: #90CAF9; border: 1px solid #64B5F6; }")
+    header = QLabel("  断面図")
+    header.setFixedHeight(22)
+    header.setStyleSheet("background:#1565C0; color:white; font-weight:bold; font-size:11px;")
+    sec_layout.addWidget(header)
 
-    # The existing preview already lives in center_widget's layout;
-    # we create a NEW dedicated section canvas widget
     section_scene = QGraphicsScene()
     section_view = QGraphicsView(section_scene)
-    section_view.setBackgroundBrush(QBrush(QColor(245, 248, 252)))
-    section_view.setRenderHint(section_view.renderHints())
+    section_view.setBackgroundBrush(QBrush(QColor(248, 250, 255)))
     section_view.setDragMode(QGraphicsView.ScrollHandDrag)
     section_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     section_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     section_view.setObjectName("section_canvas")
+    sec_layout.addWidget(section_view, 1)
 
-    # Populate section scene from structural elements
+    # Populate section scene
     _nevis_t29_render_section(mainwin, section_scene, start, end, side)
+    section_view.fitInView(section_scene.itemsBoundingRect().adjusted(-20, -20, 20, 20),
+                           Qt.KeepAspectRatio)
 
-    # Put plan preview on left, section on right
-    # Find the preview widget
-    plan_view = mainwin.preview
-    plan_view.setParent(inner)
-    section_view.setParent(inner)
-    inner.addWidget(plan_view)
-    inner.addWidget(section_view)
-    inner.setSizes([600, 400])
-    inner.setCollapsible(0, False)
-    inner.setCollapsible(1, False)
+    # Insert into main splitter at index 2 (right_shell position, currently hidden)
+    # right_shell is already hidden; we insert the section view in its place
+    mainwin.splitter.insertWidget(2, section_container)
+    mainwin.splitter.setCollapsible(2, False)
+    # Give plan view 60%, section view 40%
+    sizes = mainwin.splitter.sizes()
+    total = sum(sizes)
+    left_w = sizes[0] if sizes else 220
+    plan_w  = int((total - left_w) * 0.58)
+    sec_w   = int((total - left_w) * 0.42)
+    mainwin.splitter.setSizes([left_w, plan_w, sec_w])
+    section_container.show()
 
-    # Insert inner splitter into the center layout
-    layout = center_widget.layout()
-    if layout is not None:
-        layout.addWidget(inner)
-
-    setattr(mainwin, _T29_SECTION_SPLITTER, inner)
+    setattr(mainwin, _T29_SECTION_SPLITTER, section_container)
     setattr(mainwin, _T29_SECTION_VIEW, section_view)
 
     # Draw the cut line on plan view
@@ -30498,17 +30497,10 @@ def _nevis_t29_draw_cut_line_on_plan(mainwin, start, end, side):
 
 
 def _nevis_t29_section_exit(mainwin):
-    """Remove split view, restore single plan view."""
+    """Remove section panel from main splitter, restore plan-only view."""
     sp = getattr(mainwin, _T29_SECTION_SPLITTER, None)
     if sp is None:
         return
-    # Reparent plan_view back to center_widget and remove inner splitter
-    center_widget = mainwin.splitter.widget(1)
-    plan_view = mainwin.preview
-    plan_view.setParent(center_widget)
-    layout = center_widget.layout()
-    if layout is not None:
-        layout.addWidget(plan_view)
     try:
         sp.setParent(None)
         sp.deleteLater()
@@ -30516,13 +30508,24 @@ def _nevis_t29_section_exit(mainwin):
         pass
     setattr(mainwin, _T29_SECTION_SPLITTER, None)
     setattr(mainwin, _T29_SECTION_VIEW, None)
-    # Remove cut line items from scene
-    for it in list(mainwin.preview.scene.items()):
-        try:
-            if it.data(0) == "section_cut_line":
-                mainwin.preview.scene.removeItem(it)
-        except (RuntimeError, AttributeError):
-            pass
+    # Restore main splitter sizes: left_shell + center full width
+    try:
+        sizes = mainwin.splitter.sizes()
+        if len(sizes) >= 2:
+            total = sum(sizes)
+            mainwin.splitter.setSizes([sizes[0], total - sizes[0]])
+    except Exception:
+        pass
+    # Remove cut line items from plan scene
+    try:
+        for it in list(mainwin.preview.scene.items()):
+            try:
+                if it.data(0) == "section_cut_line":
+                    mainwin.preview.scene.removeItem(it)
+            except (RuntimeError, AttributeError):
+                pass
+    except Exception:
+        pass
 
 
 # Wire up 断面図 button
