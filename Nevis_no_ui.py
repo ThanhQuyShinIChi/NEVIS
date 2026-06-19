@@ -30338,8 +30338,15 @@ def _nevis_t29_show_split_view(mainwin, start, end, side):
 
     # Populate section scene
     _nevis_t29_render_section(mainwin, section_scene, start, end, side)
-    section_view.fitInView(section_scene.itemsBoundingRect().adjusted(-20, -20, 20, 20),
-                           Qt.KeepAspectRatio)
+    # Delay fitInView until widget has its final geometry
+    def _fit():
+        try:
+            r = section_scene.itemsBoundingRect().adjusted(-20, -20, 20, 20)
+            if not r.isEmpty():
+                section_view.fitInView(r, Qt.KeepAspectRatio)
+        except RuntimeError:
+            pass
+    QTimer.singleShot(150, _fit)
 
     # Insert into main splitter at index 2 (right_shell position, currently hidden)
     # right_shell is already hidden; we insert the section view in its place
