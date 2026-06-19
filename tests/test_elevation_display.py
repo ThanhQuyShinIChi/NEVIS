@@ -1,6 +1,27 @@
 ﻿"""Tests for modules/elevation_display.py — no Qt dependency."""
 import pytest
-from modules.elevation_display import format_slope_label, format_z_label, edge_elevation_labels
+from modules.elevation_display import (
+    compute_edge_slope,
+    edge_elevation_labels,
+    format_slope_label,
+    format_z_label,
+)
+
+
+def test_compute_edge_slope_falling():
+    assert compute_edge_slope(1000.0, 0.0, 50000.0) == -0.02
+
+
+def test_compute_edge_slope_missing_value():
+    assert compute_edge_slope(None, 0.0, 5000.0) is None
+
+
+def test_compute_edge_slope_flat():
+    assert compute_edge_slope(100.0, 100.0, 5000.0) == 0.0
+
+
+def test_compute_edge_slope_zero_length():
+    assert compute_edge_slope(100.0, 0.0, 0.0) is None
 
 
 # --- format_slope_label ratio mode ---

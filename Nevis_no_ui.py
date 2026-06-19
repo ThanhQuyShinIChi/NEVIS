@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set
 
 from modules.elevation_input import validate_node_z_input
+from modules.elevation_display import compute_edge_slope
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
@@ -7462,6 +7463,16 @@ class MainWindow(QMainWindow):
         self._warn_unknown_level_id(level_id)
         self.model.nodes[nid].level_id = str(level_id or "")
         self.model.nodes[nid].z = 0.0 if node_z is None else node_z
+        for edge in getattr(self.model, "edges", []):
+            if nid not in (edge.a, edge.b):
+                continue
+            start_node = self.model.nodes.get(edge.a)
+            end_node = self.model.nodes.get(edge.b)
+            edge.slope = compute_edge_slope(
+                getattr(start_node, "z", None),
+                getattr(end_node, "z", None),
+                self.model.edge_length(edge),
+            )
         self.update_node_level_choices()
         self.update_selected_elevation_summary()
         if hasattr(self, "lbl_status"):

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from math import isfinite
+from dataclasses import dataclass, field, replace
+from math import hypot, isfinite
 from numbers import Real
 from typing import Any, Dict, List, Tuple
 
 from .elevation_conflict_lock import build_conflict_lock_report
+from .elevation_display import compute_edge_slope
 
 from .elevation_review import (
     STATUS_BLOCKED_CONFLICT,
@@ -25,6 +26,8 @@ class ApplySnapshotItem:
     new_value: float
     source_edge_index: int | None = None
     source_endpoint: str = ""
+    old_slope: Any = None
+    new_slope: float | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,25 @@ def _edge_at(model: Any, edge_index: int) -> Any | None:
     try:
         return edges[edge_index]
     except (IndexError, KeyError, TypeError):
+        return None
+
+
+def _edge_length_2d(model: Any, edge: Any) -> float | None:
+    edge_length = getattr(model, "edge_length", None)
+    if callable(edge_length):
+        try:
+            return float(edge_length(edge))
+        except (TypeError, ValueError, KeyError):
+            return None
+    try:
+        nodes = getattr(model, "nodes")
+        start_node = nodes[int(getattr(edge, "a"))]
+        end_node = nodes[int(getattr(edge, "b"))]
+        return hypot(
+            float(getattr(end_node, "x")) - float(getattr(start_node, "x")),
+            float(getattr(end_node, "y")) - float(getattr(start_node, "y")),
+        )
+    except (AttributeError, KeyError, TypeError, ValueError):
         return None
 
 
@@ -256,11 +278,12 @@ def apply_elevation_review(
             new_value=float(row.proposed_z),
             source_edge_index=row.source_edge_index,
             source_endpoint=row.source_endpoint,
+            old_slope=getattr(edge, "slope", None),
         )
         for row, current_edge_index, edge in plan
     ]
 
-    applied: List[AppliedStep] = []
+    writes_completed = 0
     try:
         for (row, current_edge_index, edge), item in zip(plan, snapshot):
             if _edge_at(model, current_edge_index) is not edge:
@@ -274,7 +297,19 @@ def apply_elevation_review(
             if strict and _target_is_known(model, edge, row.target_endpoint):
                 raise RuntimeError("target_already_known_during_write")
             setattr(edge, item.field_name, item.new_value)
-            applied.append(AppliedStep(row=row, snapshot=item))
+            writes_completed += 1
+
+        affected_edges = {current_edge_index: edge for _, current_edge_index, edge in plan}
+        for edge in affected_edges.values():
+            edge.slope = compute_edge_slope(
+                getattr(edge, "start_z", None),
+                getattr(edge, "end_z", None),
+                _edge_length_2d(model, edge),
+            )
+        snapshot = [
+            replace(item, new_slope=getattr(_edge_at(model, item.edge_index), "slope", None))
+            for item in snapshot
+        ]
     except Exception as exc:
         rollback_errors: List[str] = []
         for item in reversed(snapshot):
@@ -283,13 +318,14 @@ def apply_elevation_review(
                 if edge is None:
                     raise RuntimeError("target_edge_missing_during_rollback")
                 setattr(edge, item.field_name, item.old_value)
+                setattr(edge, "slope", item.old_slope)
             except Exception as rollback_exc:
                 rollback_errors.append(str(rollback_exc))
         error = f"write_failed:{exc}"
         if rollback_errors:
             error += ";rollback_failed:" + "|".join(rollback_errors)
         failed_rejection = RejectedStep(
-            row=plan[len(applied)][0] if len(applied) < len(plan) else None,
+            row=plan[writes_completed][0] if writes_completed < len(plan) else None,
             reason="write_failed",
         )
         rejected = [failed_rejection]
@@ -303,6 +339,10 @@ def apply_elevation_review(
             summary=_summary([], skipped, rejected),
         )
 
+    applied = [
+        AppliedStep(row=row, snapshot=item)
+        for (row, _, _), item in zip(plan, snapshot)
+    ]
     return ApplyResult(
         success=True,
         applied_steps=applied,
@@ -324,9 +364,11 @@ def undo_elevation_apply(model: Any, result: ApplyResult) -> bool:
             if edge is None:
                 raise RuntimeError("target_edge_missing_during_undo")
             setattr(edge, item.field_name, item.old_value)
+            setattr(edge, "slope", item.old_slope)
             restored.append((edge, item))
     except Exception:
         for edge, item in reversed(restored):
             setattr(edge, item.field_name, item.new_value)
+            setattr(edge, "slope", item.new_slope)
         return False
     return True
