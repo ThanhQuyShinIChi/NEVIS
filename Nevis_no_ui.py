@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set
 
+from modules.elevation_input import validate_node_z_input
+
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
     from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QIcon, QPolygonF, QRawFont
@@ -7451,14 +7453,15 @@ class MainWindow(QMainWindow):
         combo = getattr(self, "cmb_node_level", None)
         if combo is None:
             return
-        try:
-            node_z = self._parse_optional_float_field(self.edit_node_z, "Node Z")
-        except Exception:
+        node_z, error = validate_node_z_input(self.edit_node_z.text())
+        if error:
+            if hasattr(self, "lbl_status"):
+                self.lbl_status.setText(error)
             return
         level_id = self._level_id_from_combo(combo)
         self._warn_unknown_level_id(level_id)
         self.model.nodes[nid].level_id = str(level_id or "")
-        self.model.nodes[nid].z = node_z
+        self.model.nodes[nid].z = 0.0 if node_z is None else node_z
         self.update_node_level_choices()
         self.update_selected_elevation_summary()
         if hasattr(self, "lbl_status"):
