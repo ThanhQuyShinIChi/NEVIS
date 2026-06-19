@@ -84,7 +84,7 @@ class StructuralElement:
 
 ---
 
-## TASK 7 — Vẽ Rectangle trên canvas (công cụ vẽ kết cấu) `[  ]`
+## TASK 7 — Vẽ Rectangle trên canvas (công cụ vẽ kết cấu) `[x]`
 
 **Mục tiêu:** Người dùng click-drag trên canvas để vẽ hình chữ nhật đại diện cho phần tử kết cấu.
 

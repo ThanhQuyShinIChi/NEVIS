@@ -28,6 +28,8 @@ from typing import Dict, List, Tuple, Optional, Set
 
 from modules.elevation_input import validate_node_z_input
 from modules.elevation_display import compute_edge_slope
+from modules.structural_element import StructuralElement
+from modules.structural_geometry import nearest_snap_point, rect_from_two_points, snap_to_grid
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
@@ -26037,6 +26039,235 @@ def _nevis_reference_background_mouse_press(self, event):
 
 
 PreviewView.mousePressEvent = _nevis_reference_background_mouse_press
+
+
+# =============================================================================
+# Structural element rectangle drawing
+# =============================================================================
+_NEVIS_STRUCTURAL_TYPE_LABELS = {
+    "slab": "Sàn / スラブ",
+    "beam": "Dầm / 梁",
+    "column": "Cột / 柱",
+    "wall_rc": "Tường RC / RC壁",
+    "wall_lgs": "Vách LGS / 軽量鉄骨壁",
+    "ceiling": "Trần / 天井",
+}
+
+
+def _nevis_structural_has_visible_underlay(mainwin) -> bool:
+    if getattr(mainwin, "jww_background_items", None):
+        return True
+    item = _nevis_reference_background_item(mainwin)
+    return bool(item is not None and item.isVisible())
+
+
+def _nevis_structural_snap_scene_point(view, scene_point) -> tuple[float, float]:
+    x, y = float(scene_point.x()), float(scene_point.y())
+    scale = abs(float(view.transform().m11())) or 1.0
+    tolerance_scene = 10.0 / scale
+    candidates = [(node.x, node.y) for node in view.mainwin.model.nodes.values()]
+    node_point = nearest_snap_point(x, y, candidates, tolerance_scene)
+    if node_point is not None:
+        return node_point
+    if _nevis_structural_has_visible_underlay(view.mainwin):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 100.0))
+    return x, y
+
+
+def _nevis_structural_event_scene_point(view, event) -> tuple[float, float]:
+    try:
+        view_pos = event.position().toPoint()
+    except AttributeError:
+        view_pos = event.pos()
+    return _nevis_structural_snap_scene_point(view, view.mapToScene(view_pos))
+
+
+def _nevis_structural_remove_preview(view) -> None:
+    item = getattr(view, "_structural_preview_item", None)
+    view._structural_preview_item = None
+    if item is not None and item.scene() is not None:
+        item.scene().removeItem(item)
+
+
+def _nevis_structural_set_draw_mode(self, enabled: bool) -> None:
+    if enabled and self._block_if_detail_readonly():
+        self.btn_structural_draw.blockSignals(True)
+        self.btn_structural_draw.setChecked(False)
+        self.btn_structural_draw.blockSignals(False)
+        return
+    self.structural_draw_mode = bool(enabled)
+    self.preview._structural_drag_start = None
+    _nevis_structural_remove_preview(self.preview)
+    if enabled:
+        if getattr(self, "_reference_background_aligning", False):
+            self.cancel_reference_background_alignment("")
+        self.preview.setDragMode(QGraphicsView.NoDrag)
+        self.preview.viewport().setCursor(Qt.CrossCursor)
+        self.lbl_status.setText("Vẽ kết cấu: kéo chuột từ góc thứ nhất đến góc đối diện")
+    else:
+        self.preview.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.preview.viewport().setCursor(Qt.OpenHandCursor)
+        self.lbl_status.setText(self.tr("status_wait"))
+
+
+def _nevis_structural_edit_dialog(self, width: float, length: float):
+    dialog = QDialog(self)
+    dialog.setWindowTitle("Phần tử kết cấu / 構造要素")
+    layout = QFormLayout(dialog)
+    type_combo = QComboBox(dialog)
+    for element_type, label in _NEVIS_STRUCTURAL_TYPE_LABELS.items():
+        type_combo.addItem(label, element_type)
+    width_edit = QLineEdit(str(int(round(width))), dialog)
+    length_edit = QLineEdit(str(int(round(length))), dialog)
+    layout.addRow("Loại / 種類", type_combo)
+    layout.addRow("W (mm)", width_edit)
+    layout.addRow("L (mm)", length_edit)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    layout.addRow(buttons)
+    while dialog.exec() == QDialog.Accepted:
+        try:
+            edited_width = float(width_edit.text().strip())
+            edited_length = float(length_edit.text().strip())
+            if edited_width <= 0.0 or edited_length <= 0.0:
+                raise ValueError
+        except ValueError:
+            QMessageBox.warning(dialog, "Kích thước", "W và L phải là số dương.")
+            continue
+        return str(type_combo.currentData()), edited_width, edited_length
+    return None
+
+
+def _nevis_structural_create_from_drag(self, start, end) -> bool:
+    raw_width = abs(float(end[0]) - float(start[0]))
+    raw_length = abs(float(end[1]) - float(start[1]))
+    if raw_width < EPS or raw_length < EPS:
+        self.lbl_status.setText("Vùng kết cấu phải có W và L lớn hơn 0")
+        return False
+    result = self._structural_edit_dialog(raw_width, raw_length)
+    if result is None:
+        return False
+    element_type, width, length = result
+    direction_x = 1.0 if end[0] >= start[0] else -1.0
+    direction_y = 1.0 if end[1] >= start[1] else -1.0
+    adjusted_end = (start[0] + direction_x * width, start[1] + direction_y * length)
+    existing = list(getattr(self.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
+    element = StructuralElement(
+        id=next_id,
+        element_type=element_type,
+        label=_NEVIS_STRUCTURAL_TYPE_LABELS[element_type],
+        points=rect_from_two_points(start, adjusted_end),
+        width=width,
+        length=length,
+    )
+    self.model.structural_elements.append(element)
+    self.preview.draw_model()
+    self.lbl_status.setText(f"Đã tạo {element.label}: W {width:g} x L {length:g} mm")
+    return True
+
+
+def _nevis_structural_draw_items(view) -> None:
+    elements = list(getattr(view.mainwin.model, "structural_elements", []) or [])
+    if not elements:
+        return
+    pen = QPen(QColor(105, 112, 120), 2.0, Qt.DashLine)
+    brush = QBrush(QColor(145, 150, 158, 28))
+    bounds = None
+    for element in elements:
+        if len(getattr(element, "points", [])) < 3:
+            continue
+        polygon = QPolygonF([QPointF(float(x), float(y)) for x, y in element.points])
+        item = view.scene.addPolygon(polygon, pen, brush)
+        item.setZValue(12)
+        item.setData(0, ("structural_element", int(element.id)))
+        item_bounds = item.sceneBoundingRect()
+        bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+        label = str(getattr(element, "label", "") or _NEVIS_STRUCTURAL_TYPE_LABELS.get(element.element_type, element.element_type))
+        text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
+        text.setDefaultTextColor(QColor(85, 90, 98))
+        text.setZValue(13)
+        text.setAcceptedMouseButtons(Qt.NoButton)
+        text_rect = text.boundingRect()
+        text.setPos(item_bounds.center().x() - text_rect.width() / 2.0, item_bounds.center().y() - text_rect.height() / 2.0)
+    if bounds is not None:
+        view.scene.setSceneRect(view.scene.sceneRect().united(bounds.adjusted(-20, -20, 20, 20)))
+
+
+_NEVIS_STRUCTURAL_PREV_BUILD_UI = MainWindow._build_ui
+def _nevis_structural_build_ui(self):
+    result = _NEVIS_STRUCTURAL_PREV_BUILD_UI(self)
+    self.structural_draw_mode = False
+    self.structural_grid_mm = 100.0
+    self.btn_structural_draw = QPushButton("Vẽ kết cấu / 構造要素")
+    self.btn_structural_draw.setCheckable(True)
+    self.btn_structural_draw.setMinimumHeight(28)
+    self.btn_structural_draw.toggled.connect(self.set_structural_draw_mode)
+    self._preview_primary_widgets.append(self.btn_structural_draw)
+    self._preview_toolbar_compact = None
+    self._preview_toolbar_narrow = None
+    self._set_preview_toolbar_compact(False, False)
+    return result
+
+
+_NEVIS_STRUCTURAL_PREV_DRAW_MODEL = PreviewView.draw_model
+def _nevis_structural_draw_model(self, *args, **kwargs):
+    result = _NEVIS_STRUCTURAL_PREV_DRAW_MODEL(self, *args, **kwargs)
+    _nevis_structural_draw_items(self)
+    return result
+
+
+_NEVIS_STRUCTURAL_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+_NEVIS_STRUCTURAL_PREV_MOUSE_MOVE = PreviewView.mouseMoveEvent
+_NEVIS_STRUCTURAL_PREV_MOUSE_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_structural_mouse_press(self, event):
+    if getattr(self.mainwin, "structural_draw_mode", False) and event.button() == Qt.LeftButton:
+        start = _nevis_structural_event_scene_point(self, event)
+        self._structural_drag_start = start
+        _nevis_structural_remove_preview(self)
+        preview_pen = QPen(QColor(45, 115, 190), 2.0, Qt.DashLine)
+        self._structural_preview_item = self.scene.addRect(QRectF(QPointF(*start), QPointF(*start)), preview_pen)
+        self._structural_preview_item.setZValue(1000)
+        event.accept()
+        return
+    return _NEVIS_STRUCTURAL_PREV_MOUSE_PRESS(self, event)
+
+
+def _nevis_structural_mouse_move(self, event):
+    start = getattr(self, "_structural_drag_start", None)
+    if getattr(self.mainwin, "structural_draw_mode", False) and start is not None:
+        end = _nevis_structural_event_scene_point(self, event)
+        item = getattr(self, "_structural_preview_item", None)
+        if item is not None:
+            item.setRect(QRectF(QPointF(*start), QPointF(*end)).normalized())
+        event.accept()
+        return
+    return _NEVIS_STRUCTURAL_PREV_MOUSE_MOVE(self, event)
+
+
+def _nevis_structural_mouse_release(self, event):
+    start = getattr(self, "_structural_drag_start", None)
+    if getattr(self.mainwin, "structural_draw_mode", False) and start is not None and event.button() == Qt.LeftButton:
+        end = _nevis_structural_event_scene_point(self, event)
+        self._structural_drag_start = None
+        _nevis_structural_remove_preview(self)
+        self.mainwin._structural_create_from_drag(start, end)
+        event.accept()
+        return
+    return _NEVIS_STRUCTURAL_PREV_MOUSE_RELEASE(self, event)
+
+
+MainWindow._build_ui = _nevis_structural_build_ui
+MainWindow.set_structural_draw_mode = _nevis_structural_set_draw_mode
+MainWindow._structural_edit_dialog = _nevis_structural_edit_dialog
+MainWindow._structural_create_from_drag = _nevis_structural_create_from_drag
+PreviewView.draw_model = _nevis_structural_draw_model
+PreviewView.mousePressEvent = _nevis_structural_mouse_press
+PreviewView.mouseMoveEvent = _nevis_structural_mouse_move
+PreviewView.mouseReleaseEvent = _nevis_structural_mouse_release
 
 
 # =============================================================================
