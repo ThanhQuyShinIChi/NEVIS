@@ -21,7 +21,17 @@ Task 1–5 đã hoàn thành. 104 tests pass. Không sửa các file elevation.
 
 ---
 
-## TASK 6 — Data model cho StructuralElement `[  ]`
+## ✅ TASK 6–29 — Building Space Model + Section View (DONE)
+
+Task 6–29 đã hoàn thành. 245 tests pass. Commit cuối: `b9b6b81`.
+- Task 6–21: data model, vẽ kết cấu, trục tọa độ, cao độ SL
+- Task 22: xem Task 22 bên dưới (chưa làm)
+- Task 23–29: sidebar compact, responsive toolbar, section view, stepped slab, unified render, scale thật, SL datum, marker, zoom/pan
+- GUI xác nhận: section ổn định, sàn giật cấp đúng, sidebar/toolbar ok
+
+---
+
+## TASK 6 — Data model cho StructuralElement `[x]` (DONE)
 
 **Mục tiêu:** Định nghĩa dataclass cho các phần tử kết cấu, lưu/load được trong file project.
 
@@ -561,3 +571,654 @@ Chỉ cần cập nhật dialog để điền đúng các field này.
 - `format_slab_label(top_elev, height) -> str`  → `"SL±0 / t150"`
 - `format_beam_label(bottom_elev, h, w) -> str` → `"GL-500 / 300×600"`
 - `format_ceiling_ch(ceiling_bottom, fl) -> str` → `"CH=2360"`
+
+---
+
+## TASK 22 — Clash Detection 2.5D: Ống xuyên kết cấu `[ ]`
+
+**Mục tiêu:** Đây là tính năng cốt lõi của NEVIS — phát hiện xung đột giữa đường ống MEP và phần tử kết cấu (sàn, dầm, trần). Highlight đỏ các đoạn ống bị xung đột.
+
+---
+
+### Khái niệm 2.5D Clash
+
+NEVIS không dùng mô hình 3D đầy đủ. Thay vào đó:
+
+- **Đường ống MEP**: có tọa độ XY trên mặt bằng + cao độ Z (mm so với SL)
+- **Phần tử kết cấu**: có outline XY (đa giác/hình chữ nhật) + dải cao độ [bottom_elevation, top_elevation]
+- **Clash**: đoạn ống nằm trong vùng XY của phần tử kết cấu VÀ Z của ống nằm trong [bottom, top] của phần tử
+
+Ví dụ thực tế:
+```
+Sàn BT: top_elevation=0, bottom_elevation=-150 (SL±0, dày 150mm)
+Ống cấp nước: z=-80 → ống đang nằm TRONG sàn → CLASH ĐỎ
+Ống thoát: z=-300 → ống dưới đáy sàn → bình thường
+Dầm: top=0, bottom=-600 (đáy dầm SL-600, cao 600mm)
+Ống: z=-400 → ống trong vùng dầm → CLASH ĐỎ
+```
+
+---
+
+### 22a — Module pure logic: `modules/clash_detection.py`
+
+Tạo file mới `modules/clash_detection.py`:
+
+```python
+"""2.5D clash detection — no Qt dependency."""
+from __future__ import annotations
+from dataclasses import dataclass
+
+
+@dataclass
+class ClashResult:
+    pipe_id: int          # ID của đường ống
+    element_id: int       # ID của phần tử kết cấu
+    element_type: str     # "slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling"
+    clash_type: str       # "penetrate" | "too_close"
+    overlap_mm: float     # Khoảng chồng lấn (mm) — dương = clash nặng
+
+
+def point_in_polygon(px: float, py: float, polygon: list) -> bool:
+    """Ray casting algorithm — kiểm tra điểm có trong đa giác không."""
+    ...
+
+
+def segment_intersects_polygon(p1: tuple, p2: tuple, polygon: list) -> bool:
+    """True nếu đoạn thẳng p1→p2 có bất kỳ điểm nào nằm trong polygon."""
+    ...
+
+
+def check_elevation_clash(pipe_z: float, elem_bottom: float, elem_top: float,
+                           clearance_mm: float = 50.0) -> tuple[bool, float]:
+    """
+    Kiểm tra Z ống có xung đột với dải cao độ phần tử không.
+    Returns: (is_clash, overlap_mm)
+    overlap_mm > 0: ống xuyên vào phần tử
+    overlap_mm < 0: ống gần phần tử nhưng chưa chạm (< clearance_mm)
+    """
+    ...
+
+
+def find_clashes(pipes: list, elements: list, clearance_mm: float = 50.0) -> list[ClashResult]:
+    """
+    Main function: kiểm tra tất cả pipe segments vs tất cả structural elements.
+    pipes: list of objects với attrs: id, z_elevation, points (list of (x,y) tuples)
+    elements: list of StructuralElement với attrs: id, element_type, points, top_elevation, bottom_elevation
+    Returns: list[ClashResult]
+    """
+    ...
+```
+
+**Triển khai chi tiết:**
+
+```python
+def point_in_polygon(px, py, polygon):
+    n = len(polygon)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def segment_intersects_polygon(p1, p2, polygon):
+    # Kiểm tra từng điểm mẫu trên đoạn thẳng
+    steps = max(2, int(((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)**0.5 // 100) + 2)
+    for k in range(steps + 1):
+        t = k / steps
+        px = p1[0] + t * (p2[0] - p1[0])
+        py = p1[1] + t * (p2[1] - p1[1])
+        if point_in_polygon(px, py, polygon):
+            return True
+    return False
+
+
+def check_elevation_clash(pipe_z, elem_bottom, elem_top, clearance_mm=50.0):
+    if elem_bottom <= pipe_z <= elem_top:
+        # Ống nằm trong phần tử — clash nặng
+        overlap = min(pipe_z - elem_bottom, elem_top - pipe_z)
+        return True, overlap
+    # Kiểm tra khoảng cách gần (< clearance_mm)
+    if pipe_z < elem_bottom:
+        gap = elem_bottom - pipe_z
+    else:
+        gap = pipe_z - elem_top
+    if gap < clearance_mm:
+        return True, -gap  # âm = chưa chạm nhưng quá gần
+    return False, gap
+
+
+def find_clashes(pipes, elements, clearance_mm=50.0):
+    results = []
+    for pipe in pipes:
+        if not getattr(pipe, "points", None) or len(pipe.points) < 2:
+            continue
+        pipe_z = getattr(pipe, "z_elevation", 0.0)
+        for elem in elements:
+            if not getattr(elem, "points", None) or len(elem.points) < 3:
+                continue
+            elem_top = getattr(elem, "top_elevation", 0.0)
+            elem_bottom = getattr(elem, "bottom_elevation", 0.0)
+            # Bước 1: kiểm tra XY — có đoạn ống nào đi qua vùng kết cấu?
+            xy_clash = False
+            pts = pipe.points
+            for i in range(len(pts) - 1):
+                if segment_intersects_polygon(pts[i], pts[i+1], elem.points):
+                    xy_clash = True
+                    break
+            if not xy_clash:
+                continue
+            # Bước 2: kiểm tra Z
+            is_clash, overlap = check_elevation_clash(pipe_z, elem_bottom, elem_top, clearance_mm)
+            if is_clash:
+                clash_type = "penetrate" if overlap >= 0 else "too_close"
+                results.append(ClashResult(
+                    pipe_id=pipe.id,
+                    element_id=elem.id,
+                    element_type=elem.element_type,
+                    clash_type=clash_type,
+                    overlap_mm=overlap,
+                ))
+    return results
+```
+
+---
+
+### 22b — Test file: `tests/test_clash_detection.py`
+
+Tạo file mới `tests/test_clash_detection.py`:
+
+```python
+"""Tests for modules/clash_detection.py — no Qt dependency."""
+import pytest
+from modules.clash_detection import (
+    point_in_polygon, segment_intersects_polygon,
+    check_elevation_clash, find_clashes, ClashResult,
+)
+
+
+# --- point_in_polygon ---
+
+def test_point_inside_square():
+    poly = [(0,0),(100,0),(100,100),(0,100)]
+    assert point_in_polygon(50, 50, poly) is True
+
+def test_point_outside_square():
+    poly = [(0,0),(100,0),(100,100),(0,100)]
+    assert point_in_polygon(200, 200, poly) is False
+
+def test_point_on_edge_treated_as_outside():
+    # Ray casting không đảm bảo điểm trên cạnh, chỉ test trong/ngoài rõ ràng
+    poly = [(0,0),(100,0),(100,100),(0,100)]
+    assert point_in_polygon(-1, 50, poly) is False
+
+
+# --- check_elevation_clash ---
+
+def test_pipe_inside_slab():
+    # Sàn: top=0, bottom=-150 — ống z=-80 → clash
+    is_clash, overlap = check_elevation_clash(-80, -150, 0)
+    assert is_clash is True
+    assert overlap >= 0
+
+def test_pipe_below_slab():
+    # Ống z=-300 — dưới đáy sàn SL-150 → không clash
+    is_clash, overlap = check_elevation_clash(-300, -150, 0)
+    assert is_clash is False
+
+def test_pipe_too_close_below():
+    # Ống z=-170, clearance=50 → cách đáy sàn 20mm < 50 → too_close
+    is_clash, overlap = check_elevation_clash(-170, -150, 0, clearance_mm=50)
+    assert is_clash is True
+    assert overlap < 0  # âm = chưa chạm nhưng quá gần
+
+def test_pipe_above_element_ok():
+    is_clash, _ = check_elevation_clash(100, -150, 0)
+    assert is_clash is False
+
+def test_pipe_exactly_on_top():
+    # Đúng bằng top_elevation → nằm trong → clash
+    is_clash, overlap = check_elevation_clash(0, -150, 0)
+    assert is_clash is True
+
+
+# --- segment_intersects_polygon ---
+
+def test_segment_crosses_square():
+    poly = [(0,0),(1000,0),(1000,1000),(0,1000)]
+    # Đoạn từ (-100,500) đến (1100,500) cắt ngang qua hình vuông
+    assert segment_intersects_polygon((-100,500), (1100,500), poly) is True
+
+def test_segment_outside_square():
+    poly = [(0,0),(100,0),(100,100),(0,100)]
+    assert segment_intersects_polygon((200,0), (200,100), poly) is False
+
+
+# --- find_clashes ---
+
+class _MockPipe:
+    def __init__(self, id, z, points):
+        self.id = id
+        self.z_elevation = z
+        self.points = points
+
+class _MockElem:
+    def __init__(self, id, etype, points, top, bottom):
+        self.id = id
+        self.element_type = etype
+        self.points = points
+        self.top_elevation = top
+        self.bottom_elevation = bottom
+
+
+def test_find_clashes_one_clash():
+    # Sàn 1000×1000, top=0, bottom=-150
+    slab = _MockElem(1, "slab", [(0,0),(1000,0),(1000,1000),(0,1000)], 0, -150)
+    # Ống đi xuyên qua giữa sàn, z=-80 (trong sàn)
+    pipe = _MockPipe(1, -80, [(500,-100),(500,1100)])
+    results = find_clashes([pipe], [slab])
+    assert len(results) == 1
+    assert results[0].clash_type == "penetrate"
+    assert results[0].element_type == "slab"
+
+def test_find_clashes_no_clash_z_ok():
+    slab = _MockElem(1, "slab", [(0,0),(1000,0),(1000,1000),(0,1000)], 0, -150)
+    # Ống đi qua vùng sàn nhưng z=-300 → dưới đáy, OK
+    pipe = _MockPipe(1, -300, [(500,-100),(500,1100)])
+    results = find_clashes([pipe], [slab])
+    assert len(results) == 0
+
+def test_find_clashes_no_clash_xy_miss():
+    slab = _MockElem(1, "slab", [(0,0),(1000,0),(1000,1000),(0,1000)], 0, -150)
+    # Ống không đi qua vùng sàn dù z phù hợp
+    pipe = _MockPipe(1, -80, [(2000,0),(2000,1000)])
+    results = find_clashes([pipe], [slab])
+    assert len(results) == 0
+
+def test_find_clashes_too_close():
+    slab = _MockElem(1, "slab", [(0,0),(1000,0),(1000,1000),(0,1000)], 0, -150)
+    # Ống z=-170 → cách đáy sàn 20mm < clearance 50mm → too_close
+    pipe = _MockPipe(1, -170, [(500,-100),(500,1100)])
+    results = find_clashes([pipe], [slab], clearance_mm=50)
+    assert len(results) == 1
+    assert results[0].clash_type == "too_close"
+
+def test_find_clashes_multiple_pipes():
+    slab = _MockElem(1, "slab", [(0,0),(1000,0),(1000,1000),(0,1000)], 0, -150)
+    p1 = _MockPipe(1, -80, [(500,-100),(500,1100)])   # clash
+    p2 = _MockPipe(2, -300, [(500,-100),(500,1100)])  # ok
+    p3 = _MockPipe(3, -80, [(2000,0),(2000,1000)])    # xy miss
+    results = find_clashes([p1, p2, p3], [slab])
+    assert len(results) == 1
+    assert results[0].pipe_id == 1
+```
+
+---
+
+### 22c — UI: Highlight đỏ đoạn ống bị clash (trong `Nevis_no_ui.py`)
+
+**Không cần thay đổi data model.** Chỉ cần:
+
+1. **Import:**
+   ```python
+   from modules.clash_detection import find_clashes, ClashResult
+   ```
+
+2. **Thêm method `_run_clash_check(self)`** vào class `NEVISApp`:
+   ```python
+   def _run_clash_check(self):
+       """Chạy clash detection và lưu kết quả vào self._clash_results."""
+       pipes = getattr(self.model, "pipe_network", {}).get("pipes", [])
+       elements = getattr(self.model, "structural_elements", [])
+       self._clash_results = find_clashes(pipes, elements)
+       clash_pipe_ids = {r.pipe_id for r in self._clash_results}
+       self._clash_pipe_ids = clash_pipe_ids
+       count = len(self._clash_results)
+       if count:
+           self.status_bar.showMessage("⚠ {} xung đột phát hiện — xem màu đỏ trên bản vẽ".format(count))
+       else:
+           self.status_bar.showMessage("✓ Không có xung đột")
+   ```
+
+3. **Nút "Kiểm tra clash"** trong panel MEP hoặc toolbar:
+   - Label: `"🔍 Kiểm tra clash"`
+   - Click → gọi `self._run_clash_check()` rồi `self.canvas.update()`
+
+4. **Trong hàm vẽ pipe trên canvas** (hàm `paintEvent` hoặc tương đương):
+   - Khi vẽ một pipe segment, kiểm tra `pipe.id in getattr(self, "_clash_pipe_ids", set())`
+   - Nếu có → vẽ màu đỏ đậm (`QColor(220, 30, 30)`) thay màu bình thường
+   - Có thể vẽ thêm icon ⚠ nhỏ tại điểm giữa đoạn ống bị clash
+
+5. **Tự động chạy clash check** khi:
+   - User thêm/xóa phần tử kết cấu
+   - User thay đổi cao độ Z của ống
+
+**Lưu ý quan trọng:**
+- `_clash_pipe_ids` khởi tạo là `set()` trong `__init__`
+- Clash check chạy **bất đồng bộ không cần thiết** — số lượng phần tử nhỏ, chạy đồng bộ OK
+- Không lưu `_clash_results` vào file project (tính lại khi mở)
+
+---
+
+### Định nghĩa "pipe object" cần có
+
+Module `find_clashes` cần pipe object có:
+- `id: int`
+- `z_elevation: float` — cao độ Z của ống so với SL (mm)
+- `points: list[tuple[float, float]]` — danh sách điểm XY trên mặt bằng
+
+Nếu trong `Nevis_no_ui.py` pipe object dùng tên khác (ví dụ `elevation` thay vì `z_elevation`), cần tạo **adapter** trong method `_run_clash_check`:
+
+```python
+class _PipeAdapter:
+    def __init__(self, pipe):
+        self.id = pipe.id
+        self.z_elevation = getattr(pipe, "z_elevation", getattr(pipe, "elevation", 0.0))
+        self.points = getattr(pipe, "points", [])
+
+adapted_pipes = [_PipeAdapter(p) for p in pipes]
+self._clash_results = find_clashes(adapted_pipes, elements)
+```
+
+---
+
+**Test file:** `tests/test_clash_detection.py` (tạo mới — xem trên)
+
+**Số test sau khi xong Task 22:** 240 tests
+
+---
+
+## TASK 23 — Sửa vẽ kết cấu: vẽ được tất cả loại, handle resize, panel gọn `[ ]`
+
+**Mục tiêu:** Vẽ được đầy đủ 6 loại phần tử. Resize bằng handle. Panel bên trái gọn hơn.
+
+---
+
+### 23a — Vẽ được tất cả 6 loại phần tử
+
+Hiện tại chỉ cột vẽ được, sàn vẽ ra đường, dầm/tường/trần chưa vẽ được. Nguyên nhân có thể là logic vẽ hình chữ nhật (drag từ góc đến góc) không được gán đúng cho từng loại.
+
+Yêu cầu: **tất cả 6 loại đều vẽ bằng cách kéo drag** (click → kéo → thả):
+- `slab`, `beam`, `column`, `wall_rc`, `wall_lgs`, `ceiling` → đều dùng chung cơ chế vẽ hình chữ nhật
+- Preview hình chữ nhật mờ khi đang kéo
+- Thả chuột → hiện dialog nhập kích thước/cao độ (đã có ở Task 21)
+
+Kiểm tra lại code hiện tại — nếu `mousePressEvent` / `mouseMoveEvent` / `mouseReleaseEvent` không xử lý đúng element_type → sửa lại.
+
+---
+
+### 23b — Resize handle (tay cầm kéo)
+
+Khi click chọn 1 phần tử kết cấu → hiện **8 tay cầm** (handle) ở 4 góc + 4 cạnh:
+
+```
+◆ ─── ◆ ─── ◆
+│               │
+◆             ◆
+│               │
+◆ ─── ◆ ─── ◆
+```
+
+- Handle màu xanh dương, kích thước 8×8 px
+- **Kéo góc**: resize cả chiều rộng lẫn chiều cao
+- **Kéo cạnh**: resize một chiều
+- Khi kéo handle → cập nhật `points` của phần tử realtime
+- Sau khi thả → cập nhật lại dialog hoặc label trên canvas
+
+**Trong code:**
+- Thêm method `_get_element_handles(elem)` → trả về 8 điểm handle (pixel)
+- Trong `mousePressEvent`: nếu click trúng handle → set `self._resize_handle_idx` và `self._resizing_elem`
+- Trong `mouseMoveEvent`: nếu đang resize → tính toán lại `points` theo vị trí chuột
+- Trong `mouseReleaseEvent`: kết thúc resize, lưu lại
+
+---
+
+### 23c — Panel tác vụ kết cấu gọn hơn
+
+Panel bên trái hiện tại quá rộng. Yêu cầu:
+- Chiều rộng panel kết cấu: **tối đa 180px** (bằng ~1/4 màn hình 720px)
+- Ẩn tab **"Vật liệu"** và **"Kiểm tra ống"** khi đang ở mode Kết cấu
+- Chỉ giữ lại: 6 nút vẽ icon + danh sách trục + nút Mặt cắt
+
+---
+
+### 23d — Nút active sáng rõ, cơ chế dừng rõ ràng
+
+Hiện tại nút đang active không rõ màu. Yêu cầu:
+- Nút đang active (draw mode bật): background `#1976D2` (xanh đậm), chữ trắng
+- Các nút còn lại: background mặc định
+- Nhấn **Escape**: thoát draw mode, tắt sáng tất cả nút, trở về mode select
+- Nếu chưa có keyPressEvent xử lý Escape → thêm vào
+
+---
+
+### 23e — Scroll zoom bằng con lăn chuột
+
+Hiện tại chưa có zoom bằng con lăn. Thêm vào `wheelEvent` của canvas:
+
+```python
+def wheelEvent(self, event):
+    delta = event.angleDelta().y()
+    factor = 1.15 if delta > 0 else (1 / 1.15)
+    # Zoom tâm tại vị trí chuột
+    mouse_pos = event.position()  # QPointF
+    self._zoom_at(mouse_pos.x(), mouse_pos.y(), factor)
+    event.accept()
+
+def _zoom_at(self, cx, cy, factor):
+    # Điều chỉnh offset để zoom tập trung vào điểm chuột
+    self.scale *= factor
+    self.offset_x = cx - (cx - self.offset_x) * factor
+    self.offset_y = cy - (cy - self.offset_y) * factor
+    self.update()
+```
+
+**Test file:** Không cần test mới (logic UI)
+
+---
+
+## TASK 24 — Panel thuộc tính đối tượng đang chọn `[ ]`
+
+**Mục tiêu:** Khi chọn 1 phần tử → panel bên phải hiện thông tin + cho phép sửa trực tiếp.
+
+---
+
+### 24a — Panel thuộc tính (Properties Panel)
+
+Thêm panel bên **phải** canvas, rộng 220px:
+
+```
+┌─────────────────────┐
+│ ĐỐI TƯỢNG ĐANG CHỌN│
+├─────────────────────┤
+│ Loại:  Sàn (slab)   │
+│ Nhãn: [Sàn S1    ]  │
+│ ─────────────────── │
+│ Mặt sàn SL: [  0] mm│
+│ Độ dày:    [150] mm  │
+│ ─────────────────── │
+│ Rộng:     [3640] mm  │
+│ Dài:      [2730] mm  │
+│ ─────────────────── │
+│ [Cập nhật]  [Xóa]   │
+└─────────────────────┘
+```
+
+- Khi click chọn phần tử → điền thông tin vào panel
+- Khi không chọn gì → hiện "Chưa chọn đối tượng"
+- Nhấn **"Cập nhật"** → áp dụng thay đổi vào phần tử, redraw canvas
+- Nhấn **"Xóa"** → xóa phần tử đang chọn (thay vì nút Xóa trên toolbar)
+
+---
+
+### 24b — Hiển thị kích thước realtime khi kéo
+
+Khi đang drag vẽ hoặc resize → hiện tooltip nhỏ cạnh chuột:
+
+```
+W: 3640mm
+H: 2730mm
+```
+
+- Dùng `QToolTip.showText(QCursor.pos(), text, self)` trong `mouseMoveEvent`
+- Tắt tooltip khi thả chuột
+
+---
+
+### 24c — Lưới tọa độ mờ luôn hiện
+
+Hiện tại checkbox "Bật lưới" không hoạt động. Sửa lại:
+
+1. Trong `paintEvent`, luôn vẽ **lưới chấm mờ** (nếu `self.show_grid` là True):
+   ```python
+   if getattr(self, "show_grid", False):
+       pen = QPen(QColor(180, 180, 180, 80))
+       pen.setStyle(Qt.PenStyle.DotLine)
+       painter.setPen(pen)
+       spacing = self.grid_spacing_mm * self.scale  # px
+       # Vẽ đường dọc và ngang mờ
+       x = self.offset_x % spacing
+       while x < self.width():
+           painter.drawLine(int(x), 0, int(x), self.height())
+           x += spacing
+       y = self.offset_y % spacing
+       while y < self.height():
+           painter.drawLine(0, int(y), self.width(), int(y))
+           y += spacing
+   ```
+2. Checkbox "Bật lưới" → toggle `self.canvas.show_grid` → `self.canvas.update()`
+3. `grid_spacing_mm` mặc định = 303 (bước LGS)
+
+**Test file:** Không cần test mới
+
+---
+
+## TASK 25 — Mặt cắt 2.5D: vẽ đường cắt, hiển thị song song `[ ]`
+
+**Mục tiêu:** Vẽ đường cắt trên mặt bằng → hiện cửa sổ mặt cắt bên cạnh. Đây là tính năng quan trọng nhất của NEVIS.
+
+---
+
+### 25a — Cơ chế vẽ đường cắt
+
+Thêm nút **"✂ Mặt cắt"** trong panel kết cấu.
+
+Khi bấm:
+1. Canvas vào mode `"cut_line"` — cursor đổi thành ✛
+2. User **click → kéo → thả** để vẽ đường cắt ngang hoặc dọc:
+   - Nếu drag gần ngang (|dy| < |dx|) → đường cắt **nằm ngang** (cắt theo trục Y)
+   - Nếu drag gần dọc (|dy| > |dx|) → đường cắt **đứng** (cắt theo trục X)
+3. Đường cắt hiện trên mặt bằng: nét đứt màu đỏ + mũi tên 2 đầu + ký hiệu "A-A"
+4. **Click phải** sau khi vẽ đường cắt → menu nhỏ:
+   - "Nhìn từ trên" / "Nhìn từ dưới" (cho đường nằm ngang)
+   - "Nhìn từ trái" / "Nhìn từ phải" (cho đường đứng)
+5. Chọn hướng nhìn → mở cửa sổ mặt cắt (Task 25b)
+
+---
+
+### 25b — Cửa sổ mặt cắt (Section View Window)
+
+Khi user chọn hướng nhìn → mở `QDialog` hoặc `QSplitter` chia đôi màn hình:
+
+```
+┌─────────────────┬─────────────────┐
+│  MẶT BẰNG      │  MẶT CẮT A-A   │
+│                 │                 │
+│  [bản vẽ MB]   │  GL ─────────── │
+│                 │  SL±0 ───────── │
+│  ══ A ═══════ A │  FL ─────────── │
+│                 │                 │
+│                 │  [sàn, dầm, ống]│
+└─────────────────┴─────────────────┘
+```
+
+**Bên trái:** Mặt bằng hiện tại (thu nhỏ), đường cắt A-A được tô đỏ  
+**Bên phải:** Mặt cắt — hiển thị:
+
+- **Đường kẻ cao độ:** GL, SL±0, FL (dùng `build_standard_markers()` từ `section_view.py`)
+- **Phần tử kết cấu** cắt qua đường cắt: vẽ mặt cắt ngang (hình chữ nhật) với vật liệu (hatch)
+  - Sàn BT: hatch chéo đậm
+  - Dầm BT: hatch chéo đậm
+  - Vách LGS: đường đứt dọc
+  - Trần: đường gạch ngang
+- **Ống MEP** nằm trong vùng cắt: vẽ hình tròn (ống tròn) hoặc hình chữ nhật (ống vuông), màu theo loại (nước/điện/HVAC)
+- **Nhãn cao độ** bên phải: "SL±0 / t150", "CH=2360"
+
+**Dùng lại:** `elements_intersect_cut_line()` và `sort_elements_by_elevation()` từ `modules/section_view.py`
+
+---
+
+### 25c — Lưu đường cắt vào project
+
+```python
+# _project_payload():
+"cut_lines": [{"x": cl.x, "direction": cl.direction, "label": cl.label} 
+              for cl in getattr(self.model, "cut_lines", [])]
+
+# open_project():
+self.model.cut_lines = [CutLine(**d) for d in data.get("cut_lines", [])]
+```
+
+`CutLine` dataclass:
+```python
+@dataclass
+class CutLine:
+    x: float        # vị trí cắt (mm, tọa độ canvas)
+    direction: str  # "horizontal" | "vertical"
+    label: str = "A-A"
+    view_side: str = "right"  # "left"|"right"|"top"|"bottom"
+```
+
+**Test file:** Không cần test mới (logic UI)
+
+---
+
+## TASK 26 — Sàn giật cấp: logic đúng `[ ]`
+
+**Mục tiêu:** Sàn giật cấp (stepped slab) hiện đang bị hiểu nhầm là 2 sàn đè lên nhau. Sửa lại đúng khái niệm.
+
+---
+
+### Khái niệm đúng
+
+Sàn giật cấp = **1 sàn có 2 phần ở 2 cao độ khác nhau**, ví dụ:
+```
+SL±0 ─────────────┐
+                   │ ← vách đứng (step height)
+SL-200 ────────────┘
+```
+
+Phòng WC thường thấp hơn SL±0 là 200mm (để thoát nước).
+
+### Cách vẽ đúng
+
+1. Vẽ sàn bình thường trước (SL±0)
+2. Chọn sàn → click **"Giật cấp"** trong panel thuộc tính
+3. Dialog hỏi:
+   - `Vùng giật cấp`: vẽ bằng cách drag trên canvas (phải nằm trong sàn gốc)
+   - `Cao độ vùng giật`: VD -200mm (so với SL)
+4. Kết quả: sàn gốc vẫn còn, nhưng vùng được chọn có `stepped_region` với cao độ khác
+5. Khi vẽ mặt cắt → thấy rõ 2 mức cao độ
+
+### Lưu vào model
+
+Dùng field đã có trong `StructuralElement`:
+```python
+is_stepped: bool = False
+step_elevation: float = 0.0   # cao độ vùng giật so với SL
+step_region: list = field(default_factory=list)  # polygon của vùng giật (nằm trong sàn)
+```
+
+Nếu field `step_region` chưa có → thêm vào `StructuralElement` dataclass và `structural_element_to_dict/from_dict`.
+
+### Hiển thị
+
+- Vùng giật cấp: vẽ hatch chéo mờ khác màu
+- Nhãn: "SL±0 / t150" cho vùng bình thường, "SL-200 / t150" cho vùng giật
+- Khi hover chuột vào vùng giật → tooltip hiện "Vùng giật cấp: SL-200"
+
+**Test file:** Không cần test mới
