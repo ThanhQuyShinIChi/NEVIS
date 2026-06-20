@@ -10,6 +10,7 @@ NEVIS MEP PipeTool - single Python version v1.3 rebuild preview/library
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 import functools
 import json
 import math
@@ -21,13 +22,38 @@ import hashlib
 import hmac
 import time
 import uuid
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set
 
+from modules.elevation_input import validate_node_z_input
+from modules.elevation_display import compute_edge_slope
+from modules.structural_element import StructuralElement
+from modules.structural_geometry import grid_points_in_view, nearest_snap_point, rect_from_two_points, snap_to_grid
+from modules.grid_axis import (
+    GridAxis, axes_from_spacing, build_axis_intersections,
+    find_nearest_axis_intersection, grid_axis_from_dict, grid_axis_to_dict,
+    next_axis_name, rename_axes_prefix, sort_axes_xy,
+)
+from modules.section_view import (
+    ElevationMarker, build_standard_markers, compute_ch, compute_fl,
+    build_unified_slab_sections,
+    elements_intersect_cut_line, format_elevation_label,
+    polygon_cut_intervals,
+    format_beam_label, format_ceiling_ch, format_slab_label,
+    merge_section_intervals, section_marker_from_dict, section_marker_to_dict,
+    sort_elements_by_elevation,
+)
+from modules.structural_input import rect_from_center_wl, validate_dimension
+from modules.structural_transform import move_element, resize_element
+from modules.stepped_slab import compute_stepped_slab_elevation, validate_stepped_slab_bounds
+from modules.workspace_mode import deserialize_workspace_mode, get_default_mode, serialize_workspace_mode
+from modules.scale_calibration import canvas_to_real, compute_scale, real_to_canvas
+
 try:
-    from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
-    from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QIcon, QPolygonF, QRawFont
+    from PySide6.QtCore import Qt, QPointF, QRectF, QTimer, QLineF
+    from PySide6.QtGui import QAction, QBrush, QColor, QCursor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QIcon, QPolygonF, QRawFont
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QFileDialog, QMessageBox,
         QHBoxLayout, QVBoxLayout, QGridLayout, QGroupBox, QLabel, QLineEdit,
@@ -35,7 +61,7 @@ try:
         QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget,
         QTreeWidgetItem, QInputDialog, QHeaderView, QGraphicsView, QGraphicsScene, QGraphicsItem,
         QScrollArea, QSizePolicy, QDialog, QTextEdit, QDialogButtonBox, QListWidget, QListWidgetItem, QFrame,
-        QDockWidget, QSpinBox, QFormLayout, QAbstractItemView
+        QDockWidget, QSpinBox, QSlider, QFormLayout, QAbstractItemView, QMenu, QToolTip
     )
 except Exception as e:
     print("PySide6 is required. Install with: py -m pip install pyside6")
@@ -43,6 +69,7 @@ except Exception as e:
 
 EPS = 1e-6
 NODE_TOL = 3.0
+ELEVATION_UI_ENABLED = True
 
 # NEVIS performance cache: JSON libraries are expensive to parse/convert.
 # Key includes path mtime/size, so editing a JSON file refreshes automatically.
@@ -71,7 +98,6 @@ def nevis_perf_log(name: str, elapsed_ms: float) -> None:
         with log_path.open("a", encoding="utf-8") as f:
             f.write(f"{stamp}.{int((time.time() % 1) * 1000):03d} {name} {elapsed_ms:.2f} ms\n")
     except Exception as log_error:
-        # Profiling must never affect engineering behavior or mask original errors.
         print(f"NEVIS_PROFILE_LOG_ERROR: {log_error}", file=sys.stderr)
 
 
@@ -96,9 +122,6 @@ class nevis_perf_scope:
 # -----------------------------------------------------------------------------
 # NEVIS machine license (portable folder, one machine)
 # -----------------------------------------------------------------------------
-# Ghi chú: khóa này dùng để chặn copy nguyên thư mục sang máy khác ở mức ứng dụng.
-# Nếu cần bảo vệ thương mại rất cao thì nên chuyển phần kiểm tra license sang server
-# hoặc module native. Với NEVIS nội bộ/portable, cách này đủ gọn và dễ vận hành.
 NEVIS_LICENSE_SECRET = b"NEVIS-MEP-NewVision-Integrated-System-2026"
 
 
@@ -130,7 +153,6 @@ def _first_wmic_value(alias: str, prop: str) -> str:
 def nevis_machine_fingerprint() -> str:
     """Return stable-ish Windows hardware identity parts, without exposing raw serials."""
     parts: List[str] = []
-    # Windows MachineGuid is stable for the installed OS.
     if os.name == "nt":
         try:
             import winreg  # type: ignore
@@ -138,12 +160,10 @@ def nevis_machine_fingerprint() -> str:
                 parts.append(str(winreg.QueryValueEx(k, "MachineGuid")[0]))
         except Exception:
             pass
-    # Hardware serials. WMIC exists on many Windows 10/11 machines; if absent, other parts remain.
     for alias, prop in (("bios", "SerialNumber"), ("baseboard", "SerialNumber"), ("cpu", "ProcessorId"), ("diskdrive", "SerialNumber")):
         v = _first_wmic_value(alias, prop)
         if v:
             parts.append(v)
-    # Last fallback prevents empty code when testing, but is weaker than Windows identifiers.
     if not parts:
         parts.append(str(uuid.getnode()))
         parts.append(os.environ.get("COMPUTERNAME", ""))
@@ -333,7 +353,7 @@ class Node:
     id: int
     x: float
     y: float
-    z: Optional[float] = None
+    z: float = 0.0
     level_id: str = ""
 
 
@@ -343,7 +363,7 @@ class Edge:
     b: int
     size: str = ""
     material_override: str = ""  # e.g. branch forced to HTVP from a selected fitting
-    slope: Optional[float] = None
+    slope: float = 0.0
     vertical_type: str = "unknown"
     elevation_mode: str = "unknown"
     system_type: str = ""
@@ -357,6 +377,40 @@ class Edge:
     @property
     def key(self) -> str:
         return edge_key(self.a, self.b)
+
+
+def node_from_project_data(node_id: int, data: Dict[str, object]) -> Node:
+    z = data.get("z", 0.0)
+    return Node(
+        int(node_id),
+        float(data["x"]),
+        float(data["y"]),
+        0.0 if z in (None, "") else float(z),
+        str(data.get("level_id", "")),
+    )
+
+
+def edge_from_project_data(data: Dict[str, object]) -> Edge:
+    slope = data.get("slope", 0.0)
+    start_z = data.get("start_z", None)
+    end_z = data.get("end_z", None)
+    slope_percent = data.get("slope_percent", None)
+    return Edge(
+        int(data["a"]),
+        int(data["b"]),
+        str(data.get("size", "65")),
+        str(data.get("material_override", "")),
+        0.0 if slope in (None, "") else float(slope),
+        str(data.get("vertical_type", "unknown")),
+        str(data.get("elevation_mode", "unknown")),
+        str(data.get("system_type", "")),
+        None if data.get("start_level_id", None) in (None, "") else str(data.get("start_level_id", "")),
+        None if data.get("end_level_id", None) in (None, "") else str(data.get("end_level_id", "")),
+        None if start_z in (None, "") else float(start_z),
+        None if end_z in (None, "") else float(end_z),
+        None if slope_percent in (None, "") else float(slope_percent),
+        bool(data.get("elevation_locked", False)),
+    )
 
 
 @dataclass
@@ -396,6 +450,10 @@ class PipeModel:
     parent: Dict[int, int] = field(default_factory=dict)
     model_schema_version: int = 1
     level_datums: Dict[str, LevelDatum] = field(default_factory=dict)
+    structural_elements: List[object] = field(default_factory=list)
+    grid_axes: List[object] = field(default_factory=list)
+    drawing_scale: float = 1.0
+    scale_origin: Tuple[float, float] = (0.0, 0.0)
 
     def neighbors(self, nid: int) -> List[int]:
         out = []
@@ -2057,6 +2115,7 @@ class VerticalTabButton(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(text.replace("\n", " / "))
 
+    # ── PIPE RENDERING ── Xem PIPE_CODE_LOCKED.md trước khi sửa.
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -2116,7 +2175,7 @@ class PreviewView(QGraphicsView):
         _sig_now = (id(bg_items), len(bg_items))
         if _sig_now != self._bg_sig:
             # Background thay đổi hoặc lần đầu vẽ: xóa toàn bộ rồi rebuild.
-            self.scene.clear(); self._item_map.clear()
+            _nevis_runtime_timed_scene_clear(self.scene); self._item_map.clear()
             self._bg_items = []
             if not m.nodes and not bg_items:
                 self._bg_sig = _sig_now
@@ -2211,6 +2270,11 @@ class PreviewView(QGraphicsView):
             if getattr(self.mainwin, "selected_edge", None) == e.key:
                 self._add_pipe_line(x1, y1, x2, y2, QColor(255, 185, 55, 180), 13, ("edge", e.key), cosmetic=True, z=14)
                 self._add_pipe_line(x1, y1, x2, y2, QColor(255, 245, 120), 3, ("edge", e.key), cosmetic=True, z=15)
+
+            # Clash highlight: red overlay when pipe key is in clash results.
+            if e.key in getattr(self.mainwin, "_clash_pipe_keys", set()):
+                self._add_pipe_line(x1, y1, x2, y2, QColor(220, 30, 30, 160), 14, ("edge", e.key), cosmetic=True, z=16)
+                self._add_pipe_line(x1, y1, x2, y2, QColor(255, 80, 80), 3, ("edge", e.key), cosmetic=True, z=17)
 
         # 支持バンド / pipe support bands.  Draw after pipes and before fittings.
         if getattr(self.mainwin, "support_enabled", False) and getattr(self.mainwin, "support_visible", False):
@@ -3035,6 +3099,7 @@ class PreviewView(QGraphicsView):
             except Exception:
                 continue
 
+    # ── PIPE LINE PRIMITIVE ── Xem PIPE_CODE_LOCKED.md. Đừng đổi cosmetic=True mặc định.
     def _add_pipe_line(self, x1,y1,x2,y2,color,width,data,cosmetic=True,z=5):
         pen = QPen(color, width)
         # Keep pipe strokes visible after fit/zoom. Geometry scale stays real, line thickness stays readable.
@@ -3551,11 +3616,23 @@ class PreviewView(QGraphicsView):
         item = self.itemAt(event.pos())
         if getattr(self.mainwin, "pending_reducer", None):
             self.viewport().setCursor(Qt.CrossCursor)
-        elif item and item.data(0):
+        elif self._interactive_item_data(item) is not None:
             self.viewport().setCursor(Qt.PointingHandCursor)
         elif self.dragMode() == QGraphicsView.ScrollHandDrag:
             self.viewport().setCursor(Qt.OpenHandCursor)
         super().mouseMoveEvent(event)
+
+    @staticmethod
+    def _interactive_item_data(item):
+        """Return selectable scene metadata without trusting arbitrary item data."""
+        if item is None:
+            return None
+        data = item.data(0)
+        if data == "nevis_reference_raster_background":
+            return None
+        if not isinstance(data, tuple) or len(data) != 2:
+            return None
+        return data
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and getattr(self.mainwin, "measure_mode", False):
@@ -3566,8 +3643,9 @@ class PreviewView(QGraphicsView):
             if self._move_pending_reducer_from_view_pos(event.pos()):
                 return
         item = self.itemAt(event.pos())
-        if event.button() == Qt.LeftButton and item and item.data(0):
-            kind, val = item.data(0)
+        item_data = self._interactive_item_data(item)
+        if event.button() == Qt.LeftButton and item_data is not None:
+            kind, val = item_data
             if kind == "node":
                 self.mainwin.select_node(val)
             elif kind == "edge":
@@ -3577,8 +3655,9 @@ class PreviewView(QGraphicsView):
             return
         if event.button() == Qt.RightButton:
             item = self.itemAt(event.pos())
-            if item and item.data(0):
-                kind, val = item.data(0)
+            item_data = self._interactive_item_data(item)
+            if item_data is not None:
+                kind, val = item_data
                 self.setFocus()
                 if kind == "edge":
                     self._start_pipe_run_move(val, self.mapToScene(event.pos()))
@@ -5257,6 +5336,10 @@ class ElevationPreviewDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    def _log_startup_timing(self, marker: str) -> None:
+        elapsed = time.perf_counter() - self._startup_started_at
+        print(f"{marker} {elapsed:.3f}s", flush=True)
+
     def load_app_settings(self) -> Dict[str, object]:
         default = {"light_detail_preview": True, "auto_scan_library": True, "show_library_tab": False}
         p = Path("nevis_settings.json")
@@ -5301,7 +5384,10 @@ class MainWindow(QMainWindow):
                 pass
 
     def __init__(self, temp_path: Optional[str] = None):
+        startup_started_at = time.perf_counter()
+        print(f"START_MAINWINDOW {time.perf_counter() - startup_started_at:.3f}s", flush=True)
         super().__init__()
+        self._startup_started_at = startup_started_at
         self.lang = "jp"
         self.setWindowTitle(APP_TEXT[self.lang]["window_title"])
         ico = self.resolve_app_icon_path() if hasattr(self, "resolve_app_icon_path") else None
@@ -5363,17 +5449,21 @@ class MainWindow(QMainWindow):
         self.jww_joint_ly = "c"
         self.jww_colors = self.load_jww_colors_for_style()
         self._build_ui()
+        self._log_startup_timing("AFTER_BUILD_UI")
         self.load_common_config()
         self.apply_master_to_common_controls()
         self._load_library_index()
+        self._log_startup_timing("AFTER_LOAD_LIBRARIES")
         # After library index is ready, refresh size/terminal combos once more.
         try:
             self.apply_master_to_common_controls()
             self.refresh_size_and_terminal_from_library()
         except Exception:
             pass
+        self._log_startup_timing("AFTER_RESTORE_SETTINGS")
         if temp_path and Path(temp_path).exists():
             self.load_temp(temp_path)
+        self._log_startup_timing("AFTER_SCENE_READY")
 
     def tr(self, key: str) -> str:
         return APP_TEXT.get(getattr(self, "lang", "vi"), APP_TEXT["vi"]).get(key, key)
@@ -5396,6 +5486,7 @@ class MainWindow(QMainWindow):
         self.act_save_project = QAction(self.tr("save_project"), self); self.act_save_project.triggered.connect(self.save_project)
         self.menu_file.addAction(self.act_open_project); self.menu_file.addAction(self.act_save_project)
         self.act_level_manager = QAction("Level Manager...", self); self.act_level_manager.triggered.connect(self.open_level_manager)
+        self.act_level_manager.setVisible(ELEVATION_UI_ENABLED)
         self.menu_file.addAction(self.act_level_manager)
         self.menu_file.addSeparator()
         self.act_exit = QAction(self.tr("act_exit"), self); self.act_exit.triggered.connect(self.close)
@@ -5907,6 +5998,7 @@ class MainWindow(QMainWindow):
             pe_grid.setColumnStretch(col, 1)
         pe_root.addWidget(self.w_pipe_elev)
         sgrid.addWidget(self.g_pipe_elev, 2, 0, 1, 3)
+        self.g_pipe_elev.setVisible(ELEVATION_UI_ENABLED)
         self.update_pipe_elevation_controls()
 
         self.g_elevation_report = QGroupBox(self.tr("elevation_report_group"))
@@ -5947,6 +6039,7 @@ class MainWindow(QMainWindow):
         er_buttons.addWidget(self.btn_refresh_elevation_report)
         er_v.addLayout(er_buttons)
         sgrid.addWidget(self.g_elevation_report, 3, 0, 1, 3)
+        self.g_elevation_report.setVisible(ELEVATION_UI_ENABLED)
         self.refresh_elevation_report()
 
         # --------------------------------------------------
@@ -6199,30 +6292,85 @@ class MainWindow(QMainWindow):
 
         # CENTER
         cv = QVBoxLayout(center); cv.setContentsMargins(6,6,6,6); cv.setSpacing(6)
-        row = QHBoxLayout(); row.setSpacing(6)
+        row = QGridLayout(); row.setHorizontalSpacing(6); row.setVerticalSpacing(4)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.preview_toolbar_layout = row
+        self._preview_toolbar_compact = None
+        self._preview_toolbar_narrow = None
         self.lbl_drawing_preview = QLabel(self.tr("drawing_preview"))
         self.lbl_drawing_preview.setStyleSheet("color:#1B4A7E; font-weight:700; font-size:13px;")
-        row.addWidget(self.lbl_drawing_preview)
-        row.addStretch(1)
+        row.addWidget(self.lbl_drawing_preview, 0, 0)
+        row.setColumnStretch(1, 1)
         # Detail preview is a view-only mode. One button toggles: Xem chi tiết ⇄ Kết thúc xem.
         # Undo remains only for real edit operations.
         self.btn_detail_preview = QPushButton(self.tr("detail_preview"))
         self.btn_detail_preview.setCheckable(True)
         self.btn_detail_preview.clicked.connect(self.toggle_detail_preview)
-        row.addWidget(self.btn_detail_preview)
         self.btn_center_undo = QPushButton(self.tr("undo"))
         self.btn_center_undo.setToolTip("Ctrl+Z")
         self.btn_center_undo.clicked.connect(self.undo_last_action)
-        row.addWidget(self.btn_center_undo)
         self.btn_fit = QPushButton(self.tr("fit")) ; self.btn_fit.clicked.connect(lambda: self.preview.fit_view())
-        row.addWidget(self.btn_fit)
-        self.btn_rot = QPushButton(self.tr("rotate")); self.btn_rot.clicked.connect(self.toggle_preview_rotate180)
-        self.btn_fx = QPushButton(self.tr("flip_x")); self.btn_fx.clicked.connect(self.toggle_preview_flip_x)
-        self.btn_fy = QPushButton(self.tr("flip_y")); self.btn_fy.clicked.connect(self.toggle_preview_flip_y)
-        row.addWidget(self.btn_rot); row.addWidget(self.btn_fx); row.addWidget(self.btn_fy)
+        # Keep compatibility attributes for existing state/language code, but move
+        # these secondary transforms out of the main toolbar and into the PDF menu.
+        self.btn_rot = QPushButton(self.tr("rotate"), self); self.btn_rot.hide()
+        self.btn_fx = QPushButton(self.tr("flip_x"), self); self.btn_fx.hide()
+        self.btn_fy = QPushButton(self.tr("flip_y"), self); self.btn_fy.hide()
         for _b in [self.btn_detail_preview, self.btn_center_undo, self.btn_fit, self.btn_rot, self.btn_fx, self.btn_fy]:
             _b.setMinimumHeight(28)
-            _b.setMinimumWidth(64)
+            _b.setMinimumWidth(0)
+
+        self.btn_open_reference_background = QPushButton("PDF")
+        self.btn_open_reference_background.setMinimumWidth(64)
+        self.menu_pdf_underlay = QMenu(self.btn_open_reference_background)
+        self.act_pdf_underlay_open = self.menu_pdf_underlay.addAction("Nạp PDF/Ảnh...")
+        self.act_pdf_underlay_open.triggered.connect(self.open_reference_background)
+        self.act_pdf_underlay_clear = self.menu_pdf_underlay.addAction("Xóa nền")
+        self.act_pdf_underlay_clear.triggered.connect(self.clear_reference_background)
+        self.menu_pdf_underlay.addSeparator()
+        self.act_pdf_rotate_180 = self.menu_pdf_underlay.addAction("Xoay 180°")
+        self.act_pdf_rotate_180.triggered.connect(self.toggle_preview_rotate180)
+        self.act_pdf_flip_horizontal = self.menu_pdf_underlay.addAction("Lật ngang")
+        self.act_pdf_flip_horizontal.triggered.connect(self.toggle_preview_flip_x)
+        self.act_pdf_flip_vertical = self.menu_pdf_underlay.addAction("Lật dọc")
+        self.act_pdf_flip_vertical.triggered.connect(self.toggle_preview_flip_y)
+        self.btn_open_reference_background.setMenu(self.menu_pdf_underlay)
+        self.chk_reference_background_visible = QCheckBox("Hiện nền")
+        self.chk_reference_background_visible.setChecked(True)
+        self.chk_reference_background_visible.toggled.connect(self.toggle_reference_background)
+        self.lbl_reference_background_opacity = QLabel("Độ mờ")
+        self.slider_reference_background_opacity = QSlider(Qt.Horizontal)
+        self.slider_reference_background_opacity.setRange(20, 100)
+        self.slider_reference_background_opacity.setValue(45)
+        self.slider_reference_background_opacity.setMinimumWidth(25)
+        self.slider_reference_background_opacity.setMaximumWidth(65)
+        self.slider_reference_background_opacity.valueChanged.connect(self.set_reference_background_opacity)
+        self.btn_clear_reference_background = QPushButton("Xóa nền", self)
+        self.btn_clear_reference_background.hide()
+        self.btn_align_reference_background = QPushButton("Căn thẳng")
+        self.btn_scale_reference_background = QPushButton("Căn tỷ lệ")
+        self.btn_align_reference_background.setMinimumHeight(28)
+        self.btn_align_reference_background.setCheckable(True)
+        self.btn_align_reference_background.clicked.connect(self.start_reference_background_alignment)
+        self.btn_scale_reference_background.setMinimumHeight(28)
+        self.btn_scale_reference_background.setEnabled(False)
+        self.btn_scale_reference_background.setToolTip("Chức năng đang được chuẩn bị")
+        self.btn_scale_reference_background.hide()
+        self.lbl_reference_background_angle = QLabel("Góc hiện tại: 0.00°")
+        self.lbl_reference_background_name = QLabel("Chưa có nền")
+        self.lbl_reference_background_name.setVisible(False)
+        self._preview_primary_widgets = [
+            self.btn_detail_preview, self.btn_center_undo, self.btn_fit,
+        ]
+        self._preview_background_widgets = [
+            self.btn_open_reference_background,
+            self.chk_reference_background_visible,
+            self.lbl_reference_background_opacity,
+            self.slider_reference_background_opacity,
+            self.btn_align_reference_background,
+            self.lbl_reference_background_angle,
+        ]
+        self._set_preview_toolbar_compact(False, False)
+        print("NEVIS_PDF_UNDERLAY_UI_ATTACHED", flush=True)
         cv.addLayout(row)
         self.preview = PreviewView(self)
         cv.addWidget(self.preview, 1)
@@ -6395,13 +6543,12 @@ class MainWindow(QMainWindow):
         return False
 
     def update_workflow_state(self, applied: Optional[bool] = None):
-        """Enable operation panels only after the common setting Apply button is pressed."""
+        """Track common settings without globally locking the editing workflow."""
         if applied is not None:
             self.common_applied = bool(applied)
-        enabled = bool(getattr(self, "common_applied", False))
         for obj in getattr(self, "_workflow_locked_widgets", []):
             try:
-                obj.setEnabled(enabled)
+                obj.setEnabled(True)
             except Exception:
                 pass
         # Keep common setting panel and file-open/settings actions usable at all times.
@@ -6410,12 +6557,21 @@ class MainWindow(QMainWindow):
                 obj.setEnabled(True)
             except Exception:
                 pass
-        try:
-            self.lbl_status.setText(self.tr("status_wait") if enabled else "Trạng thái: hãy thiết lập chung rồi bấm Áp dụng")
-        except Exception:
-            pass
         if getattr(self, "preview_detail_mode", False):
             self._set_detail_readonly_state(True)
+
+    def require_main_size_for_action(self) -> bool:
+        """Report a missing main-pipe size without disabling controls or showing a modal."""
+        main_size = self.cmb_main_size.currentText().strip() if hasattr(self, "cmb_main_size") else ""
+        if main_size:
+            return True
+        message = "Vui lòng nhập kích thước ống chính"
+        try:
+            self.lbl_status.setText(message)
+            self.statusBar().showMessage(message, 6000)
+        except Exception:
+            pass
+        return False
 
     def apply_nevis_theme(self):
         """NEVIS CAD-style theme: slate/steel palette, compact controls, visible dropdown arrows."""
@@ -6505,11 +6661,7 @@ class MainWindow(QMainWindow):
             QComboBox:hover::drop-down { background:#D5E2F5; border-left:1px solid #2D6CC4; }
             QComboBox:disabled::drop-down { background:#E6E8EC; border-left:1px solid #D9DEE6; }
             QComboBox::down-arrow {
-                image: url(data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2710%27%20height%3D%276%27%20viewBox%3D%270%200%2010%206%27%3E%3Cpath%20d%3D%27M0%200L5%206L10%200Z%27%20fill%3D%27%233B5B7E%27%2F%3E%3C%2Fsvg%3E);
                 width:10px; height:6px;
-            }
-            QComboBox::down-arrow:disabled {
-                image: url(data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2710%27%20height%3D%276%27%20viewBox%3D%270%200%2010%206%27%3E%3Cpath%20d%3D%27M0%200L5%206L10%200Z%27%20fill%3D%27%23B7BFCB%27%2F%3E%3C%2Fsvg%3E);
             }
             QComboBox QAbstractItemView {
                 color:#000000;
@@ -6716,6 +6868,47 @@ class MainWindow(QMainWindow):
         center_w = max(320, total - left_w - right_w)
         if sizes[0] != left_w or abs(sizes[2] - right_w) > 4 or abs(sizes[1] - center_w) > 4:
             self.splitter.setSizes([left_w, center_w, right_w])
+        self._set_preview_toolbar_compact(center_w < 1250, center_w < 560)
+
+    def _set_preview_toolbar_compact(self, compact: bool, narrow: bool = False):
+        """Wrap reference-background controls when the preview panel is narrow."""
+        layout = getattr(self, "preview_toolbar_layout", None)
+        mode = (bool(compact), bool(narrow))
+        current_mode = (
+            getattr(self, "_preview_toolbar_compact", None),
+            getattr(self, "_preview_toolbar_narrow", None),
+        )
+        if layout is None or current_mode == mode:
+            return
+
+        primary = getattr(self, "_preview_primary_widgets", [])
+        background = getattr(self, "_preview_background_widgets", [])
+        if narrow:
+            layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 3)
+            for offset, widget in enumerate(primary[:3]):
+                layout.addWidget(widget, 1, offset)
+            for offset, widget in enumerate(primary[3:]):
+                layout.addWidget(widget, 2, offset)
+            for offset, widget in enumerate(background[:2]):
+                layout.addWidget(widget, 3, offset)
+            for offset, widget in enumerate(background[2:]):
+                layout.addWidget(widget, 4, offset)
+        elif compact:
+            layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 6)
+            for offset, widget in enumerate(primary):
+                layout.addWidget(widget, 1, offset)
+            for offset, widget in enumerate(background):
+                layout.addWidget(widget, 2, offset)
+        else:
+            layout.addWidget(self.lbl_drawing_preview, 0, 0)
+            for column, widget in enumerate(primary, start=2):
+                layout.addWidget(widget, 0, column)
+            for offset, widget in enumerate(background):
+                layout.addWidget(widget, 0, 2 + len(primary) + offset)
+
+        self._preview_toolbar_compact = bool(compact)
+        self._preview_toolbar_narrow = bool(narrow)
+        layout.invalidate()
 
     def set_side_panel_visible(self, side: str, visible: bool):
         """Pin/unpin only the right material/library panel.
@@ -7287,14 +7480,25 @@ class MainWindow(QMainWindow):
         combo = getattr(self, "cmb_node_level", None)
         if combo is None:
             return
-        try:
-            node_z = self._parse_optional_float_field(self.edit_node_z, "Node Z")
-        except Exception:
+        node_z, error = validate_node_z_input(self.edit_node_z.text())
+        if error:
+            if hasattr(self, "lbl_status"):
+                self.lbl_status.setText(error)
             return
         level_id = self._level_id_from_combo(combo)
         self._warn_unknown_level_id(level_id)
         self.model.nodes[nid].level_id = str(level_id or "")
-        self.model.nodes[nid].z = node_z
+        self.model.nodes[nid].z = 0.0 if node_z is None else node_z
+        for edge in getattr(self.model, "edges", []):
+            if nid not in (edge.a, edge.b):
+                continue
+            start_node = self.model.nodes.get(edge.a)
+            end_node = self.model.nodes.get(edge.b)
+            edge.slope = compute_edge_slope(
+                getattr(start_node, "z", None),
+                getattr(end_node, "z", None),
+                self.model.edge_length(edge),
+            )
         self.update_node_level_choices()
         self.update_selected_elevation_summary()
         if hasattr(self, "lbl_status"):
@@ -7335,7 +7539,7 @@ class MainWindow(QMainWindow):
         has_node = getattr(self, "selected_node", None) in getattr(self.model, "nodes", {})
         has_pipe = edge is not None
         enabled = has_pipe or has_node
-        self.g_pipe_elev.setVisible(enabled)
+        self.g_pipe_elev.setVisible(ELEVATION_UI_ENABLED and enabled)
         self.g_pipe_elev.setEnabled(enabled)
         if hasattr(self, "w_node_elev"):
             self.w_node_elev.setVisible(has_node and not has_pipe)
@@ -7640,6 +7844,8 @@ class MainWindow(QMainWindow):
         return warnings
 
     def update_selected_elevation_summary(self):
+        if not ELEVATION_UI_ENABLED:
+            return
         if not hasattr(self, "lbl_detail"):
             return
         nid = getattr(self, "selected_node", None)
@@ -7686,11 +7892,15 @@ class MainWindow(QMainWindow):
             "version": 54,
             "model_schema_version": max(2, int(getattr(self.model, "model_schema_version", 1) or 1)),
             "lang": self.lang,
+            "workspace_mode": serialize_workspace_mode(getattr(self, "workspace_mode", get_default_mode()))["workspace_mode"],
+            "drawing_scale": float(getattr(self.model, "drawing_scale", 1.0) or 1.0),
+            "scale_origin": list(getattr(self.model, "scale_origin", (0.0, 0.0))),
             "nodes": {str(k): {"x": v.x, "y": v.y, "z": v.z, "level_id": v.level_id} for k, v in self.model.nodes.items()},
             "edges": [{"a": e.a, "b": e.b, "size": e.size, "material_override": e.material_override, "slope": e.slope, "vertical_type": e.vertical_type, "elevation_mode": e.elevation_mode, "system_type": e.system_type, "start_level_id": e.start_level_id, "end_level_id": e.end_level_id, "start_z": e.start_z, "end_z": e.end_z, "slope_percent": e.slope_percent, "elevation_locked": bool(e.elevation_locked)} for e in self.model.edges],
             "level_datums": {str(k): {"id": d.id, "name": d.name, "elevation_mm": d.elevation_mm, "datum_type": d.datum_type, "floor_index": d.floor_index, "description": d.description} for k, d in getattr(self.model, "level_datums", {}).items()},
             "fittings": {str(k): {"node_id": f.node_id, "ftype": f.ftype, "size": f.size, "manual": f.manual, "excluded": f.excluded, "material_override": f.material_override} for k, f in self.model.fittings.items()},
             "bushings": list(getattr(self.model, "bushings", [])),
+            "structural_elements": [__import__("modules.structural_element", fromlist=["structural_element_to_dict"]).structural_element_to_dict(e) for e in getattr(self.model, "structural_elements", [])],
             "base_node": self.model.base_node,
             "base_nodes": sorted(list(getattr(self.model, "base_nodes", set()))),
             "selected_node": self.selected_node,
@@ -7740,30 +7950,26 @@ class MainWindow(QMainWindow):
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         m = PipeModel()
         m.model_schema_version = int(data.get("model_schema_version", 1))
+        try:
+            m.drawing_scale = max(EPS, float(data.get("drawing_scale", 1.0) or 1.0))
+            origin_data = data.get("scale_origin", [0.0, 0.0])
+            m.scale_origin = (float(origin_data[0]), float(origin_data[1]))
+        except (TypeError, ValueError, IndexError):
+            m.drawing_scale = 1.0
+            m.scale_origin = (0.0, 0.0)
         for k, v in data.get("nodes", {}).items():
-            node_z = v.get("z", None)
-            nid = int(k); m.nodes[nid] = Node(nid, float(v["x"]), float(v["y"]), None if node_z is None else float(node_z), str(v.get("level_id", "")))
+            nid = int(k); m.nodes[nid] = node_from_project_data(nid, v)
         for e in data.get("edges", []):
-            edge_slope = e.get("slope", None)
-            edge_start_z = e.get("start_z", None)
-            edge_end_z = e.get("end_z", None)
-            edge_slope_percent = e.get("slope_percent", None)
-            m.edges.append(Edge(
-                int(e["a"]),
-                int(e["b"]),
-                str(e.get("size", "65")),
-                str(e.get("material_override", "")),
-                None if edge_slope is None else float(edge_slope),
-                str(e.get("vertical_type", "unknown")),
-                str(e.get("elevation_mode", "unknown")),
-                str(e.get("system_type", "")),
-                None if e.get("start_level_id", None) in (None, "") else str(e.get("start_level_id", "")),
-                None if e.get("end_level_id", None) in (None, "") else str(e.get("end_level_id", "")),
-                None if edge_start_z in (None, "") else float(edge_start_z),
-                None if edge_end_z in (None, "") else float(edge_end_z),
-                None if edge_slope_percent in (None, "") else float(edge_slope_percent),
-                bool(e.get("elevation_locked", False)),
-            ))
+            m.edges.append(edge_from_project_data(e))
+        try:
+            from modules.structural_element import structural_element_from_dict
+            m.structural_elements = [structural_element_from_dict(d) for d in data.get("structural_elements", [])]
+        except Exception:
+            m.structural_elements = []
+        try:
+            m.grid_axes = [grid_axis_from_dict(d) for d in data.get("grid_axes", [])]
+        except Exception:
+            m.grid_axes = []
         for k, d in data.get("level_datums", {}).items():
             try:
                 if not isinstance(d, dict):
@@ -7827,6 +8033,7 @@ class MainWindow(QMainWindow):
         self.preview_detail_mode = bool(st.get("detail_mode", False))
         if hasattr(self, "btn_detail_preview"):
             self.btn_detail_preview.setChecked(self.preview_detail_mode)
+        self.set_workspace_mode(deserialize_workspace_mode(data))
         self.current_project_path = path
         self.clear_measurements()
         self.refresh_all()
@@ -7969,13 +8176,17 @@ class MainWindow(QMainWindow):
             self.cmb_system.setCurrentIndex(0)
             self.cmb_system.setVisible(False)
             try:
-                self.cmb_system.currentTextChanged.disconnect(self.update_master_dependent_combos)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    self.cmb_system.currentTextChanged.disconnect(self.update_master_dependent_combos)
             except Exception:
                 pass
             self.cmb_system.currentTextChanged.connect(self.update_master_dependent_combos)
         if hasattr(self, "cmb_normal_mat"):
             try:
-                self.cmb_normal_mat.currentTextChanged.disconnect(self.update_master_dependent_combos)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    self.cmb_normal_mat.currentTextChanged.disconnect(self.update_master_dependent_combos)
             except Exception:
                 pass
             self.cmb_normal_mat.currentTextChanged.connect(self.update_master_dependent_combos)
@@ -8293,26 +8504,59 @@ class MainWindow(QMainWindow):
 
         This prevents the confusing case where the user reorganizes Library by system/material
         and old cached/indexed paths keep being used until combos are changed several times.
+
+        NOTE: rglob on the library folder can take minutes on Windows with Defender active.
+        We run the check in a background thread so the main thread / UI never blocks.
         """
-        # NEVIS perf: throttle – tránh rglob mỗi lần bấm Apply. Chỉ kiểm tra 1 lần/20 giây.
+        # Throttle: only check once every 120s
         try:
             import time as _tm
-            if _tm.monotonic() - getattr(self, '_lib_chk_t', 0.0) < 20.0:
+            if _tm.monotonic() - getattr(self, '_lib_chk_t', 0.0) < 120.0:
                 return
             self._lib_chk_t = _tm.monotonic()
         except Exception:
-            pass
+            return  # safety: if time fails, skip check entirely
+
+        # Snapshot idx_count on main thread (fast, no I/O)
         try:
-            fs_count = self._library_files_count()
-            idx_count = len([it for it in getattr(self, "library_index", []) if isinstance(it, dict) and it.get("path") and Path(it.get("path")).exists()])
-            if fs_count and fs_count != idx_count:
-                ans = QMessageBox.question(self, "NEVIS", self.tr("library_changed_scan"), QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-                if ans == QMessageBox.Yes:
-                    self.library_index = []
-                    self.auto_scan_default_library_folders(save=True)
-                    _LIB_PATH_CACHE.clear(); _LIB_GEOM_CACHE.clear(); _LIB_GEOM_CACHE_ORDER.clear()
-                    self._load_library_index()
-                    self.refresh_library_tree()
+            idx_count = len([it for it in getattr(self, "library_index", [])
+                             if isinstance(it, dict) and it.get("path") and Path(it.get("path")).exists()])
+        except Exception:
+            return
+
+        # Do NOT call _library_files_count() here — it does rglob which blocks.
+        # Skip check entirely when no index exists (expected at first run).
+        if idx_count == 0:
+            return
+
+        # Run the filesystem scan in a background daemon thread.
+        # If a mismatch is found, post back to the Qt main thread via QTimer.
+        import threading
+        mainwin_ref = self
+
+        def _bg_scan():
+            try:
+                fs_count = mainwin_ref._library_files_count()
+                if fs_count and fs_count != idx_count:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, mainwin_ref._on_library_count_mismatch)
+            except Exception:
+                pass
+
+        t = threading.Thread(target=_bg_scan, daemon=True)
+        t.start()
+
+    def _on_library_count_mismatch(self):
+        """Called on main thread when background scan detects a library file count change."""
+        try:
+            ans = QMessageBox.question(self, "NEVIS", self.tr("library_changed_scan"),
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if ans == QMessageBox.Yes:
+                self.library_index = []
+                self.auto_scan_default_library_folders(save=True)
+                _LIB_PATH_CACHE.clear(); _LIB_GEOM_CACHE.clear(); _LIB_GEOM_CACHE_ORDER.clear()
+                self._load_library_index()
+                self.refresh_library_tree()
         except Exception:
             pass
 
@@ -8326,7 +8570,7 @@ class MainWindow(QMainWindow):
             if getattr(self, '_loading_project', False) or getattr(self, '_updating_master_combos', False):
                 return
             if hasattr(self, '_common_apply_timer'):
-                self._common_apply_timer.start(180)
+                self._common_apply_timer.start(350)
         except Exception:
             pass
 
@@ -8394,11 +8638,13 @@ class MainWindow(QMainWindow):
         sys_code = self._combo_current_code(self.cmb_system) if hasattr(self, "cmb_system") else ""
         mat_code = self._combo_current_code(self.cmb_normal_mat) if hasattr(self, "cmb_normal_mat") else ""
         if not sys_code or not mat_code or not main_size:
+            if not main_size:
+                self.require_main_size_for_action()
             missing = []
             if not sys_code: missing.append("Hệ")
             if not mat_code: missing.append("Vật liệu")
             if not main_size: missing.append("Ống chính")
-            msg = "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
+            msg = "Vui lòng nhập kích thước ống chính" if not main_size else "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
             try:
                 self.lbl_status.setText("⚠ " + msg)
                 self.statusBar().showMessage(msg)
@@ -8419,10 +8665,17 @@ class MainWindow(QMainWindow):
             self.model.base_nodes = {b for b in bases if b in self.model.nodes}
             for b in sorted(self.model.base_nodes):
                 self.model.fittings[b] = self._auto_default_fitting_for_node(b)
+        import time as _perf_tm
+        _t0 = _perf_tm.perf_counter()
         rebuild_flow(self.model)
+        print(f"PERF apply_common: rebuild_flow={_perf_tm.perf_counter()-_t0:.3f}s", flush=True)
+        _t1 = _perf_tm.perf_counter()
         self.apply_branch_sizing(main_size, term)
+        print(f"PERF apply_common: apply_branch_sizing={_perf_tm.perf_counter()-_t1:.3f}s", flush=True)
         self.update_workflow_state(True)
+        _t2 = _perf_tm.perf_counter()
         self.refresh_all()
+        print(f"PERF apply_common: refresh_all_queued={_perf_tm.perf_counter()-_t2:.3f}s total={_perf_tm.perf_counter()-_t0:.3f}s", flush=True)
 
     def default_branch_size_for(self, current_size: str) -> str:
         """Return default branch size from the common setting panel.
@@ -15762,11 +16015,13 @@ def _v12_apply_common(self):
     sys_code = self._combo_current_code(self.cmb_system) if hasattr(self, "cmb_system") else ""
     mat_code = self._combo_current_code(self.cmb_normal_mat) if hasattr(self, "cmb_normal_mat") else ""
     if not sys_code or not mat_code or not main_size:
+        if not main_size:
+            self.require_main_size_for_action()
         missing = []
         if not sys_code: missing.append("Hệ")
         if not mat_code: missing.append("Vật liệu")
         if not main_size: missing.append("Ống chính mặc định")
-        msg = "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
+        msg = "Vui lòng nhập kích thước ống chính" if not main_size else "Thiếu thiết lập bắt buộc: " + ", ".join(missing)
         try:
             self.lbl_status.setText("⚠ " + msg)
             self.statusBar().showMessage(msg)
@@ -17524,6 +17779,8 @@ try:
 
     def _nevis_conn_v2_set_start(view, nid: int) -> bool:
         mw = view.mainwin
+        if not mw.require_main_size_for_action():
+            return False
         mw.pending_orphan_connect_node = int(nid)
         mw.orphan_connect_mode = 'target'
         try:
@@ -17551,6 +17808,10 @@ try:
 
     def _nevis_conn_v2_start_command(view) -> bool:
         mw = view.mainwin
+        if not mw.require_main_size_for_action():
+            mw.pending_orphan_connect_node = None
+            mw.orphan_connect_mode = None
+            return False
         mw.pending_orphan_connect_node = None
         mw.orphan_connect_mode = 'start'
         msg = _nevis_conn_v2_msg(
@@ -25065,23 +25326,7940 @@ _nevis_install_perf_profile_wrappers()
 
 
 # =============================================================================
+# NEVIS 2.03 Pipe Quick Check V1 - read-only UI and checks
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "pipe_check_button": "Kiểm tra ống",
+    "pipe_check_title": "Kết quả kiểm tra ống",
+    "pipe_check_recheck": "Kiểm tra lại",
+    "pipe_check_close": "Đóng",
+    "pipe_check_error_count": "Lỗi: {count}",
+    "pipe_check_warning_count": "Cảnh báo: {count}",
+    "pipe_check_col_severity": "Mức độ",
+    "pipe_check_col_item": "Loại lỗi",
+    "pipe_check_col_target": "Đối tượng",
+    "pipe_check_col_message": "Nội dung",
+    "pipe_check_severity_error": "Lỗi",
+    "pipe_check_severity_warning": "Cảnh báo",
+    "pipe_check_item_library": "Cỡ hoặc vật liệu ống",
+    "pipe_check_item_fitting": "Phụ kiện",
+    "pipe_check_item_bom": "Bảng vật tư",
+    "pipe_check_item_slope": "Định dạng độ dốc",
+    "pipe_check_target_pipe": "Ống {id}",
+    "pipe_check_target_fitting": "Phụ kiện {id}",
+    "pipe_check_target_bom": "Bảng vật tư",
+    "pipe_check_missing_size": "Thiếu cỡ ống",
+    "pipe_check_size_missing": "{material}: không có cỡ {size}",
+    "pipe_check_fitting_incomplete": "Fitting thiếu loại/kích thước",
+    "pipe_check_fitting_library_missing": "{ftype} {size}: thiếu thư viện",
+    "pipe_check_fitting_size_missing": "{ftype} {size}: không có trong thư viện",
+    "pipe_check_bom_mismatch": "Bảng vật tư chưa khớp model",
+    "pipe_check_slope_format": "Độ dốc phải có dạng 1/N",
+    "pipe_check_empty": "Không phát hiện vấn đề trong dữ liệu ống.",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "pipe_check_button": "配管チェック",
+    "pipe_check_title": "配管チェック結果",
+    "pipe_check_recheck": "再チェック",
+    "pipe_check_close": "閉じる",
+    "pipe_check_error_count": "エラー: {count}",
+    "pipe_check_warning_count": "警告: {count}",
+    "pipe_check_col_severity": "重要度",
+    "pipe_check_col_item": "チェック項目",
+    "pipe_check_col_target": "対象",
+    "pipe_check_col_message": "内容",
+    "pipe_check_severity_error": "エラー",
+    "pipe_check_severity_warning": "警告",
+    "pipe_check_item_library": "管サイズ・材質",
+    "pipe_check_item_fitting": "継手",
+    "pipe_check_item_bom": "数量表",
+    "pipe_check_item_slope": "勾配形式",
+    "pipe_check_target_pipe": "配管 {id}",
+    "pipe_check_target_fitting": "継手 {id}",
+    "pipe_check_target_bom": "数量表",
+    "pipe_check_missing_size": "管サイズ未設定",
+    "pipe_check_size_missing": "{material}: サイズ{size}なし",
+    "pipe_check_fitting_incomplete": "継手の種類/サイズ未設定",
+    "pipe_check_fitting_library_missing": "{ftype} {size}: ライブラリなし",
+    "pipe_check_fitting_size_missing": "{ftype} {size}: 該当サイズなし",
+    "pipe_check_bom_mismatch": "数量表がモデルと未一致",
+    "pipe_check_slope_format": "勾配は1/N形式",
+    "pipe_check_empty": "配管データに問題は見つかりませんでした。",
+})
+
+
+def _nevis_pipe_check_issue(severity: str, check: str, target_kind: str,
+                            target_id: object, message: str,
+                            message_args: Optional[Dict[str, object]] = None,
+                            code: str = "") -> Dict[str, object]:
+    return {
+        "code": str(code or ""),
+        "severity": severity,
+        "check": check,
+        "target_kind": target_kind,
+        "target_id": target_id,
+        "message": message,
+        "message_args": dict(message_args or {}),
+    }
+
+
+def _nevis_pipe_check_row_signature(rows: object) -> List[Tuple[str, ...]]:
+    signature = []
+    for raw_row in rows or []:
+        row = list(raw_row) + [""] * 6
+        normalized = []
+        for col, value in enumerate(row[:6]):
+            text_value = str(value if value is not None else "").strip()
+            if col == 4:
+                try:
+                    number = float(text_value)
+                    text_value = f"{number:.6f}".rstrip("0").rstrip(".")
+                except Exception:
+                    pass
+            normalized.append(text_value)
+        signature.append(tuple(normalized))
+    return signature
+
+
+def _nevis_pipe_check_visible_bom_rows(table: object) -> List[List[str]]:
+    if table is None:
+        return []
+    rows = []
+    try:
+        for row_index in range(table.rowCount()):
+            rows.append([
+                table.item(row_index, col).text() if table.item(row_index, col) is not None else ""
+                for col in range(min(6, table.columnCount()))
+            ])
+    except Exception:
+        return []
+    return rows
+
+
+def _nevis_pipe_check_master_sizes(main_window: object, material: str) -> Optional[Set[str]]:
+    """Return sizes declared by the material DB, or None when it is unavailable."""
+    try:
+        data = getattr(main_window, "_nevis_master_data", None)
+        if not isinstance(data, dict) and hasattr(main_window, "load_nevis_master_data"):
+            data = main_window.load_nevis_master_data()
+        materials = data.get("materials", []) if isinstance(data, dict) else []
+        if not materials:
+            return None
+        material_code = str(material or "").strip()
+        normalized_code = str(main_window.pipe_prefix(material_code) if hasattr(main_window, "pipe_prefix") else material_code)
+        for item in materials:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code", "") or "").strip()
+            if code not in {material_code, normalized_code}:
+                continue
+            return {
+                str(value).strip().split("x", 1)[0]
+                for value in item.get("sizes", []) or []
+                if str(value).strip()
+            }
+        return set()
+    except Exception:
+        return None
+
+
+def build_pipe_quick_check_issues(main_window: object) -> List[Dict[str, object]]:
+    """Return only checks supported by the current data, without mutating it."""
+    issues: List[Dict[str, object]] = []
+    model = getattr(main_window, "model", None)
+    if model is None:
+        return issues
+
+    library_index = list(getattr(main_window, "library_index", []) or [])
+    for edge in list(getattr(model, "edges", []) or []):
+        edge_id = getattr(edge, "key", edge_key(edge.a, edge.b))
+        size = str(getattr(edge, "size", "") or "").strip().split("x", 1)[0]
+        if not size:
+            issues.append(_nevis_pipe_check_issue(
+                "error", "library", "edge", edge_id, "pipe_check_missing_size", code="E101"
+            ))
+            continue
+
+        if library_index:
+            try:
+                material = str(main_window.edge_material(edge) or "").strip()
+            except Exception:
+                material = ""
+            master_sizes = _nevis_pipe_check_master_sizes(main_window, material)
+            if master_sizes is None:
+                try:
+                    library_sizes = {
+                        str(value).strip().split("x", 1)[0]
+                        for value in main_window.library_pipe_sizes_for_material(material) or []
+                        if str(value).strip()
+                    }
+                except Exception:
+                    library_sizes = set()
+                master_sizes = library_sizes if library_sizes else None
+            if material and master_sizes == set():
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "library", "edge", edge_id,
+                    "pipe_check_size_missing", {"size": size, "material": material}, code="E102"
+                ))
+            elif master_sizes is not None and size not in master_sizes:
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "library", "edge", edge_id,
+                    "pipe_check_size_missing", {"size": size, "material": material}, code="E102"
+                ))
+
+        # Current Edge stores numeric slope values, not the original input text.
+        # Validate only if a future/project field preserves the actual 1/N string.
+        slope_text = None
+        for attr in ("slope_ratio_text", "slope_text", "slope_1n"):
+            value = getattr(edge, attr, None)
+            if value not in (None, ""):
+                slope_text = str(value).strip()
+                break
+        if slope_text is not None and re.fullmatch(r"1/[1-9]\d*(?:\.\d+)?", slope_text) is None:
+            issues.append(_nevis_pipe_check_issue(
+                "warning", "slope", "edge", edge_id, "pipe_check_slope_format"
+            ))
+
+    if library_index:
+        for node_id, fitting in list(getattr(model, "fittings", {}).items()):
+            if bool(getattr(fitting, "excluded", False)):
+                continue
+            ftype = str(getattr(fitting, "ftype", "") or "").strip()
+            size = str(getattr(fitting, "size", "") or "").strip()
+            if not ftype or not size:
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "fitting", "node", node_id,
+                    "pipe_check_fitting_incomplete", code="E201"
+                ))
+                continue
+            try:
+                if hasattr(main_window, "resolve_fitting_library_path_for_jww"):
+                    path = main_window.resolve_fitting_library_path_for_jww(node_id, fitting)
+                else:
+                    path = main_window.matching_library_path(node_id, ftype, size)
+            except Exception:
+                path = ""
+            if not path:
+                available_sizes = []
+                try:
+                    pipe = main_window.current_pipe_for_node(node_id)
+                    available_sizes = list(main_window.library_sizes(pipe, ftype) or [])
+                except Exception:
+                    pass
+                requested_size = str(size).strip().replace("×", "x").lower()
+                normalized_available = {
+                    str(value).strip().replace("×", "x").lower()
+                    for value in available_sizes
+                }
+                size_missing = bool(normalized_available and requested_size not in normalized_available)
+                issues.append(_nevis_pipe_check_issue(
+                    "error", "fitting", "node", node_id,
+                    "pipe_check_fitting_size_missing" if size_missing else "pipe_check_fitting_library_missing",
+                    {"ftype": ftype, "size": size},
+                    code="E203" if size_missing else "E202",
+                ))
+
+    try:
+        expected_rows = main_window.build_material_rows("")
+        visible_rows = _nevis_pipe_check_visible_bom_rows(getattr(main_window, "table_mat", None))
+        if _nevis_pipe_check_row_signature(expected_rows) != _nevis_pipe_check_row_signature(visible_rows):
+            issues.append(_nevis_pipe_check_issue(
+                "warning", "bom", "bom", "", "pipe_check_bom_mismatch"
+            ))
+    except Exception:
+        # BOM comparison is optional in V1. An unavailable comparison is not a user error.
+        pass
+
+    return issues
+
+
+def _nevis_pipe_check_build_ui(self):
+    _NEVIS_PIPE_CHECK_PREV_BUILD_UI(self)
+    self._pipe_check_issues = []
+    self._pipe_check_tab_index = -1
+
+    self.btn_pipe_check = QPushButton(self.tr("pipe_check_button"))
+    self.btn_pipe_check.setMinimumHeight(32)
+    self.btn_pipe_check.setCursor(Qt.PointingHandCursor)
+    self.btn_pipe_check.clicked.connect(self.open_pipe_check_panel)
+    right_layout = self.right_panel.layout()
+    if right_layout is not None:
+        right_layout.insertWidget(1, self.btn_pipe_check)
+
+    self.pipe_check_tab = QWidget()
+    root = QVBoxLayout(self.pipe_check_tab)
+    root.setContentsMargins(6, 6, 6, 6)
+    root.setSpacing(7)
+
+    header = QHBoxLayout()
+    self.lbl_pipe_check_title = QLabel(self.tr("pipe_check_title"))
+    self.lbl_pipe_check_title.setStyleSheet("color:#1B4A7E; font-weight:700;")
+    self.btn_pipe_check_recheck = QPushButton(self.tr("pipe_check_recheck"))
+    self.btn_pipe_check_close = QPushButton(self.tr("pipe_check_close"))
+    self.btn_pipe_check_recheck.clicked.connect(self.run_pipe_quick_check)
+    self.btn_pipe_check_close.clicked.connect(self.close_pipe_check_panel)
+    header.addWidget(self.lbl_pipe_check_title)
+    header.addStretch(1)
+    header.addWidget(self.btn_pipe_check_recheck)
+    header.addWidget(self.btn_pipe_check_close)
+    root.addLayout(header)
+
+    summary = QHBoxLayout()
+    self.lbl_pipe_check_errors = QLabel()
+    self.lbl_pipe_check_warnings = QLabel()
+    self.lbl_pipe_check_errors.setStyleSheet("color:#B42318; font-weight:700;")
+    self.lbl_pipe_check_warnings.setStyleSheet("color:#B26A00; font-weight:700;")
+    summary.addWidget(self.lbl_pipe_check_errors)
+    summary.addWidget(self.lbl_pipe_check_warnings)
+    summary.addStretch(1)
+    root.addLayout(summary)
+
+    self.lbl_pipe_check_empty = QLabel(self.tr("pipe_check_empty"))
+    self.lbl_pipe_check_empty.setAlignment(Qt.AlignCenter)
+    self.lbl_pipe_check_empty.setWordWrap(True)
+    self.lbl_pipe_check_empty.setStyleSheet(
+        "color:#237A3B; background:#EAF6ED; border:1px solid #A8D5B3; "
+        "border-radius:6px; padding:14px; font-weight:700;"
+    )
+    root.addWidget(self.lbl_pipe_check_empty)
+
+    self.table_pipe_check = QTableWidget(0, 4)
+    self.table_pipe_check.setEditTriggers(QTableWidget.NoEditTriggers)
+    self.table_pipe_check.setSelectionBehavior(QTableWidget.SelectRows)
+    self.table_pipe_check.setSelectionMode(QAbstractItemView.SingleSelection)
+    self.table_pipe_check.setAlternatingRowColors(True)
+    self.table_pipe_check.setWordWrap(True)
+    self.table_pipe_check.verticalHeader().setVisible(False)
+    header_view = self.table_pipe_check.horizontalHeader()
+    header_view.setMinimumHeight(38)
+    header_view.setMinimumSectionSize(76)
+    header_view.setTextElideMode(Qt.ElideNone)
+    header_view.setSectionResizeMode(QHeaderView.Interactive)
+    header_view.setSectionResizeMode(3, QHeaderView.Stretch)
+    self.table_pipe_check.verticalHeader().setDefaultSectionSize(32)
+    self.table_pipe_check.setColumnWidth(0, 82)
+    self.table_pipe_check.setColumnWidth(1, 140)
+    self.table_pipe_check.setColumnWidth(2, 125)
+    self.table_pipe_check.setColumnWidth(3, 320)
+    self.table_pipe_check.itemSelectionChanged.connect(self.highlight_selected_pipe_check_issue)
+    root.addWidget(self.table_pipe_check, 1)
+
+    self._pipe_check_tab_index = self.tabs.addTab(self.pipe_check_tab, self.tr("pipe_check_button"))
+    self.tabs.currentChanged.connect(self._pipe_check_tab_changed)
+    self.retranslate_pipe_check_ui()
+
+
+def _nevis_pipe_check_translate(self, key: str, args: Optional[Dict[str, object]] = None) -> str:
+    text_value = self.tr(key)
+    try:
+        return text_value.format(**dict(args or {}))
+    except Exception:
+        return text_value
+
+
+def _nevis_pipe_check_render(self):
+    issues = list(getattr(self, "_pipe_check_issues", []) or [])
+    errors = sum(1 for issue in issues if issue.get("severity") == "error")
+    warnings = sum(1 for issue in issues if issue.get("severity") == "warning")
+    self.lbl_pipe_check_errors.setText(self.tr("pipe_check_error_count").format(count=errors))
+    self.lbl_pipe_check_warnings.setText(self.tr("pipe_check_warning_count").format(count=warnings))
+    self.table_pipe_check.setHorizontalHeaderLabels([
+        self.tr("pipe_check_col_severity"), self.tr("pipe_check_col_item"),
+        self.tr("pipe_check_col_target"), self.tr("pipe_check_col_message"),
+    ])
+    self.table_pipe_check.setRowCount(len(issues))
+    check_keys = {
+        "library": "pipe_check_item_library", "fitting": "pipe_check_item_fitting",
+        "bom": "pipe_check_item_bom", "slope": "pipe_check_item_slope",
+    }
+    target_keys = {
+        "edge": "pipe_check_target_pipe", "node": "pipe_check_target_fitting",
+        "bom": "pipe_check_target_bom",
+    }
+    for row_index, issue in enumerate(issues):
+        severity = str(issue.get("severity", "warning"))
+        severity_text = self.tr("pipe_check_severity_error" if severity == "error" else "pipe_check_severity_warning")
+        check_text = self.tr(check_keys.get(str(issue.get("check", "")), "pipe_check_item_library"))
+        target_key = target_keys.get(str(issue.get("target_kind", "")), "pipe_check_target_pipe")
+        target_text = _nevis_pipe_check_translate(self, target_key, {"id": issue.get("target_id", "")})
+        message_text = _nevis_pipe_check_translate(
+            self, str(issue.get("message", "")), issue.get("message_args", {})
+        )
+        issue_code = str(issue.get("code", "") or "").strip()
+        if issue_code:
+            message_text = f"[{issue_code}] {message_text}"
+        for col, value in enumerate((severity_text, check_text, target_text, message_text)):
+            item = QTableWidgetItem(value)
+            item.setToolTip(value)
+            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            if col == 0:
+                item.setForeground(QBrush(QColor("#B42318" if severity == "error" else "#B26A00")))
+            if col == 0:
+                item.setData(Qt.UserRole, issue)
+            self.table_pipe_check.setItem(row_index, col, item)
+    self.lbl_pipe_check_empty.setVisible(not issues)
+    self.table_pipe_check.setVisible(bool(issues))
+    if issues:
+        self.table_pipe_check.resizeRowsToContents()
+
+
+def _nevis_pipe_check_retranslate_ui(self):
+    if not hasattr(self, "table_pipe_check"):
+        return
+    self.btn_pipe_check.setText(self.tr("pipe_check_button"))
+    self.lbl_pipe_check_title.setText(self.tr("pipe_check_title"))
+    self.btn_pipe_check_recheck.setText(self.tr("pipe_check_recheck"))
+    self.btn_pipe_check_close.setText(self.tr("pipe_check_close"))
+    self.lbl_pipe_check_empty.setText(self.tr("pipe_check_empty"))
+    if getattr(self, "_pipe_check_tab_index", -1) >= 0:
+        self.tabs.setTabText(self._pipe_check_tab_index, self.tr("pipe_check_button"))
+    _nevis_pipe_check_render(self)
+
+
+def _nevis_pipe_check_run(self):
+    self.clear_pipe_check_highlight()
+    self._pipe_check_issues = build_pipe_quick_check_issues(self)
+    _nevis_pipe_check_render(self)
+
+
+def _nevis_pipe_check_open(self):
+    self.set_side_panel_visible("right", True)
+    if getattr(self, "_pipe_check_tab_index", -1) >= 0:
+        self.tabs.setCurrentIndex(self._pipe_check_tab_index)
+    self.expand_pipe_check_panel()
+    self.run_pipe_quick_check()
+
+
+def _nevis_pipe_check_expand_panel(self):
+    try:
+        sizes = self.splitter.sizes()
+        if len(sizes) != 3:
+            return
+        if not hasattr(self, "_pipe_check_previous_right_width"):
+            self._pipe_check_previous_right_width = max(180, sizes[2])
+        target = min(680, max(620, int(self.width() * 0.43)))
+        self.right_shell.setMaximumWidth(720)
+        self.right_shell.setMinimumWidth(360)
+        center = max(320, sum(sizes) - sizes[0] - target)
+        self.splitter.setSizes([sizes[0], center, target])
+    except Exception:
+        pass
+
+
+def _nevis_pipe_check_restore_panel(self):
+    try:
+        sizes = self.splitter.sizes()
+        previous = int(getattr(self, "_pipe_check_previous_right_width", 220))
+        previous = max(160, min(420, previous))
+        self.right_shell.setMinimumWidth(160)
+        self.right_shell.setMaximumWidth(420)
+        center = max(320, sum(sizes) - sizes[0] - previous)
+        self.splitter.setSizes([sizes[0], center, previous])
+        if hasattr(self, "_pipe_check_previous_right_width"):
+            delattr(self, "_pipe_check_previous_right_width")
+    except Exception:
+        pass
+
+
+def _nevis_pipe_check_clear_highlight(self):
+    if getattr(self, "_v82_quick_highlight", None) is None:
+        return
+    self._v82_quick_highlight = None
+    try:
+        self.preview.draw_model()
+    except Exception:
+        pass
+
+
+def _nevis_pipe_check_highlight_selected(self):
+    row = self.table_pipe_check.currentRow()
+    item = self.table_pipe_check.item(row, 0) if row >= 0 else None
+    issue = item.data(Qt.UserRole) if item is not None else None
+    if not isinstance(issue, dict):
+        return
+    kind = str(issue.get("target_kind", ""))
+    target_id = issue.get("target_id", "")
+    if kind not in {"edge", "node"}:
+        self.clear_pipe_check_highlight()
+        return
+    try:
+        _v82_quick_highlight(self, kind, target_id)
+        if kind == "node":
+            node = self.model.nodes.get(int(target_id))
+            if node is None:
+                return
+            x, y = display_point(node.x, node.y)
+            rect = QRectF(x - 120, y - 120, 240, 240)
+        else:
+            edge = next((value for value in self.model.edges if value.key == str(target_id)), None)
+            if edge is None:
+                return
+            node_a, node_b = self.model.nodes[edge.a], self.model.nodes[edge.b]
+            x1, y1 = display_point(node_a.x, node_a.y)
+            x2, y2 = display_point(node_b.x, node_b.y)
+            rect = QRectF(min(x1, x2), min(y1, y2), max(1.0, abs(x2 - x1)), max(1.0, abs(y2 - y1))).adjusted(-100, -100, 100, 100)
+        self.preview.fitInView(rect, Qt.KeepAspectRatio)
+        self.preview.centerOn(rect.center())
+    except Exception:
+        self.clear_pipe_check_highlight()
+
+
+def _nevis_pipe_check_close_panel(self):
+    self.clear_pipe_check_highlight()
+    if hasattr(self, "tabs") and self.tabs.count() > 0:
+        self.tabs.setCurrentIndex(0)
+
+
+def _nevis_pipe_check_tab_changed(self, index: int):
+    if index == getattr(self, "_pipe_check_tab_index", -1):
+        self.expand_pipe_check_panel()
+    else:
+        self.clear_pipe_check_highlight()
+        self.restore_pipe_check_panel()
+
+
+_NEVIS_PIPE_CHECK_PREV_BUILD_UI = MainWindow._build_ui
+MainWindow._build_ui = _nevis_pipe_check_build_ui
+MainWindow.run_pipe_quick_check = _nevis_pipe_check_run
+MainWindow.open_pipe_check_panel = _nevis_pipe_check_open
+MainWindow.close_pipe_check_panel = _nevis_pipe_check_close_panel
+MainWindow.clear_pipe_check_highlight = _nevis_pipe_check_clear_highlight
+MainWindow.highlight_selected_pipe_check_issue = _nevis_pipe_check_highlight_selected
+MainWindow._pipe_check_tab_changed = _nevis_pipe_check_tab_changed
+MainWindow.expand_pipe_check_panel = _nevis_pipe_check_expand_panel
+MainWindow.restore_pipe_check_panel = _nevis_pipe_check_restore_panel
+MainWindow.retranslate_pipe_check_ui = _nevis_pipe_check_retranslate_ui
+
+_NEVIS_PIPE_CHECK_PREV_REFRESH_LANGUAGE = MainWindow.refresh_language_texts
+def _nevis_pipe_check_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_PIPE_CHECK_PREV_REFRESH_LANGUAGE(self, *args, **kwargs)
+    self.retranslate_pipe_check_ui()
+    return result
+MainWindow.refresh_language_texts = _nevis_pipe_check_refresh_language
+
+_NEVIS_PIPE_CHECK_PREV_SET_SIDE_PANEL = MainWindow.set_side_panel_visible
+def _nevis_pipe_check_set_side_panel_visible(self, side: str, visible: bool):
+    if side == "right" and not visible:
+        self.clear_pipe_check_highlight()
+    return _NEVIS_PIPE_CHECK_PREV_SET_SIDE_PANEL(self, side, visible)
+MainWindow.set_side_panel_visible = _nevis_pipe_check_set_side_panel_visible
+
+
+# =============================================================================
+# NEVIS raster reference background - Phase 1 (view-only, session-only)
+# =============================================================================
+def _nevis_render_reference_pdf(path: str, parent=None) -> QPixmap:
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError(
+            "Không thể nạp PDF vì thiếu PyMuPDF (fitz). Ảnh PNG/JPG vẫn có thể sử dụng."
+        ) from exc
+
+    try:
+        with fitz.open(path) as document:
+            if document.page_count < 1:
+                return QPixmap()
+            page = document.load_page(0)
+            scale = 150.0 / 72.0
+            longest = max(float(page.rect.width), float(page.rect.height)) * scale
+            if longest > 6000.0:
+                scale *= 6000.0 / longest
+            rendered = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            pixmap = QPixmap()
+            pixmap.loadFromData(rendered.tobytes("png"), "PNG")
+            return pixmap
+    except Exception as exc:
+        raise RuntimeError(f"Không thể render trang đầu PDF: {exc}") from exc
+
+
+def _nevis_reference_background_item(self):
+    scene = getattr(getattr(self, "preview", None), "scene", None)
+    if scene is None:
+        return None
+    for item in scene.items():
+        if item.data(0) == "nevis_reference_raster_background":
+            return item
+    return None
+
+
+def _nevis_reference_background_status(self, message: str) -> None:
+    try:
+        self.lbl_status.setText(message)
+        self.statusBar().showMessage(message, 8000)
+    except Exception:
+        pass
+
+
+def _nevis_clear_reference_alignment_marker(self) -> None:
+    marker = getattr(self, "_reference_background_align_marker", None)
+    self._reference_background_align_marker = None
+    if marker is None:
+        return
+    try:
+        if marker.scene() is not None:
+            marker.scene().removeItem(marker)
+    except RuntimeError:
+        pass
+
+
+def _nevis_cancel_reference_background_alignment(self, message: str = "Đã hủy căn thẳng") -> None:
+    self._reference_background_aligning = False
+    self._reference_background_align_point_a = None
+    _nevis_clear_reference_alignment_marker(self)
+    button = getattr(self, "btn_align_reference_background", None)
+    if button is not None:
+        button.blockSignals(True)
+        button.setChecked(False)
+        button.blockSignals(False)
+    if message:
+        _nevis_reference_background_status(self, message)
+
+
+def _nevis_start_reference_background_alignment(self, checked: bool = False) -> None:
+    item = _nevis_reference_background_item(self)
+    if not checked:
+        _nevis_cancel_reference_background_alignment(self)
+        return
+    if item is None or not item.isVisible():
+        _nevis_cancel_reference_background_alignment(self, "Vui lòng nạp và hiển thị nền PDF/ảnh")
+        return
+    self._reference_background_aligning = True
+    self._reference_background_align_point_a = None
+    _nevis_clear_reference_alignment_marker(self)
+    _nevis_reference_background_status(self, "Căn thẳng: click điểm A trên nền PDF/ảnh")
+
+
+def _nevis_reference_background_contains_scene_point(item, scene_point) -> bool:
+    try:
+        return bool(item.contains(item.mapFromScene(scene_point)))
+    except Exception:
+        return False
+
+
+def _nevis_handle_reference_background_alignment_click(self, scene_point) -> bool:
+    if not getattr(self, "_reference_background_aligning", False):
+        return False
+    item = _nevis_reference_background_item(self)
+    if item is None or not item.isVisible():
+        _nevis_cancel_reference_background_alignment(self, "Nền PDF/ảnh không còn hiển thị")
+        return True
+    if not _nevis_reference_background_contains_scene_point(item, scene_point):
+        _nevis_reference_background_status(self, "Hãy click điểm nằm trên nền PDF/ảnh")
+        return True
+
+    point_a = getattr(self, "_reference_background_align_point_a", None)
+    if point_a is None:
+        self._reference_background_align_point_a = QPointF(scene_point)
+        _nevis_clear_reference_alignment_marker(self)
+        radius = 7.0
+        marker = self.preview.scene.addEllipse(
+            scene_point.x() - radius,
+            scene_point.y() - radius,
+            radius * 2.0,
+            radius * 2.0,
+            QPen(QColor(220, 70, 40), 2),
+            QBrush(QColor(255, 220, 80, 180)),
+        )
+        marker.setZValue(250)
+        marker.setAcceptedMouseButtons(Qt.NoButton)
+        self._reference_background_align_marker = marker
+        _nevis_reference_background_status(self, "Căn thẳng: click điểm B trên nền PDF/ảnh")
+        return True
+
+    dx = float(scene_point.x() - point_a.x())
+    dy = float(scene_point.y() - point_a.y())
+    if math.hypot(dx, dy) < 2.0:
+        _nevis_reference_background_status(self, "Điểm B quá gần điểm A, hãy chọn lại điểm B")
+        return True
+
+    measured_angle = math.degrees(math.atan2(dy, dx))
+    axis_angle = ((measured_angle + 90.0) % 180.0) - 90.0
+    if abs(axis_angle) <= 45.0:
+        target_angle = 0.0
+    else:
+        target_angle = 90.0 if axis_angle > 0.0 else -90.0
+    correction = target_angle - axis_angle
+    current_rotation = float(getattr(self, "_reference_background_rotation", 0.0) or 0.0)
+    new_rotation = ((current_rotation + correction + 180.0) % 360.0) - 180.0
+    self._reference_background_rotation = new_rotation
+    item.setTransformOriginPoint(item.boundingRect().center())
+    item.setRotation(new_rotation)
+    self.preview.scene.setSceneRect(self.preview.scene.sceneRect().united(item.sceneBoundingRect()))
+    self.lbl_reference_background_angle.setText(f"Góc hiện tại: {new_rotation:.2f}°")
+    _nevis_cancel_reference_background_alignment(self, "")
+    _nevis_reference_background_status(
+        self,
+        f"Đã căn thẳng về {abs(target_angle):.0f}° | Góc nền: {new_rotation:.2f}°",
+    )
+    return True
+
+
+def _nevis_ensure_reference_background(self) -> None:
+    pixmap = getattr(self, "_reference_background_pixmap", None)
+    if pixmap is None or pixmap.isNull():
+        return
+    item = _nevis_reference_background_item(self)
+    if item is None:
+        item = self.preview.scene.addPixmap(pixmap)
+        item.setData(0, "nevis_reference_raster_background")
+        item.setZValue(-150)
+    item.setAcceptedMouseButtons(Qt.NoButton)
+    item.setAcceptHoverEvents(False)
+    item.setFlag(QGraphicsItem.ItemIsSelectable, False)
+    item.setFlag(QGraphicsItem.ItemIsFocusable, False)
+    item.setTransformOriginPoint(item.boundingRect().center())
+    item.setRotation(float(getattr(self, "_reference_background_rotation", 0.0) or 0.0))
+    item.setVisible(bool(self.chk_reference_background_visible.isChecked()))
+    item.setOpacity(self.slider_reference_background_opacity.value() / 100.0)
+    self.preview.scene.setSceneRect(self.preview.scene.sceneRect().united(item.sceneBoundingRect()))
+
+
+def _nevis_open_reference_background(self) -> None:
+    path, _ = QFileDialog.getOpenFileName(
+        self,
+        "Mở nền PDF/ảnh",
+        "",
+        "PDF/Ảnh (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff);;Tất cả (*.*)",
+    )
+    if not path:
+        return
+    try:
+        pixmap = _nevis_render_reference_pdf(path, self) if Path(path).suffix.lower() == ".pdf" else QPixmap(path)
+    except RuntimeError as exc:
+        QMessageBox.warning(self, "Nền PDF/ảnh", str(exc))
+        return
+    if pixmap.isNull():
+        QMessageBox.warning(self, "Nền PDF/ảnh", "Không thể render file nền đã chọn.")
+        return
+    self._reference_background_pixmap = pixmap
+    self._reference_background_path = path
+    self._reference_background_rotation = 0.0
+    self.lbl_reference_background_angle.setText("Góc hiện tại: 0.00°")
+    self.lbl_reference_background_name.setText(Path(path).name)
+    self.chk_reference_background_visible.setChecked(True)
+    self.preview.draw_model()
+    self.preview.fit_view()
+
+
+def _nevis_toggle_reference_background(self, visible: bool) -> None:
+    if not visible and getattr(self, "_reference_background_aligning", False):
+        _nevis_cancel_reference_background_alignment(self, "Đã hủy căn thẳng")
+    item = _nevis_reference_background_item(self)
+    if item is not None:
+        item.setVisible(bool(visible))
+
+
+def _nevis_set_reference_background_opacity(self, value: int) -> None:
+    item = _nevis_reference_background_item(self)
+    if item is not None:
+        item.setOpacity(max(0, min(100, int(value))) / 100.0)
+
+
+def _nevis_clear_reference_background(self) -> None:
+    _nevis_cancel_reference_background_alignment(self, "")
+    item = _nevis_reference_background_item(self)
+    if item is not None:
+        self.preview.scene.removeItem(item)
+    self._reference_background_pixmap = QPixmap()
+    self._reference_background_path = ""
+    self._reference_background_rotation = 0.0
+    self.lbl_reference_background_angle.setText("Góc hiện tại: 0.00°")
+    self.lbl_reference_background_name.setText("Chưa có nền")
+
+
+_NEVIS_REFERENCE_BACKGROUND_PREV_BUILD_UI = MainWindow._build_ui
+def _nevis_reference_background_build_ui(self):
+    result = _NEVIS_REFERENCE_BACKGROUND_PREV_BUILD_UI(self)
+    self._reference_background_pixmap = QPixmap()
+    self._reference_background_path = ""
+    self._reference_background_rotation = 0.0
+    self._reference_background_aligning = False
+    self._reference_background_align_point_a = None
+    self._reference_background_align_marker = None
+    return result
+
+
+_NEVIS_REFERENCE_BACKGROUND_PREV_DRAW_MODEL = PreviewView.draw_model
+def _nevis_reference_background_draw_model(self, *args, **kwargs):
+    result = _NEVIS_REFERENCE_BACKGROUND_PREV_DRAW_MODEL(self, *args, **kwargs)
+    self.mainwin.ensure_reference_background()
+    return result
+
+
+MainWindow._build_ui = _nevis_reference_background_build_ui
+MainWindow.open_reference_background = _nevis_open_reference_background
+MainWindow.toggle_reference_background = _nevis_toggle_reference_background
+MainWindow.set_reference_background_opacity = _nevis_set_reference_background_opacity
+MainWindow.clear_reference_background = _nevis_clear_reference_background
+MainWindow.ensure_reference_background = _nevis_ensure_reference_background
+MainWindow.start_reference_background_alignment = _nevis_start_reference_background_alignment
+MainWindow.cancel_reference_background_alignment = _nevis_cancel_reference_background_alignment
+MainWindow.handle_reference_background_alignment_click = _nevis_handle_reference_background_alignment_click
+PreviewView.draw_model = _nevis_reference_background_draw_model
+
+_NEVIS_REFERENCE_BACKGROUND_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+def _nevis_reference_background_mouse_press(self, event):
+    if getattr(self.mainwin, "_reference_background_aligning", False):
+        if event.button() == Qt.LeftButton:
+            try:
+                pos = event.position().toPoint()
+            except AttributeError:
+                pos = event.pos()
+            self.mainwin.handle_reference_background_alignment_click(self.mapToScene(pos))
+            event.accept()
+            return
+        if event.button() == Qt.RightButton:
+            self.mainwin.cancel_reference_background_alignment()
+            event.accept()
+            return
+    return _NEVIS_REFERENCE_BACKGROUND_PREV_MOUSE_PRESS(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_reference_background_mouse_press
+
+
+# =============================================================================
+# Structural element rectangle drawing
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "undo": "Hoàn tác",
+    "undo_done": "Đã hoàn tác",
+    "redo": "Làm lại",
+    "structural_title": "Kết cấu",
+    "structural_type_label": "Loại",
+    "structural_width": "Rộng",
+    "structural_length": "Dài",
+    "structural_height": "Cao",
+    "structural_radius": "B.Kính",
+    "structural_has_arc": "Cung tròn",
+    "structural_confirm": "Xác nhận",
+    "structural_cancel": "Hủy",
+    "structural_invalid_dimension": "Kích thước không hợp lệ (tối đa 99999 mm).",
+    "structural_draw_hint": "Kéo từ góc thứ nhất đến góc đối diện.",
+    "structural_invalid_region": "Rộng và Dài phải lớn hơn 0.",
+    "structural_created": "Đã tạo {label}: Rộng {width:g} × Dài {length:g} mm",
+    "structural_updated": "Đã cập nhật {label}: Rộng {width:g} × Dài {length:g} × Cao {height:g} mm",
+    "structural_moved": "Đã di chuyển {label}.",
+    "structural_resized": "Đã đổi cỡ {label}: Rộng {width:g} × Dài {length:g} mm",
+    "structural_type_slab": "Sàn",
+    "structural_type_beam": "Dầm",
+    "structural_type_column": "Cột",
+    "structural_type_wall_rc": "Tường RC",
+    "structural_type_wall_lgs": "Vách LGS",
+    "structural_type_ceiling_lgs": "Trần thạch cao LGS",
+    "stepped_slab_command": "Tạo sàn giật cấp",
+    "stepped_slab_title": "Sàn giật cấp",
+    "stepped_slab_offset": "Lệch SL",
+    "stepped_slab_thickness": "Dày BT",
+    "stepped_slab_overlap": "Chồng lấn",
+    "stepped_slab_draw_hint": "Vẽ vùng con bên trong sàn chính.",
+    "stepped_slab_select_parent": "Hãy chọn một sàn chính.",
+    "stepped_slab_outside": "Vùng giật cấp phải nằm trong sàn chính.",
+    "stepped_slab_created": "Đã tạo sàn giật cấp: cao độ {elevation:g} mm",
+    "stepped_slab_label": "Sàn giật cấp",
+    "workspace_mep": "MEP / Đường ống",
+    "workspace_structural": "Kết cấu",
+    "workspace_structural_group": "Kết cấu",
+    "workspace_draw": "Vẽ",
+    "workspace_delete": "Xóa",
+    "structural_grid_label": "Lưới",
+    "structural_grid_enabled": "Bật lưới",
+    "structural_grid_custom": "Tùy chỉnh",
+    "structural_snap_step": "Bước bắt (mm)",
+    "scale_calibrate": "Căn tỷ lệ",
+    "scale_click_1": "Click điểm 1 trên bản nền.",
+    "scale_click_2": "Click điểm 2 trên bản nền.",
+    "scale_real_distance": "Khoảng cách thực (mm)",
+    "scale_need_background": "Hãy nạp và hiển thị bản nền.",
+    "scale_invalid_points": "Hai điểm phải khác nhau.",
+    "scale_done": "Đã căn tỷ lệ 1:{scale:g}",
+    "snap_action": "Bắt điểm",
+    "snap_action_move": "Bắt điểm (di chuyển tâm)",
+    "snap_corner_nw": "góc trên-trái",
+    "snap_corner_ne": "góc trên-phải",
+    "snap_corner_se": "góc dưới-phải",
+    "snap_corner_sw": "góc dưới-trái",
+    "snap_edge_n": "cạnh trên",
+    "snap_edge_e": "cạnh phải",
+    "snap_edge_s": "cạnh dưới",
+    "snap_edge_w": "cạnh trái",
+    "snap_pending_hint": "Click vào điểm trên bản nền để bắt điểm.",
+    "snap_done": "Đã bắt điểm.",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "undo": "元に戻す",
+    "undo_done": "元に戻しました",
+    "redo": "やり直し",
+    "structural_title": "構造要素",
+    "structural_type_label": "要素種別",
+    "structural_width": "幅",
+    "structural_length": "長さ",
+    "structural_height": "高さ",
+    "structural_radius": "半径",
+    "structural_has_arc": "円弧",
+    "structural_confirm": "確定",
+    "structural_cancel": "キャンセル",
+    "structural_invalid_dimension": "寸法が不正です（最大99999 mm）。",
+    "structural_draw_hint": "1点目から対角までドラッグしてください。",
+    "structural_invalid_region": "幅と長さは0より大きくしてください。",
+    "structural_created": "{label}を作成: 幅 {width:g} × 長さ {length:g} mm",
+    "structural_updated": "{label}を更新: 幅 {width:g} × 長さ {length:g} × 高さ {height:g} mm",
+    "structural_moved": "{label}を移動しました。",
+    "structural_resized": "{label}をリサイズ: 幅 {width:g} × 長さ {length:g} mm",
+    "structural_type_slab": "スラブ",
+    "structural_type_beam": "梁",
+    "structural_type_column": "柱",
+    "structural_type_wall_rc": "RC壁",
+    "structural_type_wall_lgs": "軽量鉄骨壁",
+    "structural_type_ceiling_lgs": "軽天井 (LGS)",
+    "stepped_slab_command": "段差スラブ作成",
+    "stepped_slab_title": "段差スラブ",
+    "stepped_slab_offset": "SL差",
+    "stepped_slab_thickness": "コンクリート厚",
+    "stepped_slab_overlap": "重ね幅",
+    "stepped_slab_draw_hint": "主スラブ内に子領域を描画してください。",
+    "stepped_slab_select_parent": "主スラブを選択してください。",
+    "stepped_slab_outside": "段差スラブは主スラブ内に配置してください。",
+    "stepped_slab_created": "段差スラブを作成: 高さ {elevation:g} mm",
+    "stepped_slab_label": "段差スラブ",
+    "workspace_mep": "MEP / 配管",
+    "workspace_structural": "構造",
+    "workspace_structural_group": "構造",
+    "workspace_draw": "作図",
+    "workspace_delete": "削除",
+    "structural_grid_label": "グリッド",
+    "structural_grid_enabled": "グリッド表示",
+    "structural_grid_custom": "任意",
+    "structural_snap_step": "スナップ間隔 (mm)",
+    "scale_calibrate": "縮尺設定",
+    "scale_click_1": "背景図の1点目をクリック。",
+    "scale_click_2": "背景図の2点目をクリック。",
+    "scale_real_distance": "実距離 (mm)",
+    "scale_need_background": "背景図を読み込み、表示してください。",
+    "scale_invalid_points": "2点は異なる位置を選択してください。",
+    "scale_done": "縮尺を1:{scale:g}に設定しました",
+    "snap_action": "スナップ",
+    "snap_action_move": "スナップ（中心移動）",
+    "snap_corner_nw": "左上コーナー",
+    "snap_corner_ne": "右上コーナー",
+    "snap_corner_se": "右下コーナー",
+    "snap_corner_sw": "左下コーナー",
+    "snap_edge_n": "上辺",
+    "snap_edge_e": "右辺",
+    "snap_edge_s": "下辺",
+    "snap_edge_w": "左辺",
+    "snap_pending_hint": "背景図の点をクリックしてスナップしてください。",
+    "snap_done": "スナップしました。",
+})
+
+
+def _nevis_structural_type_labels(mainwin) -> dict[str, str]:
+    return {
+        element_type: mainwin.tr(f"structural_type_{element_type}")
+        for element_type in ("slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling_lgs")
+    }
+
+
+def _nevis_canvas_to_real_point(mainwin, point) -> tuple[float, float]:
+    return canvas_to_real(
+        float(point[0]), float(point[1]),
+        getattr(mainwin.model, "drawing_scale", 1.0),
+        getattr(mainwin.model, "scale_origin", (0.0, 0.0)),
+    )
+
+
+def _nevis_real_to_canvas_point(mainwin, point) -> tuple[float, float]:
+    return real_to_canvas(
+        float(point[0]), float(point[1]),
+        getattr(mainwin.model, "drawing_scale", 1.0),
+        getattr(mainwin.model, "scale_origin", (0.0, 0.0)),
+    )
+
+
+def _nevis_structural_has_visible_underlay(mainwin) -> bool:
+    if getattr(mainwin, "jww_background_items", None):
+        return True
+    item = _nevis_reference_background_item(mainwin)
+    return bool(item is not None and item.isVisible())
+
+
+def _nevis_slab_edge_candidates(mainwin) -> list[tuple[float, float]]:
+    """Collect all corner and midpoint candidates from slab element edges."""
+    candidates = []
+    for elem in getattr(mainwin.model, "structural_elements", []) or []:
+        pts = getattr(elem, "points", [])
+        if len(pts) < 2:
+            continue
+        for i, p in enumerate(pts):
+            candidates.append((float(p[0]), float(p[1])))
+            # midpoint of each edge
+            p2 = pts[(i + 1) % len(pts)]
+            candidates.append(((float(p[0]) + float(p2[0])) / 2.0,
+                                (float(p[1]) + float(p2[1])) / 2.0))
+    return candidates
+
+
+def _nevis_structural_snap_scene_point(view, scene_point) -> tuple[float, float]:
+    x, y = _nevis_canvas_to_real_point(view.mainwin, (scene_point.x(), scene_point.y()))
+    scale = abs(float(view.transform().m11())) or 1.0
+    draw_scale = float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    # Snap to slab edges first (tolerance 20 screen-px), regardless of grid mode.
+    edge_tolerance = (20.0 / scale) * draw_scale
+    edge_candidates = _nevis_slab_edge_candidates(view.mainwin)
+    edge_pt = nearest_snap_point(x, y, edge_candidates, edge_tolerance)
+    if edge_pt is not None:
+        return edge_pt
+    if (
+        getattr(view.mainwin, "workspace_mode", get_default_mode()) == "structural"
+        and bool(getattr(view.mainwin, "structural_grid_enabled", True))
+    ):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 3.0))
+    tolerance_scene = (10.0 / scale) * draw_scale
+    candidates = [
+        _nevis_canvas_to_real_point(view.mainwin, (node.x, node.y))
+        for node in view.mainwin.model.nodes.values()
+    ]
+    node_point = nearest_snap_point(x, y, candidates, tolerance_scene)
+    if node_point is not None:
+        return node_point
+    if _nevis_structural_has_visible_underlay(view.mainwin):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 100.0))
+    return x, y
+
+
+def _nevis_structural_event_scene_point(view, event) -> tuple[float, float]:
+    try:
+        view_pos = event.position().toPoint()
+    except AttributeError:
+        view_pos = event.pos()
+    return _nevis_structural_snap_scene_point(view, view.mapToScene(view_pos))
+
+
+def _nevis_structural_raw_scene_point(view, event) -> tuple[float, float]:
+    """Raw scene point without any snapping — used during free drag."""
+    try:
+        view_pos = event.position().toPoint()
+    except AttributeError:
+        view_pos = event.pos()
+    scene_pt = view.mapToScene(view_pos)
+    return _nevis_canvas_to_real_point(view.mainwin, (scene_pt.x(), scene_pt.y()))
+
+
+def _nevis_structural_right_snap_or_snap(view, event) -> tuple[float, float]:
+    """At release: use manually-snapped point (Task 17) if available, else grid-snap."""
+    pending = getattr(view, "_structural_right_snap", None)
+    if pending is not None:
+        view._structural_right_snap = None
+        _nevis_t17_remove_snap_marker(view)
+        return pending
+    return _nevis_structural_event_scene_point(view, event)
+
+
+def _nevis_t17_snap_candidates(view) -> list[tuple[float, float]]:
+    """Collect all snap candidates: element corners + axis intersections."""
+    candidates: list[tuple[float, float]] = []
+    for elem in getattr(view.mainwin.model, "structural_elements", []):
+        for pt in getattr(elem, "points", []):
+            candidates.append((float(pt[0]), float(pt[1])))
+    axes = list(getattr(view.mainwin.model, "grid_axes", []) or [])
+    x_axes = [a for a in axes if a.direction == "X"]
+    y_axes = [a for a in axes if a.direction == "Y"]
+    for xa in x_axes:
+        for ya in y_axes:
+            candidates.append((xa.position, ya.position))
+    return candidates
+
+
+def _nevis_t17_remove_snap_marker(view) -> None:
+    marker = getattr(view, "_t17_snap_marker", None)
+    view._t17_snap_marker = None
+    if marker is not None and marker.scene() is not None:
+        marker.scene().removeItem(marker)
+
+
+def _nevis_t17_right_click_snap(view, event) -> bool:
+    """Handle right-click snap during active draw drag. Returns True if handled."""
+    drag_active = (
+        getattr(view.mainwin, "structural_draw_mode", False)
+        and getattr(view, "_structural_drag_start", None) is not None
+    )
+    if not drag_active:
+        return False
+    raw = _nevis_structural_raw_scene_point(view, event)
+    scale = abs(float(view.transform().m11())) or 1.0
+    tolerance_real = (20.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    candidates = _nevis_t17_snap_candidates(view)
+    snapped = nearest_snap_point(raw[0], raw[1], candidates, tolerance_real)
+    if snapped is None:
+        return False
+    view._structural_right_snap = snapped
+    # Update preview rectangle
+    start = view._structural_drag_start
+    item = getattr(view, "_structural_preview_item", None)
+    if item is not None:
+        canvas_start = _nevis_real_to_canvas_point(view.mainwin, start)
+        canvas_end = _nevis_real_to_canvas_point(view.mainwin, snapped)
+        item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+    # Show green snap indicator
+    _nevis_t17_remove_snap_marker(view)
+    cx, cy = _nevis_real_to_canvas_point(view.mainwin, snapped)
+    r = 6.0 / scale
+    marker = view.scene.addEllipse(
+        cx - r, cy - r, r * 2, r * 2,
+        QPen(QColor(20, 170, 80), 2.0 / scale), QBrush(Qt.NoBrush),
+    )
+    marker.setZValue(1500)
+    view._t17_snap_marker = marker
+    return True
+
+
+def _nevis_structural_remove_preview(view) -> None:
+    item = getattr(view, "_structural_preview_item", None)
+    view._structural_preview_item = None
+    if item is not None and item.scene() is not None:
+        item.scene().removeItem(item)
+
+
+def _nevis_stepped_slab_remove_preview(view) -> None:
+    item = getattr(view, "_stepped_slab_preview_item", None)
+    view._stepped_slab_preview_item = None
+    if item is not None and item.scene() is not None:
+        item.scene().removeItem(item)
+
+
+def _nevis_update_stepped_slab_button(self) -> None:
+    if not hasattr(self, "btn_stepped_slab"):
+        return
+    parent = _nevis_structural_find_element(self, getattr(self, "selected_structural_id", -1))
+    self.btn_stepped_slab.setEnabled(bool(
+        parent is not None
+        and parent.element_type == "slab"
+        and not bool(getattr(parent, "is_stepped", False))
+        and not bool(getattr(self, "stepped_slab_draw_mode", False))
+    ))
+
+
+def _nevis_stepped_slab_parameters_dialog(self, parent):
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("stepped_slab_title"))
+    layout = QFormLayout(dialog)
+    offset_edit = QLineEdit("200", dialog)
+    thickness_default = float(getattr(parent, "height", 0.0) or 150.0)
+    thickness_edit = QLineEdit(f"{thickness_default:g}", dialog)
+    overlap_edit = QLineEdit("200", dialog)
+    layout.addRow(f"{self.tr('stepped_slab_offset')} (mm)", offset_edit)
+    layout.addRow(f"{self.tr('stepped_slab_thickness')} (mm)", thickness_edit)
+    layout.addRow(f"{self.tr('stepped_slab_overlap')} (mm)", overlap_edit)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.button(QDialogButtonBox.Ok).setText(self.tr("structural_confirm"))
+    buttons.button(QDialogButtonBox.Cancel).setText(self.tr("structural_cancel"))
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    layout.addRow(buttons)
+    while dialog.exec() == QDialog.Accepted:
+        offset, offset_error = validate_dimension(offset_edit.text().strip(), "C")
+        thickness, thickness_error = validate_dimension(thickness_edit.text().strip(), "H")
+        overlap, overlap_error = validate_dimension(overlap_edit.text().strip(), "C")
+        if offset_error or thickness_error or overlap_error:
+            QMessageBox.warning(dialog, self.tr("stepped_slab_title"), self.tr("structural_invalid_dimension"))
+            continue
+        return offset, thickness, overlap
+    return None
+
+
+def _nevis_start_stepped_slab(self) -> None:
+    parent = _nevis_structural_find_element(self, getattr(self, "selected_structural_id", -1))
+    if parent is None or parent.element_type != "slab" or bool(getattr(parent, "is_stepped", False)):
+        QMessageBox.warning(self, self.tr("stepped_slab_title"), self.tr("stepped_slab_select_parent"))
+        return
+    parameters = self._stepped_slab_parameters_dialog(parent)
+    if parameters is None:
+        return
+    if self.btn_structural_draw.isChecked():
+        self.btn_structural_draw.setChecked(False)
+    self.stepped_slab_draw_mode = True
+    self.pending_stepped_slab = {
+        "parent_id": int(parent.id),
+        "offset": parameters[0],
+        "thickness": parameters[1],
+        "overlap": parameters[2],
+    }
+    self.preview.setDragMode(QGraphicsView.NoDrag)
+    self.preview.viewport().setCursor(Qt.CrossCursor)
+    self.lbl_status.setText(self.tr("stepped_slab_draw_hint"))
+    _nevis_update_stepped_slab_button(self)
+
+
+def _nevis_create_stepped_slab_from_drag(self, start, end) -> bool:
+    pending = getattr(self, "pending_stepped_slab", None)
+    if not isinstance(pending, dict):
+        return False
+    parent = _nevis_structural_find_element(self, pending.get("parent_id", -1))
+    points = rect_from_two_points(start, end)
+    width = abs(float(end[0]) - float(start[0]))
+    length = abs(float(end[1]) - float(start[1]))
+    if parent is None or width <= EPS or length <= EPS:
+        self.lbl_status.setText(self.tr("structural_invalid_region"))
+        return False
+    existing = list(getattr(self.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
+    child = StructuralElement(
+        id=next_id,
+        element_type="slab",
+        label=self.tr("stepped_slab_label"),
+        points=points,
+        width=width,
+        length=length,
+        height=float(pending["thickness"]),
+        top_elevation=compute_stepped_slab_elevation(parent.top_elevation, pending["offset"]),
+        is_stepped=True,
+        parent_slab_id=int(parent.id),
+        overlap_width=float(pending["overlap"]),
+    )
+    if not validate_stepped_slab_bounds(parent, child):
+        QMessageBox.warning(self, self.tr("stepped_slab_title"), self.tr("stepped_slab_outside"))
+        self.lbl_status.setText(self.tr("stepped_slab_outside"))
+        return False
+    self.save_undo_snapshot("create_stepped_slab")
+    self.model.structural_elements.append(child)
+    self.selected_structural_id = child.id
+    self.pending_stepped_slab = None
+    self.stepped_slab_draw_mode = False
+    self.preview.setDragMode(QGraphicsView.ScrollHandDrag)
+    self.preview.viewport().setCursor(Qt.OpenHandCursor)
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("stepped_slab_created").format(elevation=child.top_elevation))
+    _nevis_update_stepped_slab_button(self)
+    return True
+
+
+def _nevis_structural_set_draw_mode(self, enabled: bool) -> None:
+    if enabled and self._block_if_detail_readonly():
+        self.btn_structural_draw.blockSignals(True)
+        self.btn_structural_draw.setChecked(False)
+        self.btn_structural_draw.blockSignals(False)
+        return
+    self.structural_draw_mode = bool(enabled)
+    self.preview._structural_drag_start = None
+    _nevis_structural_remove_preview(self.preview)
+    if enabled:
+        if getattr(self, "_reference_background_aligning", False):
+            self.cancel_reference_background_alignment("")
+        self.preview.setDragMode(QGraphicsView.NoDrag)
+        self.preview.viewport().setCursor(Qt.CrossCursor)
+        self.lbl_status.setText(self.tr("structural_draw_hint"))
+    else:
+        self.preview.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.preview.viewport().setCursor(Qt.OpenHandCursor)
+        self.lbl_status.setText(self.tr("status_wait"))
+
+
+def _nevis_structural_edit_dialog(self, width: float, length: float, center, element=None):
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("structural_title"))
+    layout = QFormLayout(dialog)
+    type_combo = QComboBox(dialog)
+    for element_type, label in _nevis_structural_type_labels(self).items():
+        type_combo.addItem(label, element_type)
+    if element is None:
+        default_index = type_combo.findData(str(getattr(self, "structural_default_type", "slab")))
+        if default_index >= 0:
+            type_combo.setCurrentIndex(default_index)
+    if element is not None:
+        current_index = type_combo.findData(str(getattr(element, "element_type", "")))
+        if current_index >= 0:
+            type_combo.setCurrentIndex(current_index)
+    width_text = f"{float(width):g}" if element is not None else str(int(round(width)))
+    length_text = f"{float(length):g}" if element is not None else str(int(round(length)))
+    width_edit = QLineEdit(width_text, dialog)
+    length_edit = QLineEdit(length_text, dialog)
+    initial_height = float(getattr(element, "height", 0.0) or 0.0) if element is not None else 0.0
+    height_edit = QLineEdit(f"{initial_height:g}" if initial_height > 0.0 else "100", dialog)
+    initial_radius = float(getattr(element, "arc_radius", 0.0) or 0.0) if element is not None else 0.0
+    arc_checkbox = QCheckBox(self.tr("structural_has_arc"), dialog)
+    arc_checkbox.setChecked(initial_radius > 0.0)
+    radius_edit = QLineEdit(f"{initial_radius:g}", dialog)
+    layout.addRow(self.tr("structural_type_label"), type_combo)
+    layout.addRow(f"{self.tr('structural_width')} (mm)", width_edit)
+    layout.addRow(f"{self.tr('structural_length')} (mm)", length_edit)
+    layout.addRow(f"{self.tr('structural_height')} (mm)", height_edit)
+    layout.addRow(arc_checkbox)
+    layout.addRow(f"{self.tr('structural_radius')} (mm)", radius_edit)
+    radius_label = layout.labelForField(radius_edit)
+    radius_edit.setVisible(arc_checkbox.isChecked())
+    if radius_label is not None:
+        radius_label.setVisible(arc_checkbox.isChecked())
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    buttons.button(QDialogButtonBox.Ok).setText(self.tr("structural_confirm"))
+    buttons.button(QDialogButtonBox.Cancel).setText(self.tr("structural_cancel"))
+    layout.addRow(buttons)
+
+    preview_pen = QPen(QColor(35, 125, 205), 2.0, Qt.DashLine)
+    preview_brush = QBrush(QColor(60, 145, 220, 35))
+    preview_item = self.preview.scene.addPolygon(QPolygonF(), preview_pen, preview_brush)
+    preview_item.setZValue(1001)
+
+    def update_preview() -> None:
+        edited_width, width_error = validate_dimension(width_edit.text().strip(), "W")
+        edited_length, length_error = validate_dimension(length_edit.text().strip(), "L")
+        if width_error or length_error:
+            return
+        points = rect_from_center_wl(center[0], center[1], edited_width, edited_length)
+        canvas_points = [_nevis_real_to_canvas_point(self, point) for point in points]
+        preview_item.setPolygon(QPolygonF([QPointF(x, y) for x, y in canvas_points]))
+
+    def toggle_radius(checked: bool) -> None:
+        radius_edit.setVisible(checked)
+        if radius_label is not None:
+            radius_label.setVisible(checked)
+        dialog.adjustSize()
+
+    width_edit.textChanged.connect(update_preview)
+    length_edit.textChanged.connect(update_preview)
+    arc_checkbox.toggled.connect(toggle_radius)
+    update_preview()
+
+    while dialog.exec() == QDialog.Accepted:
+        edited_width, width_error = validate_dimension(width_edit.text().strip(), "W")
+        edited_length, length_error = validate_dimension(length_edit.text().strip(), "L")
+        edited_height, height_error = validate_dimension(height_edit.text().strip(), "H")
+        edited_radius, radius_error = validate_dimension(radius_edit.text().strip() if arc_checkbox.isChecked() else 0.0, "C")
+        error = width_error or length_error or height_error or radius_error
+        if error:
+            QMessageBox.warning(dialog, self.tr("structural_title"), self.tr("structural_invalid_dimension"))
+            continue
+        if preview_item.scene() is not None:
+            preview_item.scene().removeItem(preview_item)
+        return str(type_combo.currentData()), edited_width, edited_length, edited_height, edited_radius
+    if preview_item.scene() is not None:
+        preview_item.scene().removeItem(preview_item)
+    return None
+
+
+def _nevis_structural_create_from_drag(self, start, end) -> bool:
+    raw_width = abs(float(end[0]) - float(start[0]))
+    raw_length = abs(float(end[1]) - float(start[1]))
+    if raw_width < EPS or raw_length < EPS:
+        self.lbl_status.setText(self.tr("structural_invalid_region"))
+        return False
+    center = ((float(start[0]) + float(end[0])) / 2.0, (float(start[1]) + float(end[1])) / 2.0)
+    result = self._structural_edit_dialog(raw_width, raw_length, center)
+    if result is None:
+        return False
+    element_type, width, length, height, arc_radius = result
+    existing = list(getattr(self.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
+    element = StructuralElement(
+        id=next_id,
+        element_type=element_type,
+        label=_nevis_structural_type_labels(self)[element_type],
+        points=rect_from_center_wl(center[0], center[1], width, length),
+        width=width,
+        length=length,
+        height=height,
+        arc_radius=arc_radius,
+    )
+    self.save_undo_snapshot("create_structural_element")
+    self.model.structural_elements.append(element)
+    self.selected_structural_id = element.id
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_created").format(label=element.label, width=width, length=length))
+    return True
+
+
+def _nevis_structural_edit_existing(self, element_id: int) -> bool:
+    element = next(
+        (item for item in getattr(self.model, "structural_elements", []) if int(getattr(item, "id", -1)) == int(element_id)),
+        None,
+    )
+    if element is None or not getattr(element, "points", None):
+        return False
+    xs = [float(point[0]) for point in element.points]
+    ys = [float(point[1]) for point in element.points]
+    center = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+    width = float(getattr(element, "width", 0.0) or (max(xs) - min(xs)))
+    length = float(getattr(element, "length", 0.0) or (max(ys) - min(ys)))
+    result = self._structural_edit_dialog(width, length, center, element)
+    if result is None:
+        self.preview.draw_model()
+        return False
+    element_type, width, length, height, arc_radius = result
+    self.save_undo_snapshot("edit_structural_element")
+    element.element_type = element_type
+    element.label = _nevis_structural_type_labels(self)[element_type]
+    element.points = rect_from_center_wl(center[0], center[1], width, length)
+    element.width = width
+    element.length = length
+    element.height = height
+    element.arc_radius = arc_radius
+    element.bottom_elevation = element.top_elevation - element.height
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_updated").format(label=element.label, width=width, length=length, height=height))
+    return True
+
+
+def _nevis_w3_draw_walls(view, wall_elements, bounds_ref) -> object:
+    """W3a/W3b/W6: Draw wall/column/beam elements with type-specific styles and junction auto-merge.
+
+    RC elements (wall_rc, column, beam) that overlap or touch are drawn with a single merged
+    outer border — seams disappear at column-wall junctions, T/X-junctions, corners.
+    LGS walls merge within same-type groups.
+    Returns updated bounds (QRectF | None).
+    """
+    from collections import defaultdict
+
+    # Merge-group key rules:
+    #   wall_rc / column / beam  →  all go into key ("rc_solid", "")  → ONE merged border outline
+    #   wall_lgs                 →  grouped by (etype, tcode)          → merge within same preset
+    groups: dict = defaultdict(list)
+    for e in wall_elements:
+        if len(getattr(e, "points", [])) < 3:
+            continue
+        etype = str(getattr(e, "element_type", "wall_lgs"))
+        if etype in ("wall_rc", "column", "beam"):
+            merge_key = ("rc_solid", "")
+        else:
+            tcode = str(getattr(e, "wall_finish_type_code", "") or "")
+            merge_key = (etype, tcode)
+        groups[merge_key].append(e)
+
+    bounds = bounds_ref
+
+    def _canvas_polygon(elem):
+        pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in elem.points]
+        return QPolygonF([QPointF(x, y) for x, y in pts])
+
+    def _union_paths(elems):
+        """Return QPainterPath that is the union of all element polygons.
+        Also return list of (individual elem polygon, elem) for selection hit-testing."""
+        from PySide6.QtGui import QPainterPath
+        base = QPainterPath()
+        for e in elems:
+            poly = _canvas_polygon(e)
+            p = QPainterPath()
+            p.addPolygon(poly)
+            p.closeSubpath()
+            base = base.united(p)
+        return base
+
+    for (grp_key, _tcode), elems in groups.items():
+        grp_etype = grp_key  # "rc_solid" | "wall_lgs" | etc.
+        if grp_etype == "wall_lgs":
+            pen = QPen(QColor(60, 90, 130), 1.0, Qt.SolidLine)
+            brush = QBrush(QColor(210, 225, 245, 130))
+            z_val = 11
+        else:  # rc_solid (wall_rc + column + beam merged group)
+            pen = QPen(QColor(60, 60, 65), 1.0, Qt.SolidLine)
+            brush = QBrush(QColor(150, 150, 155, 160), Qt.FDiagPattern)
+            z_val = 12
+
+        # Union the merged outline — single border for entire rc_solid group
+        merged_path = _union_paths(elems)
+        merged_item = view.scene.addPath(merged_path, pen, brush)
+        merged_item.setZValue(z_val)
+        merged_item.setAcceptedMouseButtons(Qt.NoButton)
+
+        # Draw individual element polygons (transparent fill, for hit-test/selection/label)
+        for e in elems:
+            etype = str(getattr(e, "element_type", "wall_lgs"))
+            poly = _canvas_polygon(e)
+            hit_item = view.scene.addPolygon(
+                poly,
+                QPen(Qt.NoPen),
+                QBrush(Qt.NoBrush),
+            )
+            hit_item.setZValue(z_val + 0.1)
+            hit_item.setData(0, ("structural_element", int(e.id)))
+
+            item_bounds = hit_item.sceneBoundingRect()
+            bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+
+            _is_selected = int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(e.id)
+
+            # Label only on selected element
+            if _is_selected:
+                tcode_lbl = str(getattr(e, "wall_finish_type_code", "") or "")
+                if not tcode_lbl:
+                    _lbl_map = {"wall_rc": "RC壁", "column": "柱", "beam": "梁", "wall_lgs": "LGS"}
+                    tcode_lbl = _lbl_map.get(etype, etype)
+                lbl = view.scene.addText(tcode_lbl, QFont("Segoe UI", 7))
+                lbl.setDefaultTextColor(QColor(30, 80, 160))
+                lbl.setZValue(13)
+                lbl.setAcceptedMouseButtons(Qt.NoButton)
+                br = lbl.boundingRect()
+                c = hit_item.sceneBoundingRect().center()
+                lbl.setPos(c.x() - br.width() / 2.0, c.y() - br.height() / 2.0)
+                _nevis_structural_draw_handles(view, e)
+
+    return bounds
+
+
+def _nevis_structural_draw_items(view) -> None:
+    elements = list(getattr(view.mainwin.model, "structural_elements", []) or [])
+    if not elements:
+        return
+    bounds = None
+
+    # Separate structural solid elements for junction-aware rendering (W3/W6)
+    _W3_TYPES = ("wall_lgs", "wall_rc", "column", "beam")
+    wall_elements = [e for e in elements if getattr(e, "element_type", "") in _W3_TYPES]
+    non_wall_elements = [e for e in elements if getattr(e, "element_type", "") not in _W3_TYPES]
+
+    # Draw walls with junction-aware rendering
+    bounds = _nevis_w3_draw_walls(view, wall_elements, bounds)
+
+    for element in non_wall_elements:
+        if len(getattr(element, "points", [])) < 3:
+            continue
+        _etype_plan = getattr(element, "element_type", "slab")
+        if bool(getattr(element, "is_stepped", False)):
+            # Stepped child = lowered area visible from above → solid yellow fill
+            pen = QPen(QColor(180, 130, 0), 1.0, Qt.DashLine)
+            brush = QBrush(QColor(255, 215, 60, 160))
+        elif _etype_plan == "ceiling_lgs":
+            pen = QPen(QColor(60, 160, 110), 1.0, Qt.DashDotLine)
+            brush = QBrush(QColor(120, 190, 160, 40), Qt.DiagCrossPattern)
+        else:
+            pen = QPen(QColor(100, 108, 118), 1.0, Qt.DashLine)
+            brush = QBrush(QColor(140, 148, 158, 22))
+        canvas_points = [_nevis_real_to_canvas_point(view.mainwin, point) for point in element.points]
+        polygon = QPolygonF([QPointF(x, y) for x, y in canvas_points])
+        item = view.scene.addPolygon(polygon, pen, brush)
+        _etype = getattr(element, "element_type", "slab")
+        _z = 10 if _etype == "slab" else (11 if _etype in ("wall_lgs", "ceiling_lgs") else 12)
+        item.setZValue(_z)
+        item.setData(0, ("structural_element", int(element.id)))
+        # Draw overlap zone for stepped slabs
+        if bool(getattr(element, "is_stepped", False)):
+            from modules.stepped_slab import stepped_slab_overlap_region
+            ovw = float(getattr(element, "overlap_width", 0.0) or 0.0)
+            if ovw > 0:
+                ov_pts = stepped_slab_overlap_region(element, element, ovw)
+                if ov_pts:
+                    ov_canvas = [_nevis_real_to_canvas_point(view.mainwin, p) for p in ov_pts]
+                    ov_poly = QPolygonF([QPointF(x, y) for x, y in ov_canvas])
+                    # Overlap zone = structural rebar overlap, visible from below → diagonal hatch
+                    # z=9: below slab(10) and walls(11+) so it never covers real elements
+                    ov_pen = QPen(QColor(180, 80, 0), 0.8, Qt.SolidLine)
+                    ov_brush = QBrush(QColor(200, 100, 0, 70), Qt.BDiagPattern)
+                    ov_item = view.scene.addPolygon(ov_poly, ov_pen, ov_brush)
+                    ov_item.setZValue(9)
+                    ov_item.setAcceptedMouseButtons(Qt.NoButton)
+                    ov_item.setData(0, "structural_overlap_zone")
+        item_bounds = item.sceneBoundingRect()
+        bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+        _is_sel = int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(element.id)
+        if _is_sel:
+            if bool(getattr(element, "is_stepped", False)):
+                label = view.mainwin.tr("stepped_slab_label")
+            else:
+                label = _nevis_structural_type_labels(view.mainwin).get(
+                    element.element_type,
+                    str(getattr(element, "label", "") or element.element_type),
+                )
+            text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
+            text.setDefaultTextColor(QColor(30, 80, 160))
+            text.setZValue(13)
+            text.setAcceptedMouseButtons(Qt.NoButton)
+            text_rect = text.boundingRect()
+            text.setPos(item_bounds.center().x() - text_rect.width() / 2.0, item_bounds.center().y() - text_rect.height() / 2.0)
+            _nevis_structural_draw_handles(view, element)
+    if bounds is not None:
+        view.scene.setSceneRect(view.scene.sceneRect().united(bounds.adjusted(-20, -20, 20, 20)))
+
+
+def _nevis_draw_structural_grid(view) -> None:
+    mainwin = view.mainwin
+    if (
+        getattr(mainwin, "workspace_mode", get_default_mode()) != "structural"
+        or not bool(getattr(mainwin, "structural_grid_enabled", True))
+    ):
+        return
+    visible = view.mapToScene(view.viewport().rect()).boundingRect()
+    real_a = _nevis_canvas_to_real_point(mainwin, (visible.left(), visible.top()))
+    real_b = _nevis_canvas_to_real_point(mainwin, (visible.right(), visible.bottom()))
+    points = grid_points_in_view(
+        real_a[0], real_a[1], real_b[0], real_b[1],
+        getattr(mainwin, "structural_grid_mm", 3.0),
+    )
+    scale = abs(float(view.transform().m11())) or 1.0
+    radius = 1.25 / scale
+    pen = QPen(Qt.NoPen)
+    brush = QBrush(QColor(120, 130, 142, 90))
+    for x, y in points:
+        canvas_x, canvas_y = _nevis_real_to_canvas_point(mainwin, (x, y))
+        item = view.scene.addEllipse(canvas_x - radius, canvas_y - radius, radius * 2.0, radius * 2.0, pen, brush)
+        item.setZValue(-100)
+        item.setData(0, "structural_grid_point")
+        item.setAcceptedMouseButtons(Qt.NoButton)
+
+
+def _nevis_structural_handle_positions(element) -> dict[str, tuple[float, float]]:
+    xs = [float(point[0]) for point in element.points]
+    ys = [float(point[1]) for point in element.points]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    center_x, center_y = (left + right) / 2.0, (top + bottom) / 2.0
+    return {
+        "nw": (left, top), "n": (center_x, top), "ne": (right, top),
+        "e": (right, center_y), "se": (right, bottom), "s": (center_x, bottom),
+        "sw": (left, bottom), "w": (left, center_y),
+    }
+
+
+def _nevis_structural_draw_handles(view, element) -> None:
+    scale = abs(float(view.transform().m11())) or 1.0
+    size = 9.0 / scale
+    pen = QPen(QColor(20, 90, 190), 1.0 / scale)
+    brush = QBrush(QColor(55, 135, 235))
+    for handle, (x, y) in _nevis_structural_handle_positions(element).items():
+        canvas_x, canvas_y = _nevis_real_to_canvas_point(view.mainwin, (x, y))
+        item = view.scene.addRect(canvas_x - size / 2.0, canvas_y - size / 2.0, size, size, pen, brush)
+        item.setZValue(100)
+        item.setData(0, ("structural_handle", (int(element.id), handle)))
+
+
+def _nevis_structural_find_element(mainwin, element_id):
+    if element_id is None:
+        return None
+    try:
+        eid = int(element_id)
+    except (TypeError, ValueError):
+        return None
+    return next(
+        (item for item in getattr(mainwin.model, "structural_elements", []) if int(getattr(item, "id", -1)) == eid),
+        None,
+    )
+
+
+def _nevis_structural_replace_element(mainwin, replacement) -> None:
+    elements = getattr(mainwin.model, "structural_elements", [])
+    for index, item in enumerate(elements):
+        if int(getattr(item, "id", -1)) == int(replacement.id):
+            elements[index] = replacement
+            return
+
+
+def _nevis_structural_constrain_corner(element, handle: str, position) -> tuple[float, float]:
+    if handle not in {"nw", "ne", "se", "sw"} or element.width <= EPS or element.length <= EPS:
+        return position
+    positions = _nevis_structural_handle_positions(element)
+    opposite = {"nw": "se", "ne": "sw", "se": "nw", "sw": "ne"}[handle]
+    anchor_x, anchor_y = positions[opposite]
+    delta_x, delta_y = float(position[0]) - anchor_x, float(position[1]) - anchor_y
+    scale = max(abs(delta_x) / element.width, abs(delta_y) / element.length)
+    sign_x = -1.0 if delta_x < 0.0 else 1.0
+    sign_y = -1.0 if delta_y < 0.0 else 1.0
+    return anchor_x + sign_x * element.width * scale, anchor_y + sign_y * element.length * scale
+
+
+_NEVIS_STRUCTURAL_PREV_BUILD_UI = MainWindow._build_ui
+def _nevis_structural_build_ui(self):
+    result = _NEVIS_STRUCTURAL_PREV_BUILD_UI(self)
+    self.structural_draw_mode = False
+    self.stepped_slab_draw_mode = False
+    self.pending_stepped_slab = None
+    self.structural_grid_mm = 3.0
+    self.structural_grid_enabled = True
+    self.selected_structural_id = None
+    self._nevis_redo_stack = []
+    self.act_redo = QAction(self.tr("redo"), self)
+    self.act_redo.setShortcut("Ctrl+Y")
+    self.act_redo.setEnabled(False)
+    self.act_redo.triggered.connect(self.redo_last_action)
+    self.menu_view.addAction(self.act_redo)
+    self.scale_calibration_active = False
+    self.scale_calibration_point1 = None
+    self.scale_calibration_marker = None
+    self.btn_scale_reference_background.setText(self.tr("scale_calibrate"))
+    self.btn_scale_reference_background.setToolTip("")
+    self.btn_scale_reference_background.setEnabled(True)
+    self.btn_scale_reference_background.setCheckable(True)
+    self.btn_scale_reference_background.show()
+    self.btn_scale_reference_background.toggled.connect(self.start_scale_calibration)
+    if self.btn_scale_reference_background not in self._preview_background_widgets:
+        self._preview_background_widgets.append(self.btn_scale_reference_background)
+    self.lbl_drawing_scale = QLabel(self.preview.viewport())
+    self.lbl_drawing_scale.setStyleSheet(
+        "background:rgba(255,255,255,210); color:#1B4A7E; border:1px solid #9AAAC0; "
+        "border-radius:4px; padding:3px 7px; font-weight:700;"
+    )
+    self.lbl_drawing_scale.show()
+    self.btn_structural_draw = QPushButton(self.tr("structural_title"))
+    self.btn_structural_draw.setCheckable(True)
+    self.btn_structural_draw.setMinimumHeight(28)
+    self.btn_structural_draw.toggled.connect(self.set_structural_draw_mode)
+    self.btn_stepped_slab = QPushButton(self.tr("stepped_slab_command"))
+    self.btn_stepped_slab.setMinimumHeight(28)
+    self.btn_stepped_slab.clicked.connect(self.start_stepped_slab)
+    self._preview_primary_widgets.append(self.btn_stepped_slab)
+    _nevis_update_stepped_slab_button(self)
+
+    left_layout = self.left_scroll.widget().layout()
+    # Workspace toggle — lives OUTSIDE the scroll area so it's always visible
+    self.workspace_switch = QWidget(self.left_shell)
+    switch_layout = QHBoxLayout(self.workspace_switch)
+    switch_layout.setContentsMargins(4, 4, 4, 4)
+    switch_layout.setSpacing(6)
+    self.btn_workspace_mep = QPushButton(self.tr("workspace_mep"))
+    self.btn_workspace_structural = QPushButton(self.tr("workspace_structural"))
+    self.workspace_mode_group = QButtonGroup(self)
+    self.workspace_mode_group.setExclusive(True)
+    for button in (self.btn_workspace_mep, self.btn_workspace_structural):
+        button.setCheckable(True)
+        button.setMinimumHeight(36)
+        button.setStyleSheet("font-weight:700; font-size:12px;")
+        self.workspace_mode_group.addButton(button)
+        switch_layout.addWidget(button)
+    self.btn_workspace_mep.clicked.connect(lambda checked: checked and self.set_workspace_mode("mep"))
+    self.btn_workspace_structural.clicked.connect(lambda checked: checked and self.set_workspace_mode("structural"))
+    # Insert above the scroll area (index 0 in left_shell_layout)
+    _lsl = self.left_shell.layout()
+    _lsl.insertWidget(0, self.workspace_switch)
+    _lsl.setStretch(0, 0)  # workspace_switch: fixed height
+    _lsl.setStretch(1, 1)  # left_scroll: expand
+
+    self.g_structural_workspace = QGroupBox(self.tr("workspace_structural_group"))
+    structural_layout = QVBoxLayout(self.g_structural_workspace)
+    structural_layout.setContentsMargins(8, 14, 8, 8)
+    self.cmb_structural_type = QComboBox(self.g_structural_workspace)
+    for element_type, label in _nevis_structural_type_labels(self).items():
+        self.cmb_structural_type.addItem(label, element_type)
+    structural_layout.addWidget(self.cmb_structural_type)
+    grid_row = QHBoxLayout()
+    self.chk_structural_grid = QCheckBox(self.tr("structural_grid_enabled"))
+    self.chk_structural_grid.setChecked(True)
+    self.lbl_structural_grid = QLabel(self.tr("structural_grid_label"))
+    self.cmb_structural_grid = QComboBox(self.g_structural_workspace)
+    for label, value in (("303 mm", 303.0), ("455 mm", 455.0), ("910 mm", 910.0)):
+        self.cmb_structural_grid.addItem(label, value)
+    self.cmb_structural_grid.addItem(self.tr("structural_grid_custom"), "custom")
+    self.edit_structural_grid = QLineEdit("3", self.g_structural_workspace)
+    self.edit_structural_grid.setMaximumWidth(75)
+    self.edit_structural_grid.setVisible(False)
+    grid_row.addWidget(self.chk_structural_grid)
+    grid_row.addWidget(self.lbl_structural_grid)
+    grid_row.addWidget(self.cmb_structural_grid)
+    grid_row.addWidget(self.edit_structural_grid)
+    structural_layout.addLayout(grid_row)
+    self.chk_structural_grid.toggled.connect(self.update_structural_grid_settings)
+    self.cmb_structural_grid.currentIndexChanged.connect(self.update_structural_grid_settings)
+    self.edit_structural_grid.editingFinished.connect(self.update_structural_grid_settings)
+    structural_buttons = QHBoxLayout()
+    self.btn_workspace_draw = QPushButton(self.tr("workspace_draw"))
+    self.btn_workspace_delete = QPushButton(self.tr("workspace_delete"))
+    self.btn_workspace_draw.setMinimumHeight(34)
+    self.btn_workspace_delete.setMinimumHeight(34)
+    self.btn_workspace_draw.clicked.connect(self.start_workspace_structural_draw)
+    self.btn_workspace_delete.clicked.connect(self.delete_selected_structural_element)
+    structural_buttons.addWidget(self.btn_workspace_draw)
+    structural_buttons.addWidget(self.btn_workspace_delete)
+    structural_layout.addLayout(structural_buttons)
+    left_layout.insertWidget(2, self.g_structural_workspace)
+    self.set_workspace_mode(get_default_mode())
+    self._preview_toolbar_compact = None
+    self._preview_toolbar_narrow = None
+    self._set_preview_toolbar_compact(False, False)
+    return result
+
+
+_NEVIS_STRUCTURAL_PREV_DRAW_MODEL = PreviewView.draw_model
+_NEVIS_STRUCTURAL_PREV_WHEEL_EVENT = PreviewView.wheelEvent
+def _nevis_structural_draw_model(self, *args, **kwargs):
+    result = _NEVIS_STRUCTURAL_PREV_DRAW_MODEL(self, *args, **kwargs)
+    _nevis_draw_structural_grid(self)
+    _nevis_structural_draw_items(self)
+    _nevis_update_scale_label(self.mainwin)
+    return result
+
+
+def _nevis_structural_wheel_event(self, event):
+    result = _NEVIS_STRUCTURAL_PREV_WHEEL_EVENT(self, event)
+    if getattr(self.mainwin, "workspace_mode", get_default_mode()) == "structural":
+        self.draw_model()
+    return result
+
+
+_NEVIS_STRUCTURAL_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+_NEVIS_STRUCTURAL_PREV_MOUSE_MOVE = PreviewView.mouseMoveEvent
+_NEVIS_STRUCTURAL_PREV_MOUSE_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_structural_mouse_press(self, event):
+    if getattr(self.mainwin, "scale_calibration_active", False):
+        if event.button() == Qt.LeftButton:
+            try:
+                view_pos = event.position().toPoint()
+            except AttributeError:
+                view_pos = event.pos()
+            self.mainwin.handle_scale_calibration_click(self.mapToScene(view_pos))
+            event.accept()
+            return
+        if event.button() == Qt.RightButton:
+            self.mainwin.cancel_scale_calibration()
+            event.accept()
+            return
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        start = _nevis_structural_event_scene_point(self, event)
+        self._stepped_slab_drag_start = start
+        _nevis_stepped_slab_remove_preview(self)
+        preview_pen = QPen(QColor(35, 105, 175), 2.0, Qt.DashLine)
+        preview_brush = QBrush(QColor(75, 125, 180, 115), Qt.BDiagPattern)
+        canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
+        self._stepped_slab_preview_item = self.scene.addRect(
+            QRectF(QPointF(*canvas_start), QPointF(*canvas_start)), preview_pen, preview_brush
+        )
+        self._stepped_slab_preview_item.setZValue(1002)
+        event.accept()
+        return
+    if getattr(self.mainwin, "structural_draw_mode", False) and event.button() == Qt.LeftButton:
+        start = _nevis_structural_event_scene_point(self, event)
+        self._structural_drag_start = start
+        _nevis_structural_remove_preview(self)
+        preview_pen = QPen(QColor(45, 115, 190), 2.0, Qt.DashLine)
+        canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
+        self._structural_preview_item = self.scene.addRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_start)), preview_pen)
+        self._structural_preview_item.setZValue(1000)
+        event.accept()
+        return
+    if event.button() == Qt.RightButton and _nevis_t17_right_click_snap(self, event):
+        event.accept()
+        return
+    if event.button() == Qt.RightButton and getattr(self.mainwin, "workspace_mode", get_default_mode()) == "structural":
+        try:
+            view_pos = event.position().toPoint()
+        except AttributeError:
+            view_pos = event.pos()
+
+        # Check for handle hit first (resize handles take priority)
+        for _it in self.items(view_pos):
+            try:
+                _d = _it.data(0)
+            except Exception:
+                _d = None
+            if isinstance(_d, tuple) and _d[0] == "structural_handle":
+                element_id, handle = _d[1]
+                _SNAP_HANDLE_LABELS = {
+                    "nw": self.mainwin.tr("snap_corner_nw"), "ne": self.mainwin.tr("snap_corner_ne"),
+                    "se": self.mainwin.tr("snap_corner_se"), "sw": self.mainwin.tr("snap_corner_sw"),
+                    "n": self.mainwin.tr("snap_edge_n"), "e": self.mainwin.tr("snap_edge_e"),
+                    "s": self.mainwin.tr("snap_edge_s"), "w": self.mainwin.tr("snap_edge_w"),
+                }
+                menu = QMenu(self)
+                action = menu.addAction(f"{self.mainwin.tr('snap_action')} — {_SNAP_HANDLE_LABELS.get(handle, handle)}")
+                try:
+                    chosen = menu.exec(event.globalPosition().toPoint())
+                except AttributeError:
+                    chosen = menu.exec(event.globalPos())
+                if chosen is action:
+                    self.mainwin._structural_snap_pending = {"element_id": int(element_id), "handle": handle}
+                    self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
+                event.accept()
+                return
+
+        # Collect ALL structural elements at this position (supports overlapping objects)
+        _type_labels = _nevis_structural_type_labels(self.mainwin)
+        _hit_elems = []
+        _seen_eids = set()
+        for _it in self.items(view_pos):
+            try:
+                _d = _it.data(0)
+            except Exception:
+                _d = None
+            if isinstance(_d, tuple) and _d[0] == "structural_element":
+                _eid = int(_d[1])
+                if _eid not in _seen_eids:
+                    _seen_eids.add(_eid)
+                    _e = _nevis_structural_find_element(self.mainwin, _eid)
+                    if _e is not None:
+                        _hit_elems.append((_eid, _e))
+
+        if _hit_elems:
+            menu = QMenu(self)
+            # List all elements at this position as selectable items
+            _sel_actions = {}
+            for _i, (_eid, _e) in enumerate(_hit_elems, 1):
+                _lbl = _type_labels.get(getattr(_e, "element_type", ""), "?")
+                _w = float(getattr(_e, "width", 0) or 0)
+                _l = float(getattr(_e, "length", 0) or 0)
+                _act = menu.addAction(f"{_i}.  {_lbl}   {_w:.0f}×{_l:.0f} mm")
+                _sel_actions[id(_act)] = _eid
+            menu.addSeparator()
+            _move_act = menu.addAction(self.mainwin.tr("snap_action_move"))
+            try:
+                chosen = menu.exec(event.globalPosition().toPoint())
+            except AttributeError:
+                chosen = menu.exec(event.globalPos())
+            if chosen is not None:
+                if id(chosen) in _sel_actions:
+                    # Select this element
+                    self.mainwin.selected_structural_id = _sel_actions[id(chosen)]
+                    _nevis_update_stepped_slab_button(self.mainwin)
+                    self.draw_model()
+                elif chosen is _move_act:
+                    _move_id = (getattr(self.mainwin, "selected_structural_id", None)
+                                or _hit_elems[0][0])
+                    self.mainwin._structural_snap_pending = {"element_id": _move_id, "handle": "move"}
+                    self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
+            event.accept()
+            return
+    if event.button() == Qt.LeftButton:
+        snap_pending = getattr(self.mainwin, "_structural_snap_pending", None)
+        if snap_pending is not None:
+            self.mainwin._structural_snap_pending = None
+            target = _nevis_structural_raw_scene_point(self, event)
+            element = _nevis_structural_find_element(self.mainwin, snap_pending["element_id"])
+            if element is not None:
+                self.mainwin.save_undo_snapshot("snap_structural_element")
+                handle = snap_pending["handle"]
+                if handle == "move":
+                    xs = [p[0] for p in element.points]
+                    ys = [p[1] for p in element.points]
+                    cx = (min(xs) + max(xs)) / 2.0
+                    cy = (min(ys) + max(ys)) / 2.0
+                    replacement = move_element(element, target[0] - cx, target[1] - cy)
+                else:
+                    hp = _nevis_structural_handle_positions(element)[handle]
+                    replacement = move_element(element, target[0] - hp[0], target[1] - hp[1])
+                _nevis_structural_replace_element(self.mainwin, replacement)
+                self.draw_model()
+                self.mainwin.lbl_status.setText(self.mainwin.tr("snap_done"))
+            event.accept()
+            return
+    if event.button() == Qt.LeftButton:
+        item = self.itemAt(event.position().toPoint() if hasattr(event, "position") else event.pos())
+        data = item.data(0) if item is not None else None
+        if isinstance(data, tuple) and len(data) == 2 and data[0] in {"structural_element", "structural_handle"}:
+            if data[0] == "structural_handle":
+                element_id, handle = data[1]
+                drag_kind = "resize"
+            else:
+                element_id, handle = int(data[1]), ""
+                drag_kind = "move"
+            element = _nevis_structural_find_element(self.mainwin, int(element_id))
+            if element is None:
+                return
+            self.mainwin.selected_structural_id = int(element_id)
+            _nevis_update_stepped_slab_button(self.mainwin)
+            self._structural_transform = {
+                "kind": drag_kind,
+                "handle": handle,
+                "start": _nevis_structural_event_scene_point(self, event),
+                "original": copy.deepcopy(element),
+                "moved": False,
+                "undo_saved": False,
+            }
+            self.draw_model()
+            event.accept()
+            return
+    return _NEVIS_STRUCTURAL_PREV_MOUSE_PRESS(self, event)
+
+
+def _nevis_structural_flush_redraw(view):
+    """Deferred redraw fired by QTimer during structural drag (30fps cap)."""
+    view._struct_redraw_pending = False
+    try:
+        view.draw_model()
+    except RuntimeError:
+        pass
+
+
+def _nevis_structural_mouse_move(self, event):
+    stepped_start = getattr(self, "_stepped_slab_drag_start", None)
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and stepped_start is not None:
+        end = _nevis_structural_raw_scene_point(self, event)
+        item = getattr(self, "_stepped_slab_preview_item", None)
+        if item is not None:
+            try:
+                canvas_start = _nevis_real_to_canvas_point(self.mainwin, stepped_start)
+                canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
+                item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+            except RuntimeError:
+                self._stepped_slab_preview_item = None
+        event.accept()
+        return
+    start = getattr(self, "_structural_drag_start", None)
+    if getattr(self.mainwin, "structural_draw_mode", False) and start is not None:
+        end = _nevis_structural_raw_scene_point(self, event)
+        item = getattr(self, "_structural_preview_item", None)
+        if item is not None:
+            try:
+                canvas_start = _nevis_real_to_canvas_point(self.mainwin, start)
+                canvas_end = _nevis_real_to_canvas_point(self.mainwin, end)
+                item.setRect(QRectF(QPointF(*canvas_start), QPointF(*canvas_end)).normalized())
+            except RuntimeError:
+                self._structural_preview_item = None
+        event.accept()
+        return
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and (event.buttons() & Qt.LeftButton):
+        current = _nevis_structural_event_scene_point(self, event)
+        start = transform["start"]
+        if abs(current[0] - start[0]) < EPS and abs(current[1] - start[1]) < EPS:
+            return
+        if not transform["undo_saved"]:
+            self.mainwin.save_undo_snapshot("transform_structural_element")
+            transform["undo_saved"] = True
+        original = transform["original"]
+        if transform["kind"] == "move":
+            replacement = move_element(original, current[0] - start[0], current[1] - start[1])
+        else:
+            position = current
+            if event.modifiers() & Qt.ShiftModifier:
+                position = _nevis_structural_constrain_corner(original, transform["handle"], position)
+            replacement = resize_element(original, transform["handle"], position)
+            if replacement.width <= EPS or replacement.length <= EPS:
+                event.accept()
+                return
+        _nevis_structural_replace_element(self.mainwin, replacement)
+        transform["moved"] = True
+        if not getattr(self, "_struct_redraw_pending", False):
+            self._struct_redraw_pending = True
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(33, lambda: _nevis_structural_flush_redraw(self))
+        event.accept()
+        return
+    return _NEVIS_STRUCTURAL_PREV_MOUSE_MOVE(self, event)
+
+
+def _nevis_structural_mouse_release(self, event):
+    stepped_start = getattr(self, "_stepped_slab_drag_start", None)
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and stepped_start is not None and event.button() == Qt.LeftButton:
+        end = _nevis_structural_event_scene_point(self, event)
+        self._stepped_slab_drag_start = None
+        _nevis_stepped_slab_remove_preview(self)
+        self.mainwin._create_stepped_slab_from_drag(stepped_start, end)
+        event.accept()
+        return
+    start = getattr(self, "_structural_drag_start", None)
+    if getattr(self.mainwin, "structural_draw_mode", False) and start is not None and event.button() == Qt.LeftButton:
+        end = _nevis_structural_right_snap_or_snap(self, event)
+        self._structural_drag_start = None
+        _nevis_t17_remove_snap_marker(self)
+        _nevis_structural_remove_preview(self)
+        self.mainwin._structural_create_from_drag(start, end)
+        event.accept()
+        return
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and event.button() == Qt.LeftButton:
+        self._structural_transform = None
+        self._struct_redraw_pending = False  # cancel any pending throttled redraw
+        if transform["moved"]:
+            element = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
+            if element is not None:
+                status_key = "structural_moved" if transform["kind"] == "move" else "structural_resized"
+                label = _nevis_structural_type_labels(self.mainwin).get(element.element_type, element.label)
+                self.mainwin.lbl_status.setText(
+                    self.mainwin.tr(status_key).format(label=label, width=element.width, length=element.length)
+                )
+            self.draw_model()
+        elif transform["kind"] == "move":
+            self.mainwin._structural_edit_existing(self.mainwin.selected_structural_id)
+        event.accept()
+        return
+    return _NEVIS_STRUCTURAL_PREV_MOUSE_RELEASE(self, event)
+
+
+_NEVIS_TASK9_PREV_SAVE_UNDO = MainWindow.save_undo_snapshot
+_NEVIS_TASK9_PREV_UNDO = MainWindow.undo_last_action
+_NEVIS_STRUCTURAL_PREV_REFRESH_LANGUAGE = MainWindow.refresh_language_texts
+
+
+def _nevis_task9_current_snapshot(self, action: str) -> dict[str, object]:
+    return {
+        "action": action,
+        "model": copy.deepcopy(self.model),
+        "selected_node": getattr(self, "selected_node", None),
+        "selected_edge": getattr(self, "selected_edge", None),
+        "selected_bushing_id": getattr(self, "selected_bushing_id", None),
+        "selected_structural_id": getattr(self, "selected_structural_id", None),
+    }
+
+
+def _nevis_task9_update_redo(self) -> None:
+    if hasattr(self, "act_redo"):
+        self.act_redo.setEnabled(bool(getattr(self, "_nevis_redo_stack", [])))
+
+
+def _nevis_task9_save_undo(self, action: str = ""):
+    self._nevis_redo_stack = []
+    result = _NEVIS_TASK9_PREV_SAVE_UNDO(self, action)
+    stack = getattr(self, "_nevis_undo_stack", [])
+    if stack:
+        stack[-1]["selected_structural_id"] = getattr(self, "selected_structural_id", None)
+    _nevis_task9_update_redo(self)
+    return result
+
+
+def _nevis_task9_undo(self):
+    stack = list(getattr(self, "_nevis_undo_stack", []) or [])
+    if not stack or getattr(self, "preview_detail_mode", False):
+        return
+    redo_snapshot = _nevis_task9_current_snapshot(self, "redo")
+    target_structural_id = stack[-1].get("selected_structural_id")
+    result = _NEVIS_TASK9_PREV_UNDO(self)
+    self.selected_structural_id = target_structural_id
+    redo_stack = list(getattr(self, "_nevis_redo_stack", []) or [])
+    redo_stack.append(redo_snapshot)
+    self._nevis_redo_stack = redo_stack[-3:]
+    self.preview.draw_model()
+    _nevis_update_stepped_slab_button(self)
+    _nevis_task9_update_redo(self)
+    return result
+
+
+def _nevis_task9_redo(self):
+    redo_stack = list(getattr(self, "_nevis_redo_stack", []) or [])
+    if not redo_stack or getattr(self, "preview_detail_mode", False):
+        return
+    snapshot = redo_stack.pop()
+    undo_stack = list(getattr(self, "_nevis_undo_stack", []) or [])
+    undo_stack.append(_nevis_task9_current_snapshot(self, "undo_redo"))
+    self._nevis_undo_stack = undo_stack[-int(getattr(self, "_nevis_undo_limit", 3) or 3):]
+    self.undo_snapshot = self._nevis_undo_stack[-1]
+    self._nevis_redo_stack = redo_stack
+    self.model = snapshot["model"]
+    self.selected_node = snapshot.get("selected_node")
+    self.selected_edge = snapshot.get("selected_edge")
+    self.selected_bushing_id = snapshot.get("selected_bushing_id")
+    self.selected_structural_id = snapshot.get("selected_structural_id")
+    self.pending_reducer = None
+    rebuild_flow(self.model)
+    self.apply_common()
+    self.preview.draw_model()
+    _nevis_update_stepped_slab_button(self)
+    _nevis_task9_update_redo(self)
+
+
+def _nevis_structural_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_STRUCTURAL_PREV_REFRESH_LANGUAGE(self, *args, **kwargs)
+    if hasattr(self, "btn_structural_draw"):
+        self.btn_structural_draw.setText(self.tr("structural_title"))
+    if hasattr(self, "act_redo"):
+        self.act_redo.setText(self.tr("redo"))
+    if hasattr(self, "btn_stepped_slab"):
+        self.btn_stepped_slab.setText(self.tr("stepped_slab_command"))
+    if hasattr(self, "btn_scale_reference_background"):
+        self.btn_scale_reference_background.setText(self.tr("scale_calibrate"))
+    if hasattr(self, "btn_workspace_mep"):
+        self.btn_workspace_mep.setText(self.tr("workspace_mep"))
+        self.btn_workspace_structural.setText(self.tr("workspace_structural"))
+        self.g_structural_workspace.setTitle(self.tr("workspace_structural_group"))
+        self.btn_workspace_draw.setText(self.tr("workspace_draw"))
+        self.btn_workspace_delete.setText(self.tr("workspace_delete"))
+        self.chk_structural_grid.setText(self.tr("structural_grid_enabled"))
+        self.lbl_structural_grid.setText(self.tr("structural_grid_label"))
+        self.cmb_structural_grid.setItemText(3, self.tr("structural_grid_custom"))
+        current_type = self.cmb_structural_type.currentData()
+        self.cmb_structural_type.clear()
+        for element_type, label in _nevis_structural_type_labels(self).items():
+            self.cmb_structural_type.addItem(label, element_type)
+        current_index = self.cmb_structural_type.findData(current_type)
+        self.cmb_structural_type.setCurrentIndex(max(0, current_index))
+    if hasattr(self, "preview"):
+        self.preview.draw_model()
+    return result
+
+
+def _nevis_set_workspace_mode(self, mode: str) -> None:
+    mode = deserialize_workspace_mode({"workspace_mode": mode})
+    self.workspace_mode = mode
+    structural = mode == "structural"
+    if hasattr(self, "btn_workspace_mep"):
+        self.btn_workspace_mep.blockSignals(True)
+        self.btn_workspace_structural.blockSignals(True)
+        self.btn_workspace_mep.setChecked(not structural)
+        self.btn_workspace_structural.setChecked(structural)
+        self.btn_workspace_mep.blockSignals(False)
+        self.btn_workspace_structural.blockSignals(False)
+    for widget_name in ("g_common", "g_sel"):
+        widget = getattr(self, widget_name, None)
+        if widget is not None:
+            widget.setVisible(not structural)
+    if hasattr(self, "g_structural_workspace"):
+        self.g_structural_workspace.setVisible(structural)
+    if hasattr(self, "g_jww"):
+        self.g_jww.setVisible(not structural)
+    if hasattr(self, "btn_structural_draw"):
+        self.btn_structural_draw.setVisible(structural)
+    if hasattr(self, "btn_stepped_slab"):
+        self.btn_stepped_slab.setVisible(structural)
+    if not structural:
+        if hasattr(self, "btn_structural_draw") and self.btn_structural_draw.isChecked():
+            self.btn_structural_draw.setChecked(False)
+        self.stepped_slab_draw_mode = False
+        self.pending_stepped_slab = None
+        if hasattr(self, "preview"):
+            self.preview.setDragMode(QGraphicsView.ScrollHandDrag)
+            self.preview.viewport().setCursor(Qt.OpenHandCursor)
+    if hasattr(self, "preview"):
+        self.preview.draw_model()
+
+
+def _nevis_start_workspace_structural_draw(self) -> None:
+    self.structural_default_type = str(self.cmb_structural_type.currentData() or "slab")
+    self.btn_structural_draw.setChecked(True)
+
+
+def _nevis_delete_selected_structural_element(self) -> None:
+    element_id = getattr(self, "selected_structural_id", None)
+    if element_id is None:
+        return
+    elements = list(getattr(self.model, "structural_elements", []) or [])
+    remaining = [item for item in elements if int(getattr(item, "id", -1)) != int(element_id)]
+    if len(remaining) == len(elements):
+        return
+    self.save_undo_snapshot("delete_structural_element")
+    self.model.structural_elements = remaining
+    self.selected_structural_id = None
+    self.preview.draw_model()
+    _nevis_update_stepped_slab_button(self)
+
+
+def _nevis_update_structural_grid_settings(self, *args) -> None:
+    if not hasattr(self, "cmb_structural_grid"):
+        return
+    self.structural_grid_enabled = bool(self.chk_structural_grid.isChecked())
+    value = self.cmb_structural_grid.currentData()
+    custom = value == "custom"
+    self.edit_structural_grid.setVisible(custom)
+    if custom:
+        try:
+            candidate = float(self.edit_structural_grid.text().strip())
+            if math.isfinite(candidate) and candidate > 0.0:
+                self.structural_grid_mm = candidate
+        except (TypeError, ValueError):
+            pass
+    else:
+        self.structural_grid_mm = float(value)
+    if hasattr(self, "preview"):
+        self.preview.draw_model()
+
+
+def _nevis_clear_scale_marker(self) -> None:
+    marker = getattr(self, "scale_calibration_marker", None)
+    self.scale_calibration_marker = None
+    if marker is not None and marker.scene() is not None:
+        marker.scene().removeItem(marker)
+
+
+def _nevis_cancel_scale_calibration(self) -> None:
+    self.scale_calibration_active = False
+    self.scale_calibration_point1 = None
+    _nevis_clear_scale_marker(self)
+    if hasattr(self, "btn_scale_reference_background"):
+        self.btn_scale_reference_background.blockSignals(True)
+        self.btn_scale_reference_background.setChecked(False)
+        self.btn_scale_reference_background.blockSignals(False)
+    if hasattr(self, "preview"):
+        self.preview.viewport().setCursor(Qt.OpenHandCursor)
+
+
+def _nevis_start_scale_calibration(self, checked: bool = False) -> None:
+    if not checked:
+        self.cancel_scale_calibration()
+        return
+    if not _nevis_structural_has_visible_underlay(self):
+        QMessageBox.warning(self, self.tr("scale_calibrate"), self.tr("scale_need_background"))
+        self.cancel_scale_calibration()
+        return
+    if getattr(self, "_reference_background_aligning", False):
+        self.cancel_reference_background_alignment("")
+    self.scale_calibration_active = True
+    self.scale_calibration_point1 = None
+    _nevis_clear_scale_marker(self)
+    self.preview.viewport().setCursor(Qt.CrossCursor)
+    self.lbl_status.setText(self.tr("scale_click_1"))
+
+
+def _nevis_handle_scale_calibration_click(self, scene_point) -> bool:
+    if not getattr(self, "scale_calibration_active", False):
+        return False
+    point = (float(scene_point.x()), float(scene_point.y()))
+    if self.scale_calibration_point1 is None:
+        self.scale_calibration_point1 = point
+        scale = abs(float(self.preview.transform().m11())) or 1.0
+        radius = 5.0 / scale
+        marker = self.preview.scene.addEllipse(
+            point[0] - radius, point[1] - radius, radius * 2.0, radius * 2.0,
+            QPen(QColor(210, 65, 45), 2.0 / scale), QBrush(Qt.NoBrush),
+        )
+        marker.setZValue(1200)
+        self.scale_calibration_marker = marker
+        self.lbl_status.setText(self.tr("scale_click_2"))
+        return True
+    first = self.scale_calibration_point1
+    try:
+        canvas_distance = math.hypot(point[0] - first[0], point[1] - first[1])
+        if canvas_distance <= EPS:
+            raise ValueError
+    except (TypeError, ValueError):
+        QMessageBox.warning(self, self.tr("scale_calibrate"), self.tr("scale_invalid_points"))
+        return False
+    real_distance, accepted = QInputDialog.getDouble(
+        self,
+        self.tr("scale_calibrate"),
+        self.tr("scale_real_distance"),
+        1000.0, 0.001, 999999999.0, 3,
+    )
+    if not accepted:
+        self.cancel_scale_calibration()
+        return False
+    try:
+        drawing_scale = compute_scale(first, point, real_distance)
+    except ValueError:
+        QMessageBox.warning(self, self.tr("scale_calibrate"), self.tr("scale_invalid_points"))
+        return False
+    self.save_undo_snapshot("calibrate_background_scale")
+    self.model.drawing_scale = drawing_scale
+    self.model.scale_origin = first
+    self.cancel_scale_calibration()
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("scale_done").format(scale=drawing_scale))
+    return True
+
+
+def _nevis_update_scale_label(self) -> None:
+    label = getattr(self, "lbl_drawing_scale", None)
+    if label is None:
+        return
+    drawing_scale = float(getattr(self.model, "drawing_scale", 1.0) or 1.0)
+    label.setText(f"1:{drawing_scale:g}")
+    label.adjustSize()
+    label.move(max(8, self.preview.viewport().width() - label.width() - 12), 10)
+    label.raise_()
+
+
+MainWindow._build_ui = _nevis_structural_build_ui
+MainWindow.set_structural_draw_mode = _nevis_structural_set_draw_mode
+MainWindow._structural_edit_dialog = _nevis_structural_edit_dialog
+MainWindow._structural_create_from_drag = _nevis_structural_create_from_drag
+MainWindow._structural_edit_existing = _nevis_structural_edit_existing
+MainWindow.start_stepped_slab = _nevis_start_stepped_slab
+MainWindow._stepped_slab_parameters_dialog = _nevis_stepped_slab_parameters_dialog
+MainWindow._create_stepped_slab_from_drag = _nevis_create_stepped_slab_from_drag
+MainWindow.set_workspace_mode = _nevis_set_workspace_mode
+MainWindow.start_workspace_structural_draw = _nevis_start_workspace_structural_draw
+MainWindow.delete_selected_structural_element = _nevis_delete_selected_structural_element
+MainWindow.update_structural_grid_settings = _nevis_update_structural_grid_settings
+MainWindow.start_scale_calibration = _nevis_start_scale_calibration
+MainWindow.cancel_scale_calibration = _nevis_cancel_scale_calibration
+MainWindow.handle_scale_calibration_click = _nevis_handle_scale_calibration_click
+MainWindow.save_undo_snapshot = _nevis_task9_save_undo
+MainWindow.undo_last_action = _nevis_task9_undo
+MainWindow.redo_last_action = _nevis_task9_redo
+MainWindow.refresh_language_texts = _nevis_structural_refresh_language
+PreviewView.draw_model = _nevis_structural_draw_model
+PreviewView.wheelEvent = _nevis_structural_wheel_event
+PreviewView.mousePressEvent = _nevis_structural_mouse_press
+PreviewView.mouseMoveEvent = _nevis_structural_mouse_move
+PreviewView.mouseReleaseEvent = _nevis_structural_mouse_release
+
+
+# =============================================================================
+# TASK 14 — Grid axis 通り芯 (Toori-shin)
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "grid_axis_group": "Trục tọa độ (通り芯)",
+    "grid_axis_add": "Thêm trục",
+    "grid_axis_delete": "Xóa trục",
+    "grid_axis_name": "Tên",
+    "grid_axis_dir": "Chiều",
+    "grid_axis_pos": "Vị trí (mm)",
+    "grid_axis_dir_x": "X (dọc)",
+    "grid_axis_dir_y": "Y (ngang)",
+    "grid_axis_add_title": "Thêm trục tọa độ",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "grid_axis_group": "通り芯",
+    "grid_axis_add": "追加",
+    "grid_axis_delete": "削除",
+    "grid_axis_name": "名称",
+    "grid_axis_dir": "方向",
+    "grid_axis_pos": "位置 (mm)",
+    "grid_axis_dir_x": "X（縦）",
+    "grid_axis_dir_y": "Y（横）",
+    "grid_axis_add_title": "通り芯を追加",
+})
+
+_NEVIS_T14_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T14_PREV_DRAW_MODEL = PreviewView.draw_model
+_NEVIS_T14_PREV_REFRESH_LANGUAGE = MainWindow.refresh_language_texts
+
+
+def _nevis_t14_build_ui(self):
+    result = _NEVIS_T14_PREV_BUILD_UI(self)
+    if not hasattr(self.model, "grid_axes"):
+        self.model.grid_axes = []
+    # --- Axis panel (inside g_structural_workspace) ---
+    self.g_grid_axis = QGroupBox(self.tr("grid_axis_group"))
+    axis_layout = QVBoxLayout(self.g_grid_axis)
+    axis_layout.setContentsMargins(6, 10, 6, 6)
+    axis_layout.setSpacing(4)
+    self.list_grid_axes = QListWidget(self.g_grid_axis)
+    self.list_grid_axes.setMaximumHeight(120)
+    axis_layout.addWidget(self.list_grid_axes)
+    axis_btns = QHBoxLayout()
+    self.btn_grid_axis_add = QPushButton(self.tr("grid_axis_add"))
+    self.btn_grid_axis_delete = QPushButton(self.tr("grid_axis_delete"))
+    self.btn_grid_axis_add.clicked.connect(self.add_grid_axis)
+    self.btn_grid_axis_delete.clicked.connect(self.delete_grid_axis)
+    axis_btns.addWidget(self.btn_grid_axis_add)
+    axis_btns.addWidget(self.btn_grid_axis_delete)
+    axis_layout.addLayout(axis_btns)
+    # Insert after the structural workspace group
+    left_layout = self.left_scroll.widget().layout()
+    left_layout.insertWidget(3, self.g_grid_axis)
+    self.g_grid_axis.setVisible(False)
+    _nevis_t14_refresh_axis_list(self)
+    return result
+
+
+def _nevis_t14_refresh_axis_list(mainwin) -> None:
+    if not hasattr(mainwin, "list_grid_axes"):
+        return
+    axes = list(getattr(mainwin.model, "grid_axes", []) or [])
+    mainwin.list_grid_axes.clear()
+    for axis in axes:
+        dir_label = mainwin.tr("grid_axis_dir_x") if axis.direction == "X" else mainwin.tr("grid_axis_dir_y")
+        mainwin.list_grid_axes.addItem(f"{axis.name}  [{dir_label}]  {axis.position:g} mm")
+
+
+def _nevis_t14_add_grid_axis(self) -> None:
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("grid_axis_add_title"))
+    form = QFormLayout(dialog)
+    edit_name = QLineEdit(dialog)
+    cmb_dir = QComboBox(dialog)
+    cmb_dir.addItem(self.tr("grid_axis_dir_x"), "X")
+    cmb_dir.addItem(self.tr("grid_axis_dir_y"), "Y")
+    edit_pos = QLineEdit("0", dialog)
+    form.addRow(self.tr("grid_axis_name"), edit_name)
+    form.addRow(self.tr("grid_axis_dir"), cmb_dir)
+    form.addRow(self.tr("grid_axis_pos"), edit_pos)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    if dialog.exec() != QDialog.Accepted:
+        return
+    name = edit_name.text().strip() or "A"
+    direction = cmb_dir.currentData()
+    try:
+        position = float(edit_pos.text().strip())
+    except (ValueError, TypeError):
+        position = 0.0
+    axis = GridAxis(name=name, direction=direction, position=position)
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    axes.append(axis)
+    self.model.grid_axes = axes
+    _nevis_t14_refresh_axis_list(self)
+    self.preview.draw_model()
+
+
+def _nevis_t14_delete_grid_axis(self) -> None:
+    if not hasattr(self, "list_grid_axes"):
+        return
+    row = self.list_grid_axes.currentRow()
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    if 0 <= row < len(axes):
+        axes.pop(row)
+        self.model.grid_axes = axes
+        _nevis_t14_refresh_axis_list(self)
+        self.preview.draw_model()
+
+
+def _nevis_t14_draw_axes(view) -> None:
+    mainwin = view.mainwin
+    if getattr(mainwin, "workspace_mode", get_default_mode()) != "structural":
+        return
+    axes = list(getattr(mainwin.model, "grid_axes", []) or [])
+    if not axes:
+        return
+    visible = view.mapToScene(view.viewport().rect()).boundingRect()
+    scale = abs(float(view.transform().m11())) or 1.0
+    pen = QPen(QColor(210, 50, 50, 100), 1.5 / scale, Qt.DashLine)
+    font = QFont("Segoe UI", int(max(7, 9 / scale)))
+    for axis in axes:
+        if axis.direction == "X":
+            canvas_x, _ = _nevis_real_to_canvas_point(mainwin, (axis.position, 0.0))
+            line = view.scene.addLine(canvas_x, visible.top(), canvas_x, visible.bottom(), pen)
+            line.setZValue(-50)
+            line.setAcceptedMouseButtons(Qt.NoButton)
+            label = view.scene.addText(axis.name, font)
+            label.setDefaultTextColor(QColor(210, 50, 50))
+            label.setZValue(-49)
+            label.setAcceptedMouseButtons(Qt.NoButton)
+            label.setPos(canvas_x + 2 / scale, visible.top() + 2 / scale)
+        else:
+            _, canvas_y = _nevis_real_to_canvas_point(mainwin, (0.0, axis.position))
+            line = view.scene.addLine(visible.left(), canvas_y, visible.right(), canvas_y, pen)
+            line.setZValue(-50)
+            line.setAcceptedMouseButtons(Qt.NoButton)
+            label = view.scene.addText(axis.name, font)
+            label.setDefaultTextColor(QColor(210, 50, 50))
+            label.setZValue(-49)
+            label.setAcceptedMouseButtons(Qt.NoButton)
+            label.setPos(visible.left() + 2 / scale, canvas_y - label.boundingRect().height() / scale)
+
+
+def _nevis_t14_draw_model(self, *args, **kwargs):
+    result = _NEVIS_T14_PREV_DRAW_MODEL(self, *args, **kwargs)
+    _nevis_t14_draw_axes(self)
+    return result
+
+
+def _nevis_t14_set_workspace_mode_patch(self, mode: str) -> None:
+    _NEVIS_T14_ORIG_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "") == "structural"
+    if hasattr(self, "g_grid_axis"):
+        self.g_grid_axis.setVisible(structural)
+
+
+_NEVIS_T14_ORIG_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t14_snap_with_axes(view, scene_point) -> tuple[float, float]:
+    """Extend structural snap: try axis intersections first (tolerance 15px)."""
+    x, y = _nevis_canvas_to_real_point(view.mainwin, (scene_point.x(), scene_point.y()))
+    axes = list(getattr(view.mainwin.model, "grid_axes", []) or [])
+    if axes and getattr(view.mainwin, "workspace_mode", get_default_mode()) == "structural":
+        scale = abs(float(view.transform().m11())) or 1.0
+        tolerance_real = (15.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+        pt = find_nearest_axis_intersection(x, y, axes, tolerance_real)
+        if pt is not None:
+            return pt
+    return _nevis_structural_snap_scene_point(view, scene_point)
+
+
+def _nevis_t14_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_T14_PREV_REFRESH_LANGUAGE(self, *args, **kwargs)
+    if hasattr(self, "g_grid_axis"):
+        self.g_grid_axis.setTitle(self.tr("grid_axis_group"))
+        self.btn_grid_axis_add.setText(self.tr("grid_axis_add"))
+        self.btn_grid_axis_delete.setText(self.tr("grid_axis_delete"))
+        _nevis_t14_refresh_axis_list(self)
+    return result
+
+
+MainWindow._build_ui = _nevis_t14_build_ui
+MainWindow.add_grid_axis = _nevis_t14_add_grid_axis
+MainWindow.delete_grid_axis = _nevis_t14_delete_grid_axis
+MainWindow.set_workspace_mode = _nevis_t14_set_workspace_mode_patch
+MainWindow.refresh_language_texts = _nevis_t14_refresh_language
+PreviewView.draw_model = _nevis_t14_draw_model
+
+
+def _nevis_t14_save_payload_patch(self) -> dict:
+    data = _NEVIS_T14_ORIG_PROJECT_PAYLOAD(self)
+    data["grid_axes"] = [grid_axis_to_dict(a) for a in list(getattr(self.model, "grid_axes", []) or [])]
+    return data
+
+
+_NEVIS_T14_ORIG_PROJECT_PAYLOAD = MainWindow._project_payload
+MainWindow._project_payload = _nevis_t14_save_payload_patch
+
+
+_NEVIS_T14_ORIG_OPEN_PROJECT = MainWindow.open_project
+
+
+def _nevis_t14_open_project_patch(self):
+    _NEVIS_T14_ORIG_OPEN_PROJECT(self)
+    # grid_axes already in data; re-read from model (patched below via load path)
+    _nevis_t14_refresh_axis_list(self)
+
+
+def _nevis_t14_load_axes_from_data(mainwin, data: dict) -> None:
+    try:
+        mainwin.model.grid_axes = [grid_axis_from_dict(d) for d in data.get("grid_axes", [])]
+    except Exception:
+        mainwin.model.grid_axes = []
+
+
+# Monkey-patch the open_project to also load grid_axes
+_NEVIS_T14_ORIG_LOAD = getattr(MainWindow, "_load_project_data", None)
+
+
+# =============================================================================
+# TASK 15 — Mặt cắt GL/SL/FL/CH
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "section_btn": "Mặt cắt",
+    "section_title": "Mặt cắt kết cấu",
+    "section_click1": "Click điểm 1 đường cắt.",
+    "section_click2": "Click điểm 2 đường cắt.",
+    "section_finish_thickness": "Lớp hoàn thiện (mm)",
+    "section_no_elements": "Không có phần tử nào cắt qua đường này.",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "section_btn": "断面図",
+    "section_title": "構造断面図",
+    "section_click1": "断面線の1点目をクリック。",
+    "section_click2": "断面線の2点目をクリック。",
+    "section_finish_thickness": "仕上げ厚 (mm)",
+    "section_no_elements": "断面線上に要素がありません。",
+})
+
+_NEVIS_T15_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T15_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_t15_build_ui(self):
+    result = _NEVIS_T15_PREV_BUILD_UI(self)
+    self._section_cut_active = False
+    self._section_cut_p1 = None
+    self._section_cut_marker = None
+    # "Mặt cắt" button on toolbar (both modes)
+    self.btn_section_cut = QPushButton(self.tr("section_btn"))
+    self.btn_section_cut.setCheckable(True)
+    self.btn_section_cut.setMinimumHeight(28)
+    self.btn_section_cut.toggled.connect(self.start_section_cut)
+    self._preview_background_widgets.append(self.btn_section_cut)
+    return result
+
+
+def _nevis_t15_start_section_cut(self, checked: bool = False) -> None:
+    if not checked:
+        self._section_cut_active = False
+        self._section_cut_p1 = None
+        _nevis_t15_remove_cut_marker(self)
+        if hasattr(self, "preview"):
+            self.preview.viewport().setCursor(Qt.OpenHandCursor)
+        return
+    self._section_cut_active = True
+    self._section_cut_p1 = None
+    _nevis_t15_remove_cut_marker(self)
+    if hasattr(self, "preview"):
+        self.preview.viewport().setCursor(Qt.CrossCursor)
+    self.lbl_status.setText(self.tr("section_click1"))
+
+
+def _nevis_t15_remove_cut_marker(self) -> None:
+    marker = getattr(self, "_section_cut_marker", None)
+    self._section_cut_marker = None
+    if marker is None:
+        return
+    try:
+        sc = marker.scene()
+        if sc is not None:
+            sc.removeItem(marker)
+    except RuntimeError:
+        pass
+
+
+def _nevis_t15_handle_cut_click(mainwin, scene_point) -> bool:
+    if not getattr(mainwin, "_section_cut_active", False):
+        return False
+    pt = _nevis_canvas_to_real_point(mainwin, (scene_point.x(), scene_point.y()))
+    if mainwin._section_cut_p1 is None:
+        mainwin._section_cut_p1 = pt
+        scale = abs(float(mainwin.preview.transform().m11())) or 1.0
+        r = 5.0 / scale
+        marker = mainwin.preview.scene.addEllipse(
+            scene_point.x() - r, scene_point.y() - r, r * 2, r * 2,
+            QPen(QColor(180, 40, 40), 2.0 / scale), QBrush(Qt.NoBrush),
+        )
+        marker.setZValue(1300)
+        mainwin._section_cut_marker = marker
+        mainwin.lbl_status.setText(mainwin.tr("section_click2"))
+        return True
+    p1 = mainwin._section_cut_p1
+    p2 = pt
+    mainwin._section_cut_active = False
+    mainwin._section_cut_p1 = None
+    _nevis_t15_remove_cut_marker(mainwin)
+    if hasattr(mainwin, "btn_section_cut"):
+        mainwin.btn_section_cut.blockSignals(True)
+        mainwin.btn_section_cut.setChecked(False)
+        mainwin.btn_section_cut.blockSignals(False)
+    if hasattr(mainwin, "preview"):
+        mainwin.preview.viewport().setCursor(Qt.OpenHandCursor)
+    _nevis_t15_show_section_dialog(mainwin, p1, p2)
+    return True
+
+
+def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    cut_x = (p1[0] + p2[0]) / 2.0
+    cut_elements = elements_intersect_cut_line(elements, cut_x)
+    cut_elements = sort_elements_by_elevation(cut_elements)
+
+    finish_thickness = 30.0
+
+    dialog = QDialog(mainwin)
+    dialog.setWindowTitle(mainwin.tr("section_title"))
+    dialog.resize(520, 420)
+    main_layout = QVBoxLayout(dialog)
+
+    # Finish thickness control
+    ctrl_row = QHBoxLayout()
+    lbl_ft = QLabel(mainwin.tr("section_finish_thickness"))
+    edit_ft = QLineEdit(str(int(finish_thickness)))
+    edit_ft.setMaximumWidth(80)
+    ctrl_row.addWidget(lbl_ft)
+    ctrl_row.addWidget(edit_ft)
+    ctrl_row.addStretch()
+    main_layout.addLayout(ctrl_row)
+
+    # Drawing area
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene, dialog)
+    view.setRenderHint(view.renderHints() | QPainter.Antialiasing)
+    main_layout.addWidget(view, 1)
+
+    def _redraw():
+        scene.clear()
+        try:
+            ft = float(edit_ft.text().strip())
+        except (ValueError, TypeError):
+            ft = 30.0
+        sl = 0.0
+        fl = compute_fl(sl, finish_thickness_mm=ft)
+
+        # Find elevation range
+        all_elev = [sl, fl]
+        for e in cut_elements:
+            all_elev.append(float(getattr(e, "top_elevation", 0.0) or 0.0))
+            all_elev.append(float(getattr(e, "bottom_elevation", 0.0) or 0.0))
+        ceiling_elements = [e for e in cut_elements if getattr(e, "element_type", "") == "ceiling_lgs"]
+        if ceiling_elements:
+            ceil_bottom = min(float(getattr(e, "bottom_elevation", 0.0) or 0.0) for e in ceiling_elements)
+            ch = compute_ch(fl, ceil_bottom)
+            all_elev.append(ceil_bottom)
+        else:
+            ch = None
+        if not all_elev:
+            return
+
+        elev_min = min(all_elev) - 200
+        elev_max = max(all_elev) + 500
+        elev_range = elev_max - elev_min or 1
+        W, H = 440.0, 320.0
+        margin_left = 80.0
+        px_per_mm = H / elev_range
+
+        def ey(elev):
+            return H - (float(elev) - elev_min) * px_per_mm
+
+        # Background
+        scene.addRect(margin_left, 0, W, H, QPen(Qt.NoPen), QBrush(QColor(248, 248, 252)))
+
+        # SL line
+        sl_y = ey(sl)
+        scene.addLine(margin_left, sl_y, margin_left + W, sl_y,
+                      QPen(QColor(30, 90, 190), 2.0))
+        lbl = scene.addText("SL ±0", QFont("Segoe UI", 7, QFont.Bold))
+        lbl.setDefaultTextColor(QColor(30, 90, 190))
+        lbl.setPos(0, sl_y - 9)
+
+        # FL line
+        fl_y = ey(fl)
+        scene.addLine(margin_left, fl_y, margin_left + W, fl_y,
+                      QPen(QColor(60, 150, 60), 1.5, Qt.DashLine))
+        lbl_fl = scene.addText(f"FL +{ft:g}", QFont("Segoe UI", 7))
+        lbl_fl.setDefaultTextColor(QColor(60, 150, 60))
+        lbl_fl.setPos(0, fl_y - 9)
+
+        # GL line (assume below SL by 150mm if no data)
+        gl = sl - 150.0
+        gl_y = ey(gl)
+        scene.addLine(margin_left, gl_y, margin_left + W, gl_y,
+                      QPen(QColor(130, 100, 60), 1.5, Qt.DotLine))
+        lbl_gl = scene.addText("GL", QFont("Segoe UI", 7))
+        lbl_gl.setDefaultTextColor(QColor(130, 100, 60))
+        lbl_gl.setPos(0, gl_y - 9)
+
+        # CH arrow if ceiling found
+        if ch is not None and ceiling_elements:
+            ceil_y = ey(ceil_bottom)
+            scene.addLine(margin_left + W - 10, fl_y, margin_left + W - 10, ceil_y,
+                          QPen(QColor(80, 80, 80), 1.5))
+            ch_mid = (fl_y + ceil_y) / 2.0
+            lbl_ch = scene.addText(f"CH {ch:g}", QFont("Segoe UI", 7))
+            lbl_ch.setDefaultTextColor(QColor(60, 60, 60))
+            lbl_ch.setPos(margin_left + W - 55, ch_mid - 9)
+
+        # Structural elements
+        # Build unified slab assemblies to render slab pieces along the cut line
+        assemblies = build_unified_slab_sections(elements, axis="Y", cut_coord=cut_x)
+        slab_pieces_by_source = {}
+        for asm in assemblies:
+            for piece in asm.pieces:
+                slab_pieces_by_source.setdefault(int(getattr(piece, "source_id", -1)), []).append(piece)
+        for src in slab_pieces_by_source:
+            slab_pieces_by_source[src].sort(key=lambda p: p.start_mm)
+
+        def _elem_cut_width_mm(elem):
+            intervals = polygon_cut_intervals(getattr(elem, "points", []) or [], "Y", cut_x)
+            if intervals:
+                return sum((end - start) for start, end in intervals)
+            w = float(getattr(elem, "width", 0.0) or 0.0)
+            l = float(getattr(elem, "length", 0.0) or 0.0)
+            return max(w, l, 1000.0)
+
+        render_items = []  # tuples: (kind, obj, width_mm) kind: 'element' or 'slab_piece'
+        for elem in cut_elements:
+            eid = int(getattr(elem, "id", -1))
+            if str(getattr(elem, "element_type", "")) == "slab" and eid in slab_pieces_by_source:
+                for piece in slab_pieces_by_source[eid]:
+                    render_items.append(("slab_piece", piece, float(piece.end_mm - piece.start_mm)))
+            else:
+                render_items.append(("element", elem, _elem_cut_width_mm(elem)))
+
+        total_mm = sum(it[2] for it in render_items) or 1.0
+        # map each render item to pixel width
+        px_widths = [(it[2] / total_mm) * (W - 20.0) for it in render_items]
+
+        type_colors = {
+            "slab": QColor(100, 140, 200, 160),
+            "beam": QColor(140, 100, 180, 160),
+            "column": QColor(180, 130, 60, 160),
+            "wall_rc": QColor(155, 155, 160, 200),
+            "wall_lgs": QColor(195, 185, 135, 160),
+            "ceiling_lgs": QColor(120, 190, 160, 160),
+        }
+        # W5: material-type colors for finish layers in section
+        _W5_LAYER_COLORS = {
+            "insulation_ur": QColor(255, 200, 80, 190),
+            "insulation_gw": QColor(200, 235, 180, 190),
+            "gl": QColor(200, 180, 140, 200),
+            "gypsum": QColor(230, 230, 235, 220),
+            "gypsum_fire": QColor(230, 180, 170, 220),
+            "gypsum_hard": QColor(210, 210, 230, 220),
+            "gypsum_wet": QColor(180, 215, 230, 220),
+            "air_gap": QColor(240, 245, 255, 60),
+            "lgs_frame": QColor(170, 185, 170, 160),
+        }
+        _W5_LGS_FRAME_COLOR = QColor(130, 145, 155, 200)
+
+        cur_x = margin_left + 10.0
+        for idx, it in enumerate(render_items):
+            kind, obj, _wmm = it
+            rect_x = cur_x
+            rect_w = max(2.0, px_widths[idx] - 4.0)
+            cur_x += px_widths[idx]
+
+            if kind == "element":
+                elem = obj
+                etype = str(getattr(elem, "element_type", "slab"))
+                top_e = float(getattr(elem, "top_elevation", 0.0) or 0.0)
+                bot_e = float(getattr(elem, "bottom_elevation", 0.0) or 0.0)
+                if abs(top_e - bot_e) < 1.0:
+                    top_e = bot_e + max(float(getattr(elem, "height", 200.0) or 200.0), 50.0)
+                rect_y = ey(top_e)
+                rect_h = abs(ey(bot_e) - ey(top_e))
+                color = type_colors.get(etype, QColor(120, 140, 160, 120))
+
+                # W5: wall layer rendering in section
+                if etype == "wall_lgs":
+                    inner = list(getattr(elem, "wall_finish_inner", []) or [])
+                    outer = list(getattr(elem, "wall_finish_outer", []) or [])
+                    stud_w = float(getattr(elem, "stud_width", 65.0) or 65.0)
+                    stagger = bool(getattr(elem, "lgs_is_staggered", False))
+                    frame_w = stud_w + (12.0 if stagger else 2.0)
+                    inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+                    outer_sum = sum(float(l.get("thickness", 0.0)) for l in outer)
+                    total_w = frame_w + inner_sum + outer_sum
+                    if total_w > 0 and (inner or outer):
+                        scale_x = rect_w / total_w
+                        cur_x = rect_x
+                        for lay in outer:
+                            lw = float(lay.get("thickness", 0.0)) * scale_x
+                            lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                            scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                            cur_x += lw
+                        fw = frame_w * scale_x
+                        scene.addRect(cur_x, rect_y, fw, rect_h,
+                                      QPen(_W5_LGS_FRAME_COLOR.darker(120), 0.8),
+                                      QBrush(_W5_LGS_FRAME_COLOR))
+                        cur_x += fw
+                        for lay in inner:
+                            lw = float(lay.get("thickness", 0.0)) * scale_x
+                            lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                            scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                            cur_x += lw
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(QColor(60, 60, 65), 1.2), QBrush(Qt.NoBrush))
+                    else:
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(color.darker(130), 1.5), QBrush(color))
+                elif etype == "wall_rc":
+                    inner = list(getattr(elem, "wall_finish_inner", []) or [])
+                    rc_thick = float(getattr(elem, "wall_rc_thickness", 180.0) or 180.0)
+                    inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+                    total_w = rc_thick + inner_sum
+                    if total_w > 0 and inner:
+                        scale_x = rect_w / total_w
+                        cur_x = rect_x
+                        rw = rc_thick * scale_x
+                        scene.addRect(cur_x, rect_y, rw, rect_h,
+                                      QPen(QColor(60, 60, 65), 1.2),
+                                      QBrush(QColor(155, 155, 160, 200), Qt.FDiagPattern))
+                        cur_x += rw
+                        for lay in inner:
+                            lw = float(lay.get("thickness", 0.0)) * scale_x
+                            lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                            scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                            cur_x += lw
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(QColor(60, 60, 65), 1.5), QBrush(Qt.NoBrush))
+                    else:
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(color.darker(130), 1.5),
+                                      QBrush(color, Qt.FDiagPattern))
+                elif etype == "slab":
+                    # W4: slab with FL finish layer bands above it
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(color.darker(130), 1.5), QBrush(color))
+                    fl_layers = list(getattr(elem, "finish_layers", []) or [])
+                    fl_mm = float(getattr(elem, "finish_thickness_mm", 0.0) or 0.0)
+                    if not fl_layers and fl_mm > 0:
+                        fl_layers = [{"name": "仕上げ", "thickness": fl_mm, "material_type": "gypsum"}]
+                    if fl_layers:
+                        _fl_layer_colors = [
+                            QColor(180, 140, 90, 200),
+                            QColor(210, 195, 160, 200),
+                            QColor(200, 165, 110, 200),
+                            QColor(230, 220, 200, 200),
+                        ]
+                        total_fl_mm = sum(float(l.get("thickness", 0.0)) for l in fl_layers)
+                        if total_fl_mm > 0:
+                            fl_px_per_mm = px_per_mm
+                            cur_bottom_y = rect_y
+                            for li, lay in enumerate(reversed(fl_layers)):
+                                layer_mm = float(lay.get("thickness", 0.0))
+                                if layer_mm <= 0:
+                                    continue
+                                layer_h = layer_mm * fl_px_per_mm
+                                lc = _fl_layer_colors[li % len(_fl_layer_colors)]
+                                cur_bottom_y -= layer_h
+                                scene.addRect(rect_x, cur_bottom_y, rect_w, layer_h,
+                                              QPen(lc.darker(140), 0.5), QBrush(lc))
+                                lbl_lay = scene.addText(lay.get("name", "")[:6], QFont("Segoe UI", 5))
+                                lbl_lay.setDefaultTextColor(QColor(50, 35, 10))
+                                lbl_lay.setPos(rect_x + 1, cur_bottom_y + 1)
+                elif etype == "ceiling_lgs":
+                    # W7: LGS suspended ceiling layers (top→bottom in section)
+                    c_bt_val = float(getattr(elem, "ceiling_board_thickness", 9.0) or 9.0)
+                    c_bl_val = int(getattr(elem, "ceiling_board_layers", 1) or 1)
+                    c_df_val = bool(getattr(elem, "ceiling_double_frame", False))
+                    frame_h = (57.0 if c_df_val else 19.0) * px_per_mm
+                    board_h = c_bt_val * px_per_mm
+                    total_h = frame_h + board_h * c_bl_val
+                    scale_y = rect_h / max(total_h, 1.0)
+                    cur_y = rect_y
+                    # Draw frame section(s)
+                    _frame_color = QColor(170, 175, 185, 200)
+                    if c_df_val:
+                        # 野縁受け 38mm
+                        fh1 = 38.0 * px_per_mm * scale_y
+                        scene.addRect(rect_x, cur_y, rect_w, fh1,
+                                      QPen(_frame_color.darker(120), 0.5), QBrush(_frame_color))
+                        lbl_nr = scene.addText("野縁受", QFont("Segoe UI", 4))
+                        lbl_nr.setDefaultTextColor(QColor(40, 40, 60))
+                        lbl_nr.setPos(rect_x + 1, cur_y + 1)
+                        cur_y += fh1
+                    # 野縁 19mm
+                    fh2 = 19.0 * px_per_mm * scale_y
+                    _frame_color2 = QColor(155, 160, 170, 200)
+                    scene.addRect(rect_x, cur_y, rect_w, fh2,
+                                  QPen(_frame_color2.darker(120), 0.5), QBrush(_frame_color2))
+                    lbl_nn = scene.addText("野縁", QFont("Segoe UI", 4))
+                    lbl_nn.setDefaultTextColor(QColor(40, 40, 60))
+                    lbl_nn.setPos(rect_x + 1, cur_y + 1)
+                    cur_y += fh2
+                    # PB board(s)
+                    _pb_color = QColor(240, 238, 225, 220)
+                    for _bi in range(c_bl_val):
+                        bh = board_h * scale_y
+                        scene.addRect(rect_x, cur_y, rect_w, bh,
+                                      QPen(_pb_color.darker(130), 0.5), QBrush(_pb_color))
+                        lbl_pb = scene.addText("PB{}".format(int(c_bt_val)), QFont("Segoe UI", 4))
+                        lbl_pb.setDefaultTextColor(QColor(60, 50, 30))
+                        lbl_pb.setPos(rect_x + 1, cur_y + 1)
+                        cur_y += bh
+                    # Outer border
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(QColor(80, 90, 100), 1.2), QBrush(Qt.NoBrush))
+                else:
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(color.darker(130), 1.5), QBrush(color))
+
+                type_labels = _nevis_structural_type_labels(mainwin)
+                name = type_labels.get(etype, getattr(elem, "label", "?"))
+                # W4: wall FL-cut annotation
+                if etype == "wall_lgs":
+                    wall_type = str(getattr(elem, "wall_finish_type_code", "") or "")
+                    if wall_type in ("W-01",):
+                        name = name + " [FL全カット]"
+                    elif wall_type in ("W-02", "W-03"):
+                        name = name + " [フロ カット]"
+                lbl_e = scene.addText(name, QFont("Segoe UI", 6))
+                lbl_e.setDefaultTextColor(QColor(30, 30, 30))
+                lbl_e.setPos(rect_x + 2, rect_y + 2)
+
+        if not cut_elements:
+            msg = scene.addText(mainwin.tr("section_no_elements"), QFont("Segoe UI", 9))
+            msg.setDefaultTextColor(QColor(140, 140, 140))
+            msg.setPos(margin_left + 20, H / 2 - 10)
+
+        scene.setSceneRect(scene.itemsBoundingRect().adjusted(-10, -10, 10, 10))
+        view.fitInView(scene.sceneRect(), Qt.KeepAspectRatio)
+
+    edit_ft.editingFinished.connect(_redraw)
+    _redraw()
+
+    close_btn = QPushButton("OK")
+    close_btn.clicked.connect(dialog.accept)
+    main_layout.addWidget(close_btn)
+    dialog.exec()
+
+
+def _nevis_t15_mouse_press(self, event):
+    if getattr(self.mainwin, "_section_cut_active", False) and event.button() == Qt.LeftButton:
+        try:
+            view_pos = event.position().toPoint()
+        except AttributeError:
+            view_pos = event.pos()
+        _nevis_t15_handle_cut_click(self.mainwin, self.mapToScene(view_pos))
+        event.accept()
+        return
+    if getattr(self.mainwin, "_section_cut_active", False) and event.button() == Qt.RightButton:
+        self.mainwin.start_section_cut(False)
+        if hasattr(self.mainwin, "btn_section_cut"):
+            self.mainwin.btn_section_cut.blockSignals(True)
+            self.mainwin.btn_section_cut.setChecked(False)
+            self.mainwin.btn_section_cut.blockSignals(False)
+        event.accept()
+        return
+    return _NEVIS_T15_PREV_MOUSE_PRESS(self, event)
+
+
+MainWindow._build_ui = _nevis_t15_build_ui
+MainWindow.start_section_cut = _nevis_t15_start_section_cut
+PreviewView.mousePressEvent = _nevis_t15_mouse_press
+
+
+# =============================================================================
+# NEVIS runtime performance timers - logging only, no behavior changes
+# =============================================================================
+_NEVIS_RUNTIME_PERF_THRESHOLD_SECONDS = 0.2
+
+
+def _nevis_runtime_perf_details(label: str, owner) -> str:
+    try:
+        if label == "draw_model":
+            return f" items={len(owner.scene.items())}"
+        if label == "draw_background":
+            return f" lines={len(getattr(owner.mainwin, 'jww_background_items', []) or [])}"
+        if label == "_draw_detailed_fittings":
+            return f" items={len(getattr(owner.mainwin.model, 'fittings', {}) or {})}"
+        if label == "update_material_table":
+            return f" items={owner.table_mat.rowCount()}"
+        if label in {"update_quick_preview", "taskpane_preview"}:
+            scene = getattr(owner, "fit_preview_scene", None) or getattr(owner, "preview_scene", None)
+            return f" items={len(scene.items())}" if scene is not None else ""
+    except Exception:
+        pass
+    return ""
+
+
+def _nevis_runtime_perf_wrap(func, label: str):
+    if not callable(func) or getattr(func, "_nevis_runtime_perf_wrapped", False):
+        return func
+
+    @functools.wraps(func)
+    def _wrapped(*args, **kwargs):
+        started_at = time.perf_counter()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            elapsed = time.perf_counter() - started_at
+            if elapsed > _NEVIS_RUNTIME_PERF_THRESHOLD_SECONDS:
+                owner = args[0] if args else None
+                details = _nevis_runtime_perf_details(label, owner) if owner is not None else ""
+                print(f"PERF {label}: {elapsed:.3f}s{details}", flush=True)
+
+    _wrapped._nevis_runtime_perf_wrapped = True
+    return _wrapped
+
+
+def _nevis_runtime_timed_scene_clear(scene) -> None:
+    started_at = time.perf_counter()
+    try:
+        item_count = len(scene.items())
+    except Exception:
+        item_count = 0
+    try:
+        scene.clear()
+    finally:
+        elapsed = time.perf_counter() - started_at
+        if elapsed > _NEVIS_RUNTIME_PERF_THRESHOLD_SECONDS:
+            print(f"PERF scene.clear: {elapsed:.3f}s items={item_count}", flush=True)
+
+
+def _nevis_install_runtime_perf_timers() -> None:
+    targets = [
+        (PreviewView, "draw_model", "draw_model"),
+        (PreviewView, "_draw_jww_background", "draw_background"),
+        (PreviewView, "_draw_detailed_fittings", "_draw_detailed_fittings"),
+        (MainWindow, "select_node", "select_node"),
+        (MainWindow, "update_material_table", "update_material_table"),
+        (MainWindow, "update_selected_library_preview", "update_quick_preview"),
+    ]
+    for cls, attr, label in targets:
+        current = getattr(cls, attr, None)
+        if current is not None:
+            setattr(cls, attr, _nevis_runtime_perf_wrap(current, label))
+
+    taskpane_preview = globals().get("_nevis_v84_draw_preview_exact_taskpane")
+    if taskpane_preview is not None:
+        globals()["_nevis_v84_draw_preview_exact_taskpane"] = _nevis_runtime_perf_wrap(
+            taskpane_preview, "taskpane_preview"
+        )
+
+
+_nevis_install_runtime_perf_timers()
+
+
+# =============================================================================
+# TASK 19 — UX vẽ kết cấu: icon buttons, Escape/RightClick cancel, grid fix
+# =============================================================================
+_NEVIS_T19_STRUCTURAL_TYPES = ["slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling_lgs"]
+
+APP_TEXT.setdefault("vi", {}).update({
+    "t19_type_btn_hint": "Chọn loại phần tử rồi bấm Vẽ",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "t19_type_btn_hint": "種別を選んで作図",
+})
+
+_NEVIS_T19_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T19_PREV_REFRESH = MainWindow.refresh_language_texts
+_NEVIS_T19_PREV_MOUSE_PRESS = PreviewView.mousePressEvent
+_NEVIS_T19_PREV_SNAP = None  # patched below
+
+
+def _nevis_t19_build_ui(self):
+    result = _NEVIS_T19_PREV_BUILD_UI(self)
+    # Replace the QComboBox type selector with 6 icon buttons (2 rows × 3)
+    if not hasattr(self, "g_structural_workspace"):
+        return result
+    structural_layout = self.g_structural_workspace.layout()
+    # Remove the cmb_structural_type widget from layout (keep the object for compat)
+    structural_layout.removeWidget(self.cmb_structural_type)
+    self.cmb_structural_type.hide()
+    # Build 6-button grid
+    self._type_btn_group = QButtonGroup(self)
+    self._type_btn_group.setExclusive(True)
+    type_grid_widget = QWidget(self.g_structural_workspace)
+    type_grid = QGridLayout(type_grid_widget)
+    type_grid.setContentsMargins(0, 0, 0, 0)
+    type_grid.setSpacing(4)
+    self._type_btns = {}
+    labels = _nevis_structural_type_labels(self)
+    for i, etype in enumerate(_NEVIS_T19_STRUCTURAL_TYPES):
+        btn = QPushButton(labels.get(etype, etype))
+        btn.setCheckable(True)
+        btn.setFixedHeight(24)
+        btn.setStyleSheet("font-size:11px; padding:0 2px;")
+        btn.setProperty("structural_type", etype)
+        self._type_btn_group.addButton(btn)
+        type_grid.addWidget(btn, i // 3, i % 3)
+        self._type_btns[etype] = btn
+        btn.clicked.connect(lambda checked, et=etype: self._on_type_btn_clicked(et))
+    # Select default
+    default_type = str(getattr(self, "structural_default_type", "slab"))
+    if default_type in self._type_btns:
+        self._type_btns[default_type].setChecked(True)
+    else:
+        next(iter(self._type_btns.values())).setChecked(True)
+    structural_layout.insertWidget(0, type_grid_widget)
+    self._type_btn_grid_widget = type_grid_widget
+    return result
+
+
+def _nevis_t19_on_type_btn_clicked(self, element_type: str) -> None:
+    self.structural_default_type = element_type
+    # Keep combo in sync for any legacy code that reads it
+    idx = self.cmb_structural_type.findData(element_type)
+    if idx >= 0:
+        self.cmb_structural_type.blockSignals(True)
+        self.cmb_structural_type.setCurrentIndex(idx)
+        self.cmb_structural_type.blockSignals(False)
+
+
+def _nevis_t19_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_T19_PREV_REFRESH(self, *args, **kwargs)
+    if hasattr(self, "_type_btns"):
+        labels = _nevis_structural_type_labels(self)
+        for etype, btn in self._type_btns.items():
+            btn.setText(labels.get(etype, etype))
+    return result
+
+
+def _nevis_t19_cancel_draw_drag(view) -> None:
+    """Cancel active draw drag without leaving draw mode."""
+    view._structural_drag_start = None
+    _nevis_t17_remove_snap_marker(view)
+    _nevis_structural_remove_preview(view)
+
+
+def _nevis_t19_mouse_press(self, event):
+    # Escape is a key event — handled via keyPressEvent (patched below)
+    # Right-click while dragging: first try snap (Task 17), then cancel drag
+    if event.button() == Qt.RightButton:
+        drag_active = (
+            getattr(self.mainwin, "structural_draw_mode", False)
+            and getattr(self, "_structural_drag_start", None) is not None
+        )
+        if drag_active:
+            snapped = _nevis_t17_right_click_snap(self, event)
+            if not snapped:
+                # No snap found → cancel the current drag
+                _nevis_t19_cancel_draw_drag(self)
+                event.accept()
+                return
+            event.accept()
+            return
+    return _NEVIS_T19_PREV_MOUSE_PRESS(self, event)
+
+
+def _nevis_t19_key_press(self, event):
+    if event.key() == Qt.Key_Escape:
+        mainwin = self.mainwin
+        if getattr(mainwin, "structural_draw_mode", False):
+            if getattr(self, "_structural_drag_start", None) is not None:
+                _nevis_t19_cancel_draw_drag(self)
+            else:
+                if hasattr(mainwin, "btn_structural_draw"):
+                    mainwin.btn_structural_draw.setChecked(False)
+            event.accept()
+            return
+    _NEVIS_T19_PREV_KEY_PRESS(self, event)
+
+
+_NEVIS_T19_PREV_KEY_PRESS = PreviewView.keyPressEvent
+
+
+# Fix grid checkbox: underlay fallback snap should also respect structural_grid_enabled
+_NEVIS_T19_ORIG_SNAP = _nevis_structural_snap_scene_point
+
+
+def _nevis_t19_snap_scene_point(view, scene_point) -> tuple:
+    x, y = _nevis_canvas_to_real_point(view.mainwin, (scene_point.x(), scene_point.y()))
+    grid_enabled = bool(getattr(view.mainwin, "structural_grid_enabled", True))
+    if (
+        getattr(view.mainwin, "workspace_mode", "mep") == "structural"
+        and grid_enabled
+    ):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 3.0))
+    import math as _math
+    scale = abs(float(view.transform().m11())) or 1.0
+    tol = (10.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    candidates = [
+        _nevis_canvas_to_real_point(view.mainwin, (node.x, node.y))
+        for node in view.mainwin.model.nodes.values()
+    ]
+    node_pt = nearest_snap_point(x, y, candidates, tol)
+    if node_pt is not None:
+        return node_pt
+    # Only snap to underlay grid if grid checkbox is ON
+    if grid_enabled and _nevis_structural_has_visible_underlay(view.mainwin):
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 100.0))
+    return x, y
+
+
+MainWindow._build_ui = _nevis_t19_build_ui
+MainWindow._on_type_btn_clicked = _nevis_t19_on_type_btn_clicked
+MainWindow.refresh_language_texts = _nevis_t19_refresh_language
+PreviewView.mousePressEvent = _nevis_t19_mouse_press
+PreviewView.keyPressEvent = _nevis_t19_key_press
+
+# Monkey-patch the snap function used at press/release
+import builtins as _builtins
+_nevis_structural_snap_scene_point = _nevis_t19_snap_scene_point
+
+
+# =============================================================================
+# TASK 20 — Dialog "Thêm trục tọa độ": direction first, auto-name, sort X/Y,
+#            rename prefix batch button
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "grid_axis_rename_prefix": "Đổi prefix hàng loạt",
+    "grid_axis_rename_prefix_title": "Đổi tên prefix trục",
+    "grid_axis_rename_prefix_x": "Prefix mới cho trục X",
+    "grid_axis_rename_prefix_y": "Prefix mới cho trục Y",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "grid_axis_rename_prefix": "プレフィックス一括変更",
+    "grid_axis_rename_prefix_title": "軸プレフィックス変更",
+    "grid_axis_rename_prefix_x": "X軸新プレフィックス",
+    "grid_axis_rename_prefix_y": "Y軸新プレフィックス",
+})
+
+_NEVIS_T20_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_T20_PREV_REFRESH = MainWindow.refresh_language_texts
+
+
+def _nevis_t20_build_ui(self):
+    result = _NEVIS_T20_PREV_BUILD_UI(self)
+    if not hasattr(self, "g_grid_axis"):
+        return result
+    axis_layout = self.g_grid_axis.layout()
+    # Add "Rename prefix" button
+    self.btn_grid_axis_rename = QPushButton(self.tr("grid_axis_rename_prefix"))
+    self.btn_grid_axis_rename.clicked.connect(self.rename_axes_prefix_dialog)
+    axis_layout.addWidget(self.btn_grid_axis_rename)
+    return result
+
+
+def _nevis_t20_add_grid_axis(self) -> None:
+    """Redesigned: direction first → auto-name → position."""
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("grid_axis_add_title"))
+    form = QFormLayout(dialog)
+    cmb_dir = QComboBox(dialog)
+    cmb_dir.addItem(self.tr("grid_axis_dir_x"), "X")
+    cmb_dir.addItem(self.tr("grid_axis_dir_y"), "Y")
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    edit_name = QLineEdit(next_axis_name(axes, "X"), dialog)
+
+    def _update_auto_name():
+        direction = cmb_dir.currentData()
+        current_axes = list(getattr(self.model, "grid_axes", []) or [])
+        edit_name.setText(next_axis_name(current_axes, direction))
+
+    cmb_dir.currentIndexChanged.connect(_update_auto_name)
+    edit_pos = QLineEdit("0", dialog)
+    form.addRow(self.tr("grid_axis_dir"), cmb_dir)
+    form.addRow(self.tr("grid_axis_name"), edit_name)
+    form.addRow(self.tr("grid_axis_pos"), edit_pos)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    if dialog.exec() != QDialog.Accepted:
+        return
+    direction = cmb_dir.currentData()
+    name = edit_name.text().strip().upper() or next_axis_name(axes, direction)
+    try:
+        position = float(edit_pos.text().strip())
+    except (ValueError, TypeError):
+        position = 0.0
+    axis = GridAxis(name=name, direction=direction, position=position)
+    axes.append(axis)
+    self.model.grid_axes = sort_axes_xy(axes)
+    _nevis_t14_refresh_axis_list(self)
+    self.preview.draw_model()
+
+
+def _nevis_t20_rename_axes_prefix_dialog(self) -> None:
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("grid_axis_rename_prefix_title"))
+    form = QFormLayout(dialog)
+    edit_x = QLineEdit("X", dialog)
+    edit_y = QLineEdit("Y", dialog)
+    form.addRow(self.tr("grid_axis_rename_prefix_x"), edit_x)
+    form.addRow(self.tr("grid_axis_rename_prefix_y"), edit_y)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    if dialog.exec() != QDialog.Accepted:
+        return
+    axes = list(getattr(self.model, "grid_axes", []) or [])
+    prefix_x = edit_x.text().strip().upper() or "X"
+    prefix_y = edit_y.text().strip().upper() or "Y"
+    axes = rename_axes_prefix(axes, "X", prefix_x)
+    axes = rename_axes_prefix(axes, "Y", prefix_y)
+    self.model.grid_axes = sort_axes_xy(axes)
+    _nevis_t14_refresh_axis_list(self)
+    self.preview.draw_model()
+
+
+def _nevis_t20_refresh_language(self, *args, **kwargs):
+    result = _NEVIS_T20_PREV_REFRESH(self, *args, **kwargs)
+    if hasattr(self, "btn_grid_axis_rename"):
+        self.btn_grid_axis_rename.setText(self.tr("grid_axis_rename_prefix"))
+    return result
+
+
+MainWindow._build_ui = _nevis_t20_build_ui
+MainWindow.add_grid_axis = _nevis_t20_add_grid_axis
+MainWindow.rename_axes_prefix_dialog = _nevis_t20_rename_axes_prefix_dialog
+MainWindow.refresh_language_texts = _nevis_t20_refresh_language
+
+
+# =============================================================================
+# TASK 21 — Dialog vẽ phần tử: input cao độ theo loại + canvas label
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "t21_top_elevation": "Mặt trên (SL±mm)",
+    "t21_bottom_elevation": "Đáy (SL±mm)",
+    "t21_ceiling_bottom": "Đáy trần (SL+mm)",
+    "t21_finish_thickness": "FL = SL+",
+    "t21_fl_floor_type": "Loại sàn",
+    "t21_fl_layer_name": "Tên lớp",
+    "t21_fl_layer_thick": "Dày (mm)",
+    "t21_fl_add": "+ Thêm lớp",
+    "t21_fl_remove": "- Xóa",
+    "t21_fl_total": "Tổng:",
+    "t21_fl_detail": "Chi tiết...",
+    "t21_fl_detail_hide": "Thu gọn...",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "t21_top_elevation": "天端 (SL±mm)",
+    "t21_bottom_elevation": "底面 (SL±mm)",
+    "t21_ceiling_bottom": "天井底 (SL+mm)",
+    "t21_finish_thickness": "FL = SL+",
+    "t21_fl_floor_type": "床種別",
+    "t21_fl_layer_name": "層名",
+    "t21_fl_layer_thick": "厚さ (mm)",
+    "t21_fl_add": "+ 追加",
+    "t21_fl_remove": "- 削除",
+    "t21_fl_total": "合計:",
+    "t21_fl_detail": "詳細...",
+    "t21_fl_detail_hide": "閉じる",
+})
+
+_NEVIS_T21_FINISH_THICKNESS = 40.0
+
+# Floor finish type definitions: (label, fl_total_mm, layers_bottom_to_top)
+# fl_total_mm = FL - SL: the primary value the user sets.
+# layers: breakdown for section view + detail editor (defaults, user can override)
+_NEVIS_FINISH_TYPES = [
+    ("なし / Không có", 0.0, []),
+    ("置き床  FL+200", 200.0, [
+        {"name": "支持脚", "thickness": 168.0},
+        {"name": "置床パネル", "thickness": 20.0},
+        {"name": "フローリング", "thickness": 12.0},
+    ]),
+    ("タイル直貼り  FL+30", 30.0, [
+        {"name": "モルタル", "thickness": 20.0},
+        {"name": "タイル", "thickness": 10.0},
+    ]),
+    ("フローリング直貼り  FL+15", 15.0, [
+        {"name": "フローリング", "thickness": 15.0},
+    ]),
+    ("カーペット  FL+10", 10.0, [
+        {"name": "カーペット", "thickness": 10.0},
+    ]),
+]
+# Keep backward-compat alias (used in old preset button logic)
+_NEVIS_FINISH_PRESETS = [(t[0], t[2]) for t in _NEVIS_FINISH_TYPES if t[2]]
+
+# Layer rendering colors in section view (name keyword → QColor RGBA)
+_NEVIS_FINISH_LAYER_COLORS = [
+    (["支持脚", "chan do", "legs", "raised"],        (210, 210, 210, 130)),  # light gray = air/legs space
+    (["置床", "panel", "ban go", "panel"],           (190, 160, 110, 170)),  # light brown = panel
+    (["フローリング", "go", "wood", "van san"],      (215, 175, 115, 200)),  # warm wood
+    (["vua", "mortar", "vữa"],                       (160, 155, 145, 160)),  # gray = mortar
+    (["gach", "gạch", "tile", "ceramic"],            (200, 130, 90, 180)),   # terracotta = tile
+    (["concrete", "be tong", "bê tông"],             (175, 195, 212, 160)),  # same as slab = concrete
+]
+_NEVIS_FINISH_LAYER_DEFAULT_COLOR = (170, 210, 170, 150)  # green-tint default
+
+# ── WALL FINISH PRESETS ── Xem WALL_SYSTEM.md trước khi sửa.
+# Mỗi preset định nghĩa cấu tạo tường theo tiêu chuẩn Nhật.
+# inner: lớp từ mặt kết cấu → phía trong phòng (ordered: kết cấu → phòng)
+# outer: lớp từ mặt kết cấu → phía ngoài/hành lang/căn bên cạnh
+# material_type: "insulation_ur"|"insulation_gw"|"gl"|"gypsum"|"gypsum_fire"
+#                "gypsum_hard"|"gypsum_wet"|"air_gap"|"lgs_frame"
+_NEVIS_WALL_PRESETS = [
+    # ── RC外壁 (exterior RC walls) ──
+    {
+        "code": "W-12",
+        "desc": "RC+断熱材25+GL+石膏ボード12.5",
+        "usage": "RC外壁（内側仕上げ）",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 180.0,
+        "inner": [
+            {"name": "断熱材(ウレタン)", "thickness": 25.0, "material_type": "insulation_ur"},
+            {"name": "GL",              "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード",       "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    {
+        "code": "W-13",
+        "desc": "RC+GL+石膏ボード12.5",
+        "usage": "RC内壁・柱・梁面（断熱なし）",
+        "wall_type": "rc_interior",
+        "rc_thickness": 180.0,
+        "inner": [
+            {"name": "GL",        "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    {
+        "code": "W-04",
+        "desc": "RC+断熱材35+中空+LGS45+石膏ボード12.5",
+        "usage": "RC外壁ELV面・特殊部位",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 180.0,
+        "inner": [
+            {"name": "断熱材(GW)",  "thickness": 35.0, "material_type": "insulation_gw"},
+            {"name": "中空",        "thickness":  0.0, "material_type": "air_gap"},
+            {"name": "LGS45",      "thickness": 47.0, "material_type": "lgs_frame"},
+            {"name": "石膏ボード",  "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    # ── 柱・梁 外壁面仕上げ (Column / Beam exterior finish) ──
+    {
+        "code": "H-01",
+        "desc": "柱梁外壁面 ウレタン25+GL+石膏12.5",
+        "usage": "外壁に面する柱・梁の室内側（断熱あり）",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 0.0,   # body thickness controlled by element itself
+        "inner": [
+            {"name": "断熱材(ウレタン)", "thickness": 25.0, "material_type": "insulation_ur"},
+            {"name": "GL",              "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード",       "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    {
+        "code": "H-12",
+        "desc": "柱梁外壁面 GL+石膏12.5（断熱なし）",
+        "usage": "外壁に面する柱・梁の室内側（断熱なし）",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 0.0,
+        "inner": [
+            {"name": "GL",        "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    # ── LGS間仕切壁 (LGS partition walls) ──
+    {
+        "code": "W-01",
+        "desc": "LGS65千鳥+GW充填+強化石膏21+硬質石膏9.5",
+        "usage": "耐火・遮音壁114条区画（住戸間界壁）",
+        "wall_type": "lgs_fire",
+        "rc_thickness": 0.0,
+        "lgs_stud_width": 65.0,
+        "lgs_is_staggered": True,   # 千鳥: frame_width = 65+12 = 77mm
+        "inner": [
+            {"name": "強化石膏ボード", "thickness": 21.0, "material_type": "gypsum_fire"},
+            {"name": "硬質石膏ボード", "thickness":  9.5, "material_type": "gypsum_hard"},
+        ],
+        "outer": [
+            {"name": "強化石膏ボード", "thickness": 21.0, "material_type": "gypsum_fire"},
+            {"name": "硬質石膏ボード", "thickness":  9.5, "material_type": "gypsum_hard"},
+        ],
+        # Total: 30.5 + 77 + 30.5 = 138mm
+    },
+    {
+        "code": "W-02",
+        "desc": "LGS45+石膏ボード12.5 両面",
+        "usage": "一般間仕切壁",
+        "wall_type": "lgs_general",
+        "rc_thickness": 0.0,
+        "lgs_stud_width": 45.0,
+        "lgs_is_staggered": False,  # frame_width = 45+2 = 47mm
+        "inner": [
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        # Total: 12.5 + 47 + 12.5 = 72mm (36mm each side from centerline)
+    },
+    {
+        "code": "W-03",
+        "desc": "LGS45+耐水石膏ボード12.5 両面",
+        "usage": "一般間仕切壁（水廻り：トイレ・洗面・浴室）",
+        "wall_type": "lgs_wet",
+        "rc_thickness": 0.0,
+        "lgs_stud_width": 45.0,
+        "lgs_is_staggered": False,
+        "inner": [
+            {"name": "耐水石膏ボード", "thickness": 12.5, "material_type": "gypsum_wet"},
+        ],
+        "outer": [
+            {"name": "耐水石膏ボード", "thickness": 12.5, "material_type": "gypsum_wet"},
+        ],
+        # Total: 12.5 + 47 + 12.5 = 72mm
+    },
+]
+
+
+def _nevis_wall_preset_by_code(code: str) -> dict:
+    """Return wall preset dict by code, or {} if not found."""
+    for p in _NEVIS_WALL_PRESETS:
+        if p.get("code") == code:
+            return p
+    return {}
+
+
+# =============================================================================
+# W7 — LGS suspended ceiling presets (軽天井プリセット)
+# =============================================================================
+# Frame nomenclature (Japan):
+#   野縁 (furring channel): 19mm — closest to board, always present
+#   野縁受け (carrier channel): 38mm — only when double-frame
+# Total drop = frame(s) + board(s)
+# =============================================================================
+_NEVIS_CEILING_PRESETS = [
+    {
+        "code": "C-01",
+        "desc": "野縁19 + PB t=9×1層 (28mm)",
+        "usage": "一般軽天井 薄板1層",
+        "double_frame": False,
+        "board_thickness": 9.0,
+        "board_layers": 1,
+        "surface": "AEP",
+    },
+    {
+        "code": "C-02",
+        "desc": "野縁19 + PB t=12×1層 (31mm)",
+        "usage": "一般軽天井 標準板1層",
+        "double_frame": False,
+        "board_thickness": 12.0,
+        "board_layers": 1,
+        "surface": "AEP",
+    },
+    {
+        "code": "C-03",
+        "desc": "野縁受38+野縁19 + PB t=9×2層 (75mm)",
+        "usage": "遮音・耐火軽天井 ダブルフレーム2重張り",
+        "double_frame": True,
+        "board_thickness": 9.0,
+        "board_layers": 2,
+        "surface": "AEP",
+    },
+    {
+        "code": "C-04",
+        "desc": "野縁受38+野縁19 + PB t=12×1層 (69mm)",
+        "usage": "ダブルフレーム標準板1層",
+        "double_frame": True,
+        "board_thickness": 12.0,
+        "board_layers": 1,
+        "surface": "AEP",
+    },
+]
+
+
+def _nevis_ceiling_preset_by_code(code: str) -> dict:
+    """Return ceiling preset dict by code, or {} if not found."""
+    for p in _NEVIS_CEILING_PRESETS:
+        if p.get("code") == code:
+            return p
+    return {}
+
+
+def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=None):
+    """Extended dialog with per-type elevation inputs."""
+    dialog = QDialog(self)
+    dialog.setWindowTitle(self.tr("structural_title"))
+    layout = QFormLayout(dialog)
+
+    type_combo = QComboBox(dialog)
+    for element_type, label in _nevis_structural_type_labels(self).items():
+        type_combo.addItem(label, element_type)
+    if element is None:
+        default_index = type_combo.findData(str(getattr(self, "structural_default_type", "slab")))
+        if default_index >= 0:
+            type_combo.setCurrentIndex(default_index)
+    if element is not None:
+        current_index = type_combo.findData(str(getattr(element, "element_type", "")))
+        if current_index >= 0:
+            type_combo.setCurrentIndex(current_index)
+
+    width_text = "{:g}".format(float(width)) if element is not None else str(int(round(width)))
+    length_text = "{:g}".format(float(length)) if element is not None else str(int(round(length)))
+    width_edit = QLineEdit(width_text, dialog)
+    length_edit = QLineEdit(length_text, dialog)
+    initial_height = float(getattr(element, "height", 0.0) or 0.0) if element is not None else 0.0
+    height_edit = QLineEdit("{:g}".format(initial_height) if initial_height > 0.0 else "100", dialog)
+    initial_radius = float(getattr(element, "arc_radius", 0.0) or 0.0) if element is not None else 0.0
+    arc_checkbox = QCheckBox(self.tr("structural_has_arc"), dialog)
+    arc_checkbox.setChecked(initial_radius > 0.0)
+    radius_edit = QLineEdit("{:g}".format(initial_radius), dialog)
+
+    # Per-type elevation fields
+    init_top = float(getattr(element, "top_elevation", 0.0) or 0.0) if element is not None else 0.0
+    init_bot = float(getattr(element, "bottom_elevation", 0.0) or 0.0) if element is not None else 0.0
+    init_ceil = float(getattr(element, "top_elevation", 2400.0) or 2400.0) if element is not None else 2400.0
+
+    edit_top_elev = QLineEdit("{:g}".format(init_top), dialog)
+    edit_bot_elev = QLineEdit("{:g}".format(init_bot), dialog)
+    edit_ceil_bottom = QLineEdit("{:g}".format(init_ceil), dialog)
+    lbl_top_elev = QLabel(self.tr("t21_top_elevation"))
+    lbl_bot_elev = QLabel(self.tr("t21_bottom_elevation"))
+    lbl_ceil_bottom = QLabel(self.tr("t21_ceiling_bottom"))
+
+    # Floor finish panel (visible only for slab)
+    # PRIMARY: FL = SL + ? mm (the only thing most users need to input)
+    # SECONDARY: layer breakdown in collapsible detail section
+    init_layers = list(getattr(element, "finish_layers", []) or []) if element is not None else []
+    init_finish_mm = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0) if element is not None else 0.0
+    lbl_finish = QLabel(self.tr("t21_finish_thickness"))
+
+    _fl_panel = QWidget(dialog)
+    _fl_main_vbox = QVBoxLayout(_fl_panel)
+    _fl_main_vbox.setContentsMargins(0, 0, 0, 0)
+    _fl_main_vbox.setSpacing(4)
+
+    # Row 1: floor type dropdown + FL height field
+    _fl_top_row = QHBoxLayout()
+    _fl_top_row.setSpacing(6)
+    _fl_type_combo = QComboBox(_fl_panel)
+    for _ft_label, _ft_mm, _ft_layers in _NEVIS_FINISH_TYPES:
+        _fl_type_combo.addItem(_ft_label, (_ft_mm, _ft_layers))
+    _fl_type_combo.addItem("カスタム / Tùy chỉnh", (None, None))
+    _fl_mm_edit = QLineEdit(_fl_panel)
+    _fl_mm_edit.setFixedWidth(60)
+    _fl_mm_edit.setPlaceholderText("mm")
+    _fl_mm_unit = QLabel("mm", _fl_panel)
+    _fl_mm_unit.setStyleSheet("color:#555;")
+    _fl_top_row.addWidget(_fl_type_combo, 3)
+    _fl_top_row.addWidget(_fl_mm_edit)
+    _fl_top_row.addWidget(_fl_mm_unit)
+    _fl_main_vbox.addLayout(_fl_top_row)
+
+    # Row 2: auto-computed breakdown info label
+    _fl_info_lbl = QLabel("", _fl_panel)
+    _fl_info_lbl.setStyleSheet("color:#555; font-size:10px;")
+    _fl_info_lbl.setWordWrap(True)
+    _fl_main_vbox.addWidget(_fl_info_lbl)
+
+    # Row 3: collapsible detail (layer table)
+    _fl_detail_btn = QPushButton(self.tr("t21_fl_detail"), _fl_panel)
+    _fl_detail_btn.setFixedHeight(20)
+    _fl_detail_btn.setStyleSheet("font-size:10px; text-align:left; border:none; color:#336;")
+    _fl_detail_btn.setCheckable(True)
+    _fl_main_vbox.addWidget(_fl_detail_btn)
+
+    _fl_detail_widget = QWidget(_fl_panel)
+    _fl_detail_vbox = QVBoxLayout(_fl_detail_widget)
+    _fl_detail_vbox.setContentsMargins(0, 0, 0, 0)
+    _fl_detail_vbox.setSpacing(2)
+
+    _fl_table = QTableWidget(_fl_detail_widget)
+    _fl_table.setColumnCount(2)
+    _fl_table.setHorizontalHeaderLabels([self.tr("t21_fl_layer_name"), self.tr("t21_fl_layer_thick")])
+    _fl_table.horizontalHeader().setStretchLastSection(False)
+    _fl_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+    _fl_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+    _fl_table.setColumnWidth(1, 70)
+    _fl_table.verticalHeader().setDefaultSectionSize(22)
+    _fl_table.verticalHeader().setVisible(False)
+    _fl_table.setMinimumHeight(70)
+    _fl_table.setMaximumHeight(150)
+    _fl_detail_vbox.addWidget(_fl_table)
+
+    _fl_ctrl_row = QHBoxLayout()
+    _fl_ctrl_row.setSpacing(4)
+    _btn_add_layer = QPushButton(self.tr("t21_fl_add"), _fl_detail_widget)
+    _btn_add_layer.setFixedHeight(20)
+    _btn_rem_layer = QPushButton(self.tr("t21_fl_remove"), _fl_detail_widget)
+    _btn_rem_layer.setFixedHeight(20)
+    _lbl_total = QLabel("", _fl_detail_widget)
+    _lbl_total.setStyleSheet("color:#225; font-size:10px;")
+    _fl_ctrl_row.addWidget(_btn_add_layer)
+    _fl_ctrl_row.addWidget(_btn_rem_layer)
+    _fl_ctrl_row.addStretch()
+    _fl_ctrl_row.addWidget(_lbl_total)
+    _fl_detail_vbox.addLayout(_fl_ctrl_row)
+    _fl_main_vbox.addWidget(_fl_detail_widget)
+    _fl_detail_widget.setVisible(False)
+
+    def _fl_table_from_layers(layers):
+        _fl_table.blockSignals(True)
+        _fl_table.setRowCount(0)
+        for lay in layers:
+            row = _fl_table.rowCount()
+            _fl_table.insertRow(row)
+            _fl_table.setItem(row, 0, QTableWidgetItem(str(lay.get("name", ""))))
+            _fl_table.setItem(row, 1, QTableWidgetItem("{:g}".format(float(lay.get("thickness", 0.0)))))
+        _fl_table.blockSignals(False)
+
+    def _update_fl_total():
+        total = 0.0
+        for r in range(_fl_table.rowCount()):
+            item = _fl_table.item(r, 1)
+            try:
+                total += float(item.text()) if item else 0.0
+            except (ValueError, TypeError):
+                pass
+        _lbl_total.setText("{} {:.0f} mm".format(self.tr("t21_fl_total"), total))
+        return total
+
+    def _update_fl_info():
+        layers = _get_current_layers()
+        if not layers:
+            _fl_info_lbl.setText("")
+            return
+        parts = []
+        for lay in layers:
+            t = float(lay.get("thickness", 0.0))
+            n = str(lay.get("name", ""))
+            if t > 0:
+                parts.append("{}:{:.0f}".format(n, t))
+        _fl_info_lbl.setText(" + ".join(parts) if parts else "")
+
+    def _get_current_layers():
+        rows = []
+        for r in range(_fl_table.rowCount()):
+            n_i = _fl_table.item(r, 0)
+            t_i = _fl_table.item(r, 1)
+            n = n_i.text().strip() if n_i else ""
+            try:
+                t = max(0.0, float(t_i.text())) if t_i else 0.0
+            except (ValueError, TypeError):
+                t = 0.0
+            if n or t > 0:
+                rows.append({"name": n, "thickness": t})
+        return rows
+
+    def _on_type_combo_changed(idx):
+        data = _fl_type_combo.itemData(idx)
+        if data is None or data[0] is None:
+            return  # custom: don't overwrite
+        fl_mm, layers = data
+        _fl_mm_edit.blockSignals(True)
+        _fl_mm_edit.setText(str(int(fl_mm)) if fl_mm and fl_mm == int(fl_mm) else "0")
+        _fl_mm_edit.blockSignals(False)
+        if layers is not None:
+            _fl_table_from_layers(layers)
+        _update_fl_total()
+        _update_fl_info()
+
+    def _on_fl_mm_changed(text):
+        try:
+            val = float(text)
+        except (ValueError, TypeError):
+            return
+        matched = -1
+        for i in range(_fl_type_combo.count()):
+            d = _fl_type_combo.itemData(i)
+            if d and d[0] is not None and abs(d[0] - val) < 0.5:
+                matched = i
+                break
+        _fl_type_combo.blockSignals(True)
+        if matched >= 0:
+            _fl_type_combo.setCurrentIndex(matched)
+            _, layers = _fl_type_combo.itemData(matched)
+            if layers:
+                _fl_table_from_layers(layers)
+        else:
+            _fl_type_combo.setCurrentIndex(_fl_type_combo.count() - 1)
+            # Auto-compute: for raised floor, assume 置床=20 + フローリング=12, rest = 支持脚
+            if val >= 32:
+                _fl_table_from_layers([
+                    {"name": "支持脚", "thickness": val - 32.0},
+                    {"name": "置床パネル", "thickness": 20.0},
+                    {"name": "フローリング", "thickness": 12.0},
+                ])
+            elif val > 0:
+                _fl_table_from_layers([{"name": "仕上げ", "thickness": val}])
+            else:
+                _fl_table.setRowCount(0)
+        _fl_type_combo.blockSignals(False)
+        _update_fl_total()
+        _update_fl_info()
+
+    def _toggle_detail(checked):
+        _fl_detail_widget.setVisible(checked)
+        _fl_detail_btn.setText(
+            self.tr("t21_fl_detail_hide") if checked else self.tr("t21_fl_detail")
+        )
+        dialog.adjustSize()
+
+    def _add_fl_layer():
+        row = _fl_table.rowCount()
+        _fl_table.insertRow(row)
+        _fl_table.setItem(row, 0, QTableWidgetItem(""))
+        _fl_table.setItem(row, 1, QTableWidgetItem("0"))
+        _fl_table.editItem(_fl_table.item(row, 0))
+        _update_fl_total()
+        _update_fl_info()
+
+    def _rem_fl_layer():
+        row = _fl_table.currentRow()
+        if row >= 0:
+            _fl_table.removeRow(row)
+        _update_fl_total()
+        _update_fl_info()
+
+    _fl_type_combo.currentIndexChanged.connect(_on_type_combo_changed)
+    _fl_mm_edit.textChanged.connect(_on_fl_mm_changed)
+    _fl_table.cellChanged.connect(lambda *_: (_update_fl_total(), _update_fl_info()))
+    _fl_detail_btn.toggled.connect(_toggle_detail)
+    _btn_add_layer.clicked.connect(_add_fl_layer)
+    _btn_rem_layer.clicked.connect(_rem_fl_layer)
+
+    # Initialize from element data
+    if init_layers:
+        _fl_table_from_layers(init_layers)
+        total = sum(float(l.get("thickness", 0.0)) for l in init_layers)
+        _fl_mm_edit.blockSignals(True)
+        _fl_mm_edit.setText(str(int(total)) if total == int(total) else "{:g}".format(total))
+        _fl_mm_edit.blockSignals(False)
+        _update_fl_total()
+        _update_fl_info()
+    elif init_finish_mm > 0:
+        _fl_mm_edit.blockSignals(True)
+        _fl_mm_edit.setText(str(int(init_finish_mm)) if init_finish_mm == int(init_finish_mm) else "{:g}".format(init_finish_mm))
+        _fl_mm_edit.blockSignals(False)
+        _on_fl_mm_changed(_fl_mm_edit.text())
+    else:
+        _fl_mm_edit.setText("0")
+        _update_fl_info()
+
+    _update_fl_total()
+
+    layout.addRow(self.tr("structural_type_label"), type_combo)
+    layout.addRow("{} (mm)".format(self.tr("structural_width")), width_edit)
+    layout.addRow("{} (mm)".format(self.tr("structural_length")), length_edit)
+    layout.addRow("{} (mm)".format(self.tr("structural_height")), height_edit)
+    layout.addRow(arc_checkbox)
+    layout.addRow("{} (mm)".format(self.tr("structural_radius")), radius_edit)
+    layout.addRow(lbl_top_elev, edit_top_elev)
+    layout.addRow(lbl_bot_elev, edit_bot_elev)
+    layout.addRow(lbl_ceil_bottom, edit_ceil_bottom)
+    layout.addRow(lbl_finish, _fl_panel)
+
+    # ── WALL FINISH PANEL (W2) ── shown only for wall_rc / wall_lgs ──────────
+    _wall_panel = QWidget(dialog)
+    _wall_vbox = QVBoxLayout(_wall_panel)
+    _wall_vbox.setContentsMargins(0, 0, 0, 0)
+    _wall_vbox.setSpacing(6)
+
+    # Preset dropdown
+    _wall_preset_combo = QComboBox(_wall_panel)
+    _wall_preset_combo.addItem("--- カスタム / Tùy chỉnh ---", "")
+    for _wp in _NEVIS_WALL_PRESETS:
+        _wall_preset_combo.addItem(
+            "{} — {}".format(_wp["code"], _wp.get("desc", _wp.get("usage", ""))),
+            _wp["code"]
+        )
+    _wall_preset_row = QHBoxLayout()
+    _wall_preset_row.addWidget(QLabel("プリセット", _wall_panel))
+    _wall_preset_row.addWidget(_wall_preset_combo, 1)
+    _wall_vbox.addLayout(_wall_preset_row)
+
+    # RC thickness (wall_rc only)
+    init_rc_thick = float(getattr(element, "wall_rc_thickness", 180.0) or 180.0) if element is not None else 180.0
+    _wall_rc_group = QWidget(_wall_panel)
+    _wall_rc_vbox = QVBoxLayout(_wall_rc_group)
+    _wall_rc_vbox.setContentsMargins(0, 0, 0, 0)
+    _wall_rc_vbox.setSpacing(2)
+    _wall_rc_row = QHBoxLayout()
+    _wall_rc_row.addWidget(QLabel("RC厚 (mm)", _wall_rc_group))
+    _wall_rc_edit = QLineEdit("{:g}".format(init_rc_thick), _wall_rc_group)
+    _wall_rc_edit.setFixedWidth(70)
+    _wall_rc_row.addWidget(_wall_rc_edit)
+    _wall_rc_row.addStretch()
+    _wall_rc_vbox.addLayout(_wall_rc_row)
+    _wall_vbox.addWidget(_wall_rc_group)
+
+    # LGS controls (wall_lgs only)
+    init_stud = float(getattr(element, "stud_width", 65.0) or 65.0) if element is not None else 65.0
+    init_stagger = bool(getattr(element, "lgs_is_staggered", False)) if element is not None else False
+    _wall_lgs_group = QWidget(_wall_panel)
+    _wall_lgs_vbox = QVBoxLayout(_wall_lgs_group)
+    _wall_lgs_vbox.setContentsMargins(0, 0, 0, 0)
+    _wall_lgs_vbox.setSpacing(2)
+    _wall_lgs_row = QHBoxLayout()
+    _wall_lgs_stud_combo = QComboBox(_wall_lgs_group)
+    for _sw in [45.0, 65.0, 90.0]:
+        _wall_lgs_stud_combo.addItem("LGS{}".format(int(_sw)), _sw)
+    _idx_stud = _wall_lgs_stud_combo.findData(init_stud)
+    if _idx_stud >= 0:
+        _wall_lgs_stud_combo.setCurrentIndex(_idx_stud)
+    _wall_lgs_stagger_cb = QCheckBox("千鳥配置 (界壁)", _wall_lgs_group)
+    _wall_lgs_stagger_cb.setChecked(init_stagger)
+    _wall_lgs_row.addWidget(QLabel("スタッド", _wall_lgs_group))
+    _wall_lgs_row.addWidget(_wall_lgs_stud_combo)
+    _wall_lgs_row.addWidget(_wall_lgs_stagger_cb)
+    _wall_lgs_vbox.addLayout(_wall_lgs_row)
+    _wall_vbox.addWidget(_wall_lgs_group)
+
+    # Total width info label
+    _wall_total_lbl = QLabel("", _wall_panel)
+    _wall_total_lbl.setStyleSheet("color:#226; font-size:10px;")
+    _wall_vbox.addWidget(_wall_total_lbl)
+
+    # Inner/outer finish summary
+    _wall_layers_lbl = QLabel("", _wall_panel)
+    _wall_layers_lbl.setStyleSheet("color:#555; font-size:10px;")
+    _wall_layers_lbl.setWordWrap(True)
+    _wall_vbox.addWidget(_wall_layers_lbl)
+
+    # Cached finish layer lists (updated when preset changes or stud/RC changes)
+    _wall_state = {
+        "inner": list(getattr(element, "wall_finish_inner", []) or []) if element is not None else [],
+        "outer": list(getattr(element, "wall_finish_outer", []) or []) if element is not None else [],
+        "type_code": str(getattr(element, "wall_finish_type_code", "") or "") if element is not None else "",
+    }
+
+    def _wall_update_info():
+        etype = str(type_combo.currentData())
+        try:
+            stud_w = float(_wall_lgs_stud_combo.currentData() or 65.0)
+        except (TypeError, ValueError):
+            stud_w = 65.0
+        staggered = _wall_lgs_stagger_cb.isChecked()
+        try:
+            rc_thick = float(_wall_rc_edit.text().strip())
+        except (ValueError, TypeError):
+            rc_thick = 180.0
+        inner = _wall_state["inner"]
+        outer = _wall_state["outer"]
+        inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+        outer_sum = sum(float(l.get("thickness", 0.0)) for l in outer)
+        if etype == "wall_lgs":
+            extra = 12.0 if staggered else 2.0
+            structural = float(stud_w) + extra
+        else:
+            structural = float(rc_thick)
+        total = structural + inner_sum + outer_sum
+        _wall_total_lbl.setText("総厚: {:.0f} mm (躯体: {:.0f} mm)".format(total, structural))
+
+        def _fmt_layers(layers):
+            return " + ".join("{}:{:.0f}".format(l.get("name", ""), l.get("thickness", 0.0))
+                              for l in layers) or "なし"
+        if etype == "wall_lgs":
+            _wall_layers_lbl.setText("inner: {}  /  outer: {}".format(
+                _fmt_layers(inner), _fmt_layers(outer)))
+        else:
+            _wall_layers_lbl.setText("inner: {}".format(_fmt_layers(inner)))
+
+    def _wall_apply_preset(code):
+        p = _nevis_wall_preset_by_code(code)
+        if not p:
+            return
+        _wall_state["inner"] = list(p.get("inner", []))
+        _wall_state["outer"] = list(p.get("outer", []))
+        _wall_state["type_code"] = code
+        _wall_rc_edit.setText("{:g}".format(p.get("rc_thickness", 180.0)))
+        stud_w = p.get("lgs_stud_width", 65.0)
+        _idx = _wall_lgs_stud_combo.findData(float(stud_w))
+        if _idx >= 0:
+            _wall_lgs_stud_combo.setCurrentIndex(_idx)
+        _wall_lgs_stagger_cb.setChecked(bool(p.get("lgs_is_staggered", False)))
+        _wall_update_info()
+
+    def _on_wall_preset_changed(_idx):
+        code = _wall_preset_combo.currentData()
+        if code:
+            _wall_apply_preset(code)
+
+    _wall_preset_combo.currentIndexChanged.connect(_on_wall_preset_changed)
+    _wall_lgs_stud_combo.currentIndexChanged.connect(lambda _: _wall_update_info())
+    _wall_lgs_stagger_cb.toggled.connect(lambda _: _wall_update_info())
+    _wall_rc_edit.textChanged.connect(lambda _: _wall_update_info())
+
+    # Initialize from existing element's preset code
+    if element is not None:
+        _ec = str(getattr(element, "wall_finish_type_code", "") or "")
+        if _ec:
+            _pidx = _wall_preset_combo.findData(_ec)
+            if _pidx >= 0:
+                _wall_preset_combo.blockSignals(True)
+                _wall_preset_combo.setCurrentIndex(_pidx)
+                _wall_preset_combo.blockSignals(False)
+    _wall_update_info()
+
+    lbl_wall = QLabel("仕上げ構成", dialog)
+    layout.addRow(lbl_wall, _wall_panel)
+    # ── END WALL FINISH PANEL ─────────────────────────────────────────────────
+
+    # ── CEILING FINISH PANEL (W7) ── shown only for ceiling_lgs ──────────────
+    _ceil_panel = QWidget(dialog)
+    _ceil_vbox = QVBoxLayout(_ceil_panel)
+    _ceil_vbox.setContentsMargins(0, 0, 0, 0)
+    _ceil_vbox.setSpacing(6)
+
+    # Preset dropdown
+    _ceil_preset_combo = QComboBox(_ceil_panel)
+    _ceil_preset_combo.addItem("--- カスタム / Tùy chỉnh ---", "")
+    for _cp in _NEVIS_CEILING_PRESETS:
+        _ceil_preset_combo.addItem(
+            "{} — {}".format(_cp["code"], _cp.get("desc", "")),
+            _cp["code"]
+        )
+    _ceil_preset_row = QHBoxLayout()
+    _ceil_preset_row.addWidget(QLabel("プリセット", _ceil_panel))
+    _ceil_preset_row.addWidget(_ceil_preset_combo, 1)
+    _ceil_vbox.addLayout(_ceil_preset_row)
+
+    # Board thickness + layers
+    init_ceil_bt = float(getattr(element, "ceiling_board_thickness", 9.0) or 9.0) if element is not None else 9.0
+    init_ceil_bl = int(getattr(element, "ceiling_board_layers", 1) or 1) if element is not None else 1
+    init_ceil_df = bool(getattr(element, "ceiling_double_frame", False)) if element is not None else False
+    init_ceil_surf = str(getattr(element, "ceiling_finish_surface", "AEP") or "AEP") if element is not None else "AEP"
+
+    _ceil_board_row = QHBoxLayout()
+    _ceil_board_row.setSpacing(6)
+    _ceil_bt_combo = QComboBox(_ceil_panel)
+    for _bt in [9.0, 12.0, 15.0]:
+        _ceil_bt_combo.addItem("PB t={}mm".format(int(_bt)), _bt)
+    _idx_bt = _ceil_bt_combo.findData(init_ceil_bt)
+    if _idx_bt >= 0:
+        _ceil_bt_combo.setCurrentIndex(_idx_bt)
+    _ceil_bl_combo = QComboBox(_ceil_panel)
+    _ceil_bl_combo.addItem("1層", 1)
+    _ceil_bl_combo.addItem("2層", 2)
+    _idx_bl = _ceil_bl_combo.findData(init_ceil_bl)
+    if _idx_bl >= 0:
+        _ceil_bl_combo.setCurrentIndex(_idx_bl)
+    _ceil_df_cb = QCheckBox("ダブルフレーム (野縁受38+野縁19)", _ceil_panel)
+    _ceil_df_cb.setChecked(init_ceil_df)
+    _ceil_board_row.addWidget(QLabel("ボード", _ceil_panel))
+    _ceil_board_row.addWidget(_ceil_bt_combo)
+    _ceil_board_row.addWidget(_ceil_bl_combo)
+    _ceil_vbox.addLayout(_ceil_board_row)
+    _ceil_vbox.addWidget(_ceil_df_cb)
+
+    # Surface finish
+    _ceil_surf_row = QHBoxLayout()
+    _ceil_surf_edit = QLineEdit(init_ceil_surf, _ceil_panel)
+    _ceil_surf_edit.setFixedWidth(80)
+    _ceil_surf_row.addWidget(QLabel("表面仕上げ", _ceil_panel))
+    _ceil_surf_row.addWidget(_ceil_surf_edit)
+    _ceil_surf_row.addStretch()
+    _ceil_vbox.addLayout(_ceil_surf_row)
+
+    # Total thickness info
+    _ceil_info_lbl = QLabel("", _ceil_panel)
+    _ceil_info_lbl.setStyleSheet("color:#226; font-size:10px;")
+    _ceil_vbox.addWidget(_ceil_info_lbl)
+
+    def _ceil_update_info():
+        bt = float(_ceil_bt_combo.currentData() or 9.0)
+        bl = int(_ceil_bl_combo.currentData() or 1)
+        df = _ceil_df_cb.isChecked()
+        frame = 57.0 if df else 19.0
+        total = bt * bl + frame
+        frame_desc = "野縁受38+野縁19" if df else "野縁19"
+        _ceil_info_lbl.setText("総厚: {:.0f} mm  ({} + PB {:.0f}×{}層)".format(total, frame_desc, bt, bl))
+
+    def _ceil_apply_preset(code):
+        p = _nevis_ceiling_preset_by_code(code)
+        if not p:
+            return
+        idx_bt = _ceil_bt_combo.findData(float(p.get("board_thickness", 9.0)))
+        if idx_bt >= 0:
+            _ceil_bt_combo.setCurrentIndex(idx_bt)
+        idx_bl = _ceil_bl_combo.findData(int(p.get("board_layers", 1)))
+        if idx_bl >= 0:
+            _ceil_bl_combo.setCurrentIndex(idx_bl)
+        _ceil_df_cb.setChecked(bool(p.get("double_frame", False)))
+        _ceil_surf_edit.setText(str(p.get("surface", "AEP")))
+        _ceil_update_info()
+
+    def _on_ceil_preset_changed(_idx):
+        code = _ceil_preset_combo.currentData()
+        if code:
+            _ceil_apply_preset(code)
+
+    _ceil_preset_combo.currentIndexChanged.connect(_on_ceil_preset_changed)
+    _ceil_bt_combo.currentIndexChanged.connect(lambda _: _ceil_update_info())
+    _ceil_bl_combo.currentIndexChanged.connect(lambda _: _ceil_update_info())
+    _ceil_df_cb.toggled.connect(lambda _: _ceil_update_info())
+
+    # Initialize from existing element
+    if element is not None:
+        _ec2 = str(getattr(element, "ceiling_finish_type_code", "") or "")
+        if _ec2:
+            _pidx2 = _ceil_preset_combo.findData(_ec2)
+            if _pidx2 >= 0:
+                _ceil_preset_combo.blockSignals(True)
+                _ceil_preset_combo.setCurrentIndex(_pidx2)
+                _ceil_preset_combo.blockSignals(False)
+    _ceil_update_info()
+
+    lbl_ceil_finish = QLabel("天井仕上げ", dialog)
+    layout.addRow(lbl_ceil_finish, _ceil_panel)
+    # ── END CEILING FINISH PANEL ──────────────────────────────────────────────
+
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    buttons.button(QDialogButtonBox.Ok).setText(self.tr("structural_confirm"))
+    buttons.button(QDialogButtonBox.Cancel).setText(self.tr("structural_cancel"))
+    layout.addRow(buttons)
+
+    radius_label = layout.labelForField(radius_edit)
+    radius_edit.setVisible(arc_checkbox.isChecked())
+    if radius_label is not None:
+        radius_label.setVisible(arc_checkbox.isChecked())
+
+    def _update_elevation_visibility():
+        etype = type_combo.currentData()
+        show_top = etype in ("slab",)
+        show_bot = etype in ("beam", "column", "wall_lgs", "wall_rc")
+        show_ceil = etype in ("ceiling_lgs",)
+        show_wall = etype in ("wall_rc", "wall_lgs", "column", "beam")
+        lbl_top_elev.setVisible(show_top)
+        edit_top_elev.setVisible(show_top)
+        lbl_bot_elev.setVisible(show_bot)
+        edit_bot_elev.setVisible(show_bot)
+        lbl_ceil_bottom.setVisible(show_ceil)
+        edit_ceil_bottom.setVisible(show_ceil)
+        lbl_finish.setVisible(show_top)
+        _fl_panel.setVisible(show_top)
+        lbl_wall.setVisible(show_wall)
+        _wall_panel.setVisible(show_wall)
+        # RC thickness only relevant for wall_rc; hide for column/beam/lgs
+        _wall_rc_group.setVisible(show_wall and etype == "wall_rc")
+        _wall_lgs_group.setVisible(show_wall and etype == "wall_lgs")
+        if show_wall:
+            _wall_update_info()
+        show_ceil_panel = etype == "ceiling_lgs"
+        lbl_ceil_finish.setVisible(show_ceil_panel)
+        _ceil_panel.setVisible(show_ceil_panel)
+        if show_ceil_panel:
+            _ceil_update_info()
+        dialog.adjustSize()
+
+    type_combo.currentIndexChanged.connect(_update_elevation_visibility)
+    _update_elevation_visibility()
+
+    preview_pen = QPen(QColor(35, 125, 205), 2.0, Qt.DashLine)
+    preview_brush = QBrush(QColor(60, 145, 220, 35))
+    preview_item = self.preview.scene.addPolygon(QPolygonF(), preview_pen, preview_brush)
+    preview_item.setZValue(1001)
+
+    def update_preview():
+        ew, we = validate_dimension(width_edit.text().strip(), "W")
+        el, le = validate_dimension(length_edit.text().strip(), "L")
+        if we or le:
+            return
+        pts = rect_from_center_wl(center[0], center[1], ew, el)
+        canvas_pts = [_nevis_real_to_canvas_point(self, p) for p in pts]
+        preview_item.setPolygon(QPolygonF([QPointF(x, y) for x, y in canvas_pts]))
+
+    def toggle_radius(checked):
+        radius_edit.setVisible(checked)
+        if radius_label is not None:
+            radius_label.setVisible(checked)
+        dialog.adjustSize()
+
+    width_edit.textChanged.connect(update_preview)
+    length_edit.textChanged.connect(update_preview)
+    arc_checkbox.toggled.connect(toggle_radius)
+    update_preview()
+
+    while dialog.exec() == QDialog.Accepted:
+        ew, we = validate_dimension(width_edit.text().strip(), "W")
+        el, le = validate_dimension(length_edit.text().strip(), "L")
+        eh, he = validate_dimension(height_edit.text().strip(), "H")
+        er, re = validate_dimension(radius_edit.text().strip() if arc_checkbox.isChecked() else "0", "C")
+        if we or le or he or re:
+            QMessageBox.warning(dialog, self.tr("structural_title"), self.tr("structural_invalid_dimension"))
+            continue
+        etype = str(type_combo.currentData())
+        try:
+            top_e = float(edit_top_elev.text().strip())
+        except (ValueError, TypeError):
+            top_e = 0.0
+        try:
+            bot_e = float(edit_bot_elev.text().strip())
+        except (ValueError, TypeError):
+            bot_e = top_e - eh
+        try:
+            ceil_b = float(edit_ceil_bottom.text().strip())
+        except (ValueError, TypeError):
+            ceil_b = 2400.0
+        # Compute elevations per type
+        if etype == "slab":
+            top_elevation = top_e
+            bottom_elevation = top_e - eh
+        elif etype == "beam":
+            bottom_elevation = bot_e
+            top_elevation = bot_e + eh
+        elif etype == "ceiling_lgs":
+            top_elevation = ceil_b
+            bottom_elevation = ceil_b - eh
+        else:  # column, wall_lgs, wall_rc — stand upward from bottom face
+            bottom_elevation = bot_e
+            top_elevation = bot_e + eh
+        # Collect finish: primary source = FL mm field; layers from detail table
+        finish_layers = _get_current_layers()
+        try:
+            finish_mm = max(0.0, float(_fl_mm_edit.text().strip()))
+        except (ValueError, TypeError):
+            finish_mm = sum(lay["thickness"] for lay in finish_layers)
+        # Collect wall finish data (for wall_rc / wall_lgs / column / beam)
+        if etype in ("wall_rc", "wall_lgs", "column", "beam"):
+            try:
+                w_rc_thick = float(_wall_rc_edit.text().strip())
+            except (ValueError, TypeError):
+                w_rc_thick = 180.0
+            w_stud = float(_wall_lgs_stud_combo.currentData() or 65.0)
+            w_stagger = _wall_lgs_stagger_cb.isChecked()
+            w_type_code = _wall_state["type_code"]
+            w_inner = list(_wall_state["inner"])
+            w_outer = list(_wall_state["outer"])
+            if preview_item.scene() is not None:
+                preview_item.scene().removeItem(preview_item)
+            return (etype, ew, el, eh, er, top_elevation, bottom_elevation,
+                    0.0, [], w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger)
+        # Collect ceiling data (for ceiling_lgs) — returns 17-tuple
+        if etype == "ceiling_lgs":
+            c_bt = float(_ceil_bt_combo.currentData() or 9.0)
+            c_bl = int(_ceil_bl_combo.currentData() or 1)
+            c_df = _ceil_df_cb.isChecked()
+            c_surf = _ceil_surf_edit.text().strip() or "AEP"
+            c_code = _ceil_preset_combo.currentData() or ""
+            if preview_item.scene() is not None:
+                preview_item.scene().removeItem(preview_item)
+            return (etype, ew, el, eh, er, top_elevation, bottom_elevation,
+                    0.0, [], "", [], [], 0.0, 65.0, False, c_bt, c_bl, c_df, c_surf, c_code)
+        if preview_item.scene() is not None:
+            preview_item.scene().removeItem(preview_item)
+        return etype, ew, el, eh, er, top_elevation, bottom_elevation, finish_mm, finish_layers
+    if preview_item.scene() is not None:
+        preview_item.scene().removeItem(preview_item)
+    return None
+
+
+def _nevis_t21_canvas_label(element, mainwin) -> str:
+    """Generate the small canvas label for an element."""
+    etype = getattr(element, "element_type", "slab")
+    h = float(getattr(element, "height", 0.0) or 0.0)
+    top = float(getattr(element, "top_elevation", 0.0) or 0.0)
+    bot = float(getattr(element, "bottom_elevation", 0.0) or 0.0)
+    w = float(getattr(element, "width", 0.0) or 0.0)
+    finish = _NEVIS_T21_FINISH_THICKNESS
+    fl = compute_fl(0.0, finish_thickness_mm=finish)
+    if etype == "slab":
+        return format_slab_label(top, h)
+    elif etype == "beam":
+        return format_beam_label(bot, w, h)
+    elif etype == "ceiling_lgs":
+        return format_ceiling_ch(top, fl)
+    return ""
+
+
+def _nevis_t21_create_from_drag(self, start, end) -> bool:
+    raw_width = abs(float(end[0]) - float(start[0]))
+    raw_length = abs(float(end[1]) - float(start[1]))
+    if raw_width < EPS or raw_length < EPS:
+        self.lbl_status.setText(self.tr("structural_invalid_region"))
+        return False
+    center = ((float(start[0]) + float(end[0])) / 2.0, (float(start[1]) + float(end[1])) / 2.0)
+    result = self._structural_edit_dialog(raw_width, raw_length, center)
+    if result is None:
+        return False
+    finish_mm = 0.0
+    finish_layers = []
+    w_type_code = ""
+    w_inner: list = []
+    w_outer: list = []
+    w_rc_thick = 180.0
+    w_stud = 65.0
+    w_stagger = False
+    c_bt = 9.0
+    c_bl = 1
+    c_df = False
+    c_surf = "AEP"
+    c_code = ""
+    if len(result) == 20:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger,
+         c_bt, c_bl, c_df, c_surf, c_code) = result
+    elif len(result) == 15:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
+    elif len(result) == 9:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
+    elif len(result) == 8:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
+    elif len(result) == 7:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
+    else:
+        element_type, width, length, height, arc_radius = result
+        top_elevation, bottom_elevation = 0.0, -height
+    existing = list(getattr(self.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
+    element = StructuralElement(
+        id=next_id,
+        element_type=element_type,
+        label=_nevis_structural_type_labels(self)[element_type],
+        points=rect_from_center_wl(center[0], center[1], width, length),
+        width=width,
+        length=length,
+        height=height,
+        arc_radius=arc_radius,
+        top_elevation=top_elevation,
+        bottom_elevation=bottom_elevation,
+        finish_layers=finish_layers,
+        finish_thickness_mm=finish_mm,
+        wall_finish_type_code=w_type_code,
+        wall_finish_inner=w_inner,
+        wall_finish_outer=w_outer,
+        wall_rc_thickness=w_rc_thick,
+        stud_width=w_stud,
+        lgs_is_staggered=w_stagger,
+        ceiling_board_thickness=c_bt,
+        ceiling_board_layers=c_bl,
+        ceiling_double_frame=c_df,
+        ceiling_finish_surface=c_surf,
+        ceiling_finish_type_code=c_code,
+    )
+    self.save_undo_snapshot("create_structural_element")
+    self.model.structural_elements.append(element)
+    self.selected_structural_id = element.id
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_created").format(
+        label=element.label, width=width, length=length))
+    return True
+
+
+def _nevis_t21_edit_existing(self, element_id: int) -> bool:
+    element = _nevis_structural_find_element(self, element_id)
+    if element is None or not getattr(element, "points", None):
+        return False
+    xs = [float(p[0]) for p in element.points]
+    ys = [float(p[1]) for p in element.points]
+    center = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+    width = float(getattr(element, "width", 0.0) or (max(xs) - min(xs)))
+    length = float(getattr(element, "length", 0.0) or (max(ys) - min(ys)))
+    result = self._structural_edit_dialog(width, length, center, element)
+    if result is None:
+        self.preview.draw_model()
+        return False
+    finish_mm = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0)
+    finish_layers = list(getattr(element, "finish_layers", []) or [])
+    w_type_code = str(getattr(element, "wall_finish_type_code", "") or "")
+    w_inner = list(getattr(element, "wall_finish_inner", []) or [])
+    w_outer = list(getattr(element, "wall_finish_outer", []) or [])
+    w_rc_thick = float(getattr(element, "wall_rc_thickness", 180.0) or 180.0)
+    w_stud = float(getattr(element, "stud_width", 65.0) or 65.0)
+    w_stagger = bool(getattr(element, "lgs_is_staggered", False))
+    c_bt = float(getattr(element, "ceiling_board_thickness", 9.0) or 9.0)
+    c_bl = int(getattr(element, "ceiling_board_layers", 1) or 1)
+    c_df = bool(getattr(element, "ceiling_double_frame", False))
+    c_surf = str(getattr(element, "ceiling_finish_surface", "AEP") or "AEP")
+    c_code = str(getattr(element, "ceiling_finish_type_code", "") or "")
+    if len(result) == 20:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger,
+         c_bt, c_bl, c_df, c_surf, c_code) = result
+    elif len(result) == 15:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
+    elif len(result) == 9:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
+    elif len(result) == 8:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
+    elif len(result) == 7:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
+    else:
+        element_type, width, length, height, arc_radius = result
+        top_elevation = float(getattr(element, "top_elevation", 0.0) or 0.0)
+        bottom_elevation = top_elevation - height
+    self.save_undo_snapshot("edit_structural_element")
+    element.element_type = element_type
+    element.label = _nevis_structural_type_labels(self)[element_type]
+    element.points = rect_from_center_wl(center[0], center[1], width, length)
+    element.width = width
+    element.length = length
+    element.height = height
+    element.arc_radius = arc_radius
+    element.top_elevation = top_elevation
+    element.bottom_elevation = bottom_elevation
+    element.finish_layers = finish_layers
+    element.finish_thickness_mm = finish_mm
+    element.wall_finish_type_code = w_type_code
+    element.wall_finish_inner = w_inner
+    element.wall_finish_outer = w_outer
+    element.wall_rc_thickness = w_rc_thick
+    element.stud_width = w_stud
+    element.lgs_is_staggered = w_stagger
+    element.ceiling_board_thickness = c_bt
+    element.ceiling_board_layers = c_bl
+    element.ceiling_double_frame = c_df
+    element.ceiling_finish_surface = c_surf
+    element.ceiling_finish_type_code = c_code
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_updated").format(
+        label=element.label, width=width, length=length, height=height))
+    return True
+
+
+# Patch draw_items to show canvas elevation label
+_NEVIS_T21_PREV_DRAW_MODEL = PreviewView.draw_model
+
+
+def _nevis_t21_draw_model(self, *args, **kwargs):
+    result = _NEVIS_T21_PREV_DRAW_MODEL(self, *args, **kwargs)
+    # Overlay elevation labels for all structural elements
+    if getattr(self.mainwin, "workspace_mode", get_default_mode()) != "structural":
+        return result
+    for element in getattr(self.mainwin.model, "structural_elements", []):
+        lbl_text = _nevis_t21_canvas_label(element, self.mainwin)
+        if not lbl_text:
+            continue
+        if len(getattr(element, "points", [])) < 3:
+            continue
+        xs = [p[0] for p in element.points]
+        ys = [p[1] for p in element.points]
+        cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+        canvas_cx, canvas_cy = _nevis_real_to_canvas_point(self.mainwin, (cx, cy))
+        scale = abs(float(self.transform().m11())) or 1.0
+        font = QFont("Segoe UI", int(max(6, 7 / scale)))
+        lbl_item = self.scene.addText(lbl_text, font)
+        lbl_item.setDefaultTextColor(QColor(50, 50, 160))
+        lbl_item.setZValue(15)
+        lbl_item.setAcceptedMouseButtons(Qt.NoButton)
+        tr = lbl_item.boundingRect()
+        # Place below center (below the type label already drawn)
+        lbl_item.setPos(canvas_cx - tr.width() / 2.0, canvas_cy + tr.height() / 2.0)
+    return result
+
+
+MainWindow._structural_edit_dialog = _nevis_t21_edit_dialog
+MainWindow._structural_create_from_drag = _nevis_t21_create_from_drag
+MainWindow._structural_edit_existing = _nevis_t21_edit_existing
+PreviewView.draw_model = _nevis_t21_draw_model
+
+
+# =============================================================================
+# TASK 23a — Sửa vẽ được tất cả 6 loại phần tử kết cấu
+# 1. Click type button → kích hoạt draw mode ngay, nút sáng lên
+# 2. Cho phép drag theo 1 chiều (sàn mỏng, dầm ngang...) — bỏ check OR thành AND
+# 3. Nút active style rõ ràng (#1976D2 xanh đậm)
+# =============================================================================
+_T23A_ACTIVE_BTN_STYLE = (
+    "QPushButton:checked {"
+    "  background-color: #1976D2;"
+    "  color: white;"
+    "  border: 1px solid #1565C0;"
+    "  border-radius: 3px;"
+    "}"
+)
+
+# Kích thước mặc định theo loại khi drag 1 chiều (mm)
+_T23A_DEFAULT_DIM = {
+    "slab":     (3640.0, 150.0),
+    "beam":     (300.0, 600.0),
+    "column":   (500.0, 500.0),
+    "wall_rc":  (200.0, 2800.0),
+    "wall_lgs": (100.0, 2700.0),
+    "ceiling_lgs":  (3640.0, 30.0),
+}
+
+
+def _nevis_t23a_on_type_btn_clicked(self, element_type: str) -> None:
+    """Click type button: set type + activate draw mode + style button."""
+    self.structural_default_type = element_type
+    # Sync legacy combo
+    idx = self.cmb_structural_type.findData(element_type)
+    if idx >= 0:
+        self.cmb_structural_type.blockSignals(True)
+        self.cmb_structural_type.setCurrentIndex(idx)
+        self.cmb_structural_type.blockSignals(False)
+    # Apply style sheet to button group container
+    if hasattr(self, "_type_btn_grid_widget"):
+        self._type_btn_grid_widget.setStyleSheet(_T23A_ACTIVE_BTN_STYLE)
+    # Activate draw mode
+    if hasattr(self, "set_structural_draw_mode"):
+        self.set_structural_draw_mode(True)
+    # Keep btn_structural_draw in sync
+    if hasattr(self, "btn_structural_draw"):
+        self.btn_structural_draw.blockSignals(True)
+        self.btn_structural_draw.setChecked(True)
+        self.btn_structural_draw.blockSignals(False)
+    # Update status bar hint
+    label = _nevis_structural_type_labels(self).get(element_type, element_type)
+    self.lbl_status.setText(
+        "{} [{}] — {}".format(
+            self.tr("structural_draw_hint"),
+            label,
+            self.tr("structural_escape_hint") if self.tr("structural_escape_hint") != "structural_escape_hint" else "Escape để thoát",
+        )
+    )
+
+
+def _nevis_t23a_create_from_drag(self, start, end) -> bool:
+    """Fixed version: allows 1-axis drag (e.g. horizontal slab)."""
+    raw_width = abs(float(end[0]) - float(start[0]))
+    raw_length = abs(float(end[1]) - float(start[1]))
+    # Reject only if user barely clicked (point, not drag)
+    if raw_width < EPS and raw_length < EPS:
+        self.lbl_status.setText(self.tr("structural_invalid_region"))
+        return False
+    # If one dimension is 0, fill with sensible default for the current type
+    etype_default = str(getattr(self, "structural_default_type", "slab"))
+    def_w, def_l = _T23A_DEFAULT_DIM.get(etype_default, (500.0, 500.0))
+    if raw_width < EPS:
+        raw_width = def_w
+    if raw_length < EPS:
+        raw_length = def_l
+    center = ((float(start[0]) + float(end[0])) / 2.0, (float(start[1]) + float(end[1])) / 2.0)
+    result = self._structural_edit_dialog(raw_width, raw_length, center)
+    if result is None:
+        return False
+    finish_mm = 0.0
+    finish_layers = []
+    w_type_code = ""
+    w_inner: list = []
+    w_outer: list = []
+    w_rc_thick = 180.0
+    w_stud = 65.0
+    w_stagger = False
+    c_bt = 9.0
+    c_bl = 1
+    c_df = False
+    c_surf = "AEP"
+    c_code = ""
+    if len(result) == 20:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger,
+         c_bt, c_bl, c_df, c_surf, c_code) = result
+    elif len(result) == 15:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
+    elif len(result) == 9:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
+    elif len(result) == 8:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
+    elif len(result) == 7:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
+    else:
+        element_type, width, length, height, arc_radius = result
+        top_elevation, bottom_elevation = 0.0, -height
+    existing = list(getattr(self.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(item, "id", 0)) for item in existing), default=0) + 1
+    element = StructuralElement(
+        id=next_id,
+        element_type=element_type,
+        label=_nevis_structural_type_labels(self)[element_type],
+        points=rect_from_center_wl(center[0], center[1], width, length),
+        width=width,
+        length=length,
+        height=height,
+        arc_radius=arc_radius,
+        top_elevation=top_elevation,
+        bottom_elevation=bottom_elevation,
+        finish_layers=finish_layers,
+        finish_thickness_mm=finish_mm,
+        wall_finish_type_code=w_type_code,
+        wall_finish_inner=w_inner,
+        wall_finish_outer=w_outer,
+        wall_rc_thickness=w_rc_thick,
+        stud_width=w_stud,
+        lgs_is_staggered=w_stagger,
+        ceiling_board_thickness=c_bt,
+        ceiling_board_layers=c_bl,
+        ceiling_double_frame=c_df,
+        ceiling_finish_surface=c_surf,
+        ceiling_finish_type_code=c_code,
+    )
+    self.save_undo_snapshot("create_structural_element")
+    self.model.structural_elements.append(element)
+    self.selected_structural_id = element.id
+    self.preview.draw_model()
+    self.lbl_status.setText(self.tr("structural_created").format(
+        label=element.label, width=width, length=length))
+    return True
+
+
+def _nevis_t23a_set_draw_mode_off_deselect(self, enabled: bool) -> None:
+    """After draw mode turns off, deselect all type buttons."""
+    _nevis_structural_set_draw_mode(self, enabled)
+    if not enabled and hasattr(self, "_type_btn_group"):
+        checked = self._type_btn_group.checkedButton()
+        if checked is not None:
+            self._type_btn_group.setExclusive(False)
+            checked.setChecked(False)
+            self._type_btn_group.setExclusive(True)
+
+
+APP_TEXT.setdefault("vi", {}).update({
+    "structural_escape_hint": "Escape để thoát",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "structural_escape_hint": "Escapeで終了",
+})
+
+MainWindow._on_type_btn_clicked = _nevis_t23a_on_type_btn_clicked
+MainWindow._structural_create_from_drag = _nevis_t23a_create_from_drag
+MainWindow.set_structural_draw_mode = _nevis_t23a_set_draw_mode_off_deselect
+
+
+# =============================================================================
+# TASK 23b — Resize handle: 8 tay cầm, kéo góc = resize 2 chiều, cạnh = 1 chiều
+#
+# Root cause: _nevis_structural_draw_handles dùng "nw/ne/se/sw/n/s/e/w"
+#             nhưng resize_element() trong structural_transform dùng "tl/tr/br/bl/t/b/r/l"
+#             → resize không bao giờ chạy được.
+# Fix: redefine _nevis_structural_handle_positions + _nevis_structural_constrain_corner
+#      để dùng "tl/tr/br/bl/t/b/l/r" — match với module.
+# Bonus: thêm resize cursor khi hover handle.
+# =============================================================================
+from modules.structural_transform import element_handle_positions as _t23b_elem_handles
+
+_T23B_CURSOR_MAP = {
+    "tl": Qt.SizeFDiagCursor, "br": Qt.SizeFDiagCursor,
+    "tr": Qt.SizeBDiagCursor, "bl": Qt.SizeBDiagCursor,
+    "t":  Qt.SizeVerCursor,   "b":  Qt.SizeVerCursor,
+    "l":  Qt.SizeHorCursor,   "r":  Qt.SizeHorCursor,
+}
+
+# Snap-to-handle label map (tl/tr... naming)
+_T23B_HANDLE_LABELS = {
+    "vi": {
+        "tl": "Góc trên-trái", "t": "Cạnh trên",  "tr": "Góc trên-phải",
+        "l":  "Cạnh trái",                          "r":  "Cạnh phải",
+        "bl": "Góc dưới-trái", "b": "Cạnh dưới",  "br": "Góc dưới-phải",
+    },
+    "jp": {
+        "tl": "左上隅", "t": "上辺",  "tr": "右上隅",
+        "l":  "左辺",               "r":  "右辺",
+        "bl": "左下隅", "b": "下辺", "br": "右下隅",
+    },
+}
+
+
+def _nevis_t23b_handle_positions(element) -> dict:
+    """Return handle positions using tl/tr/br/bl/t/b/l/r naming (matches resize_element)."""
+    return _t23b_elem_handles(element)
+
+
+def _nevis_t23b_constrain_corner(element, handle: str, position) -> tuple:
+    """Shift-constrain: keep aspect ratio when dragging a corner handle."""
+    if handle not in {"tl", "tr", "br", "bl"} or element.width <= EPS or element.length <= EPS:
+        return position
+    positions = _t23b_elem_handles(element)
+    opposite = {"tl": "br", "tr": "bl", "br": "tl", "bl": "tr"}[handle]
+    anchor_x, anchor_y = positions[opposite]
+    delta_x = float(position[0]) - anchor_x
+    delta_y = float(position[1]) - anchor_y
+    scale = max(abs(delta_x) / element.width, abs(delta_y) / element.length)
+    sign_x = -1.0 if delta_x < 0.0 else 1.0
+    sign_y = -1.0 if delta_y < 0.0 else 1.0
+    return anchor_x + sign_x * element.width * scale, anchor_y + sign_y * element.length * scale
+
+
+def _nevis_t23b_draw_handles(view, element) -> None:
+    """Draw 8 resize handles with tl/tr/br/bl/t/b/l/r naming; corners = diamond, edges = square."""
+    handles = _t23b_elem_handles(element)
+    if not handles:
+        return
+    scale = abs(float(view.transform().m11())) or 1.0
+    size = 9.0 / scale
+    half = size / 2.0
+    pen_corner = QPen(QColor(15, 75, 175), 1.5 / scale)
+    brush_corner = QBrush(QColor(40, 120, 230))
+    pen_edge = QPen(QColor(15, 75, 175), 1.0 / scale)
+    brush_edge = QBrush(QColor(130, 175, 240))
+    corners = {"tl", "tr", "br", "bl"}
+    for handle, (x, y) in handles.items():
+        canvas_x, canvas_y = _nevis_real_to_canvas_point(view.mainwin, (x, y))
+        pen = pen_corner if handle in corners else pen_edge
+        brush = brush_corner if handle in corners else brush_edge
+        item = view.scene.addRect(canvas_x - half, canvas_y - half, size, size, pen, brush)
+        item.setZValue(100)
+        item.setData(0, ("structural_handle", (int(element.id), handle)))
+        item.setCursor(QCursor(_T23B_CURSOR_MAP.get(handle, Qt.SizeAllCursor)))
+
+
+_T23B_PREV_MOUSE_MOVE = PreviewView.mouseMoveEvent
+
+
+def _nevis_t23b_mouse_move(self, event):
+    """Add resize cursor when hovering over a handle (not during drag)."""
+    result = _T23B_PREV_MOUSE_MOVE(self, event)
+    # Only change cursor in structural mode, not during active drags
+    if (
+        getattr(self.mainwin, "workspace_mode", "mep") != "structural"
+        or getattr(self, "_structural_drag_start", None) is not None
+        or getattr(self, "_structural_transform", None) is not None
+    ):
+        return result
+    try:
+        view_pos = event.position().toPoint()
+    except AttributeError:
+        view_pos = event.pos()
+    item = self.itemAt(view_pos)
+    data = item.data(0) if item is not None else None
+    if isinstance(data, tuple) and data[0] == "structural_handle":
+        _, (_, handle) = data
+        cursor = _T23B_CURSOR_MAP.get(handle, Qt.SizeAllCursor)
+        self.viewport().setCursor(QCursor(cursor))
+    elif getattr(self.mainwin, "structural_draw_mode", False):
+        self.viewport().setCursor(Qt.CrossCursor)
+    else:
+        self.viewport().setCursor(Qt.OpenHandCursor)
+    return result
+
+
+# Monkey-patch: replace nw/ne/... naming with tl/tr/... naming
+_nevis_structural_handle_positions = _nevis_t23b_handle_positions
+_nevis_structural_constrain_corner = _nevis_t23b_constrain_corner
+_nevis_structural_draw_handles = _nevis_t23b_draw_handles
+PreviewView.mouseMoveEvent = _nevis_t23b_mouse_move
+
+
+# =============================================================================
+# TASK 23c — Panel kết cấu thu hẹp 180px, ẩn tab Vật tư + Kiểm tra ống
+# =============================================================================
+_T23C_PANEL_WIDTH_STRUCTURAL = 220
+_T23C_PANEL_WIDTH_MEP = 450   # giá trị gốc
+
+
+def _t23c_set_tab_visible(tabs, index: int, visible: bool) -> None:
+    """Hide/show tab — dùng setTabVisible (Qt 5.15+) hoặc setTabEnabled."""
+    if index < 0 or index >= tabs.count():
+        return
+    try:
+        tabs.setTabVisible(index, visible)
+    except AttributeError:
+        tabs.setTabEnabled(index, visible)
+
+
+_T23C_PREV_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t23c_set_workspace_mode(self, mode: str) -> None:
+    _T23C_PREV_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "mep") == "structural"
+    # --- Panel width ---
+    if hasattr(self, "left_shell"):
+        w = _T23C_PANEL_WIDTH_STRUCTURAL if structural else _T23C_PANEL_WIDTH_MEP
+        self.left_shell.setMinimumWidth(w)
+        self.left_shell.setMaximumWidth(w)
+        try:
+            inner = self.left_scroll.widget()
+            if inner is not None:
+                inner.setMinimumWidth(w)
+                inner.setMaximumWidth(w)
+        except AttributeError:
+            pass
+    # --- Tabs visibility ---
+    tabs = getattr(self, "tabs", None)
+    if tabs is not None:
+        # Tab 0 = Vật tư / 材料
+        _t23c_set_tab_visible(tabs, 0, not structural)
+        # Pipe-check tab
+        pc_idx = getattr(self, "_pipe_check_tab_index", -1)
+        _t23c_set_tab_visible(tabs, pc_idx, not structural)
+        # If switching to structural, move to first visible tab
+        if structural:
+            for i in range(tabs.count()):
+                try:
+                    visible = tabs.isTabVisible(i)
+                except AttributeError:
+                    visible = tabs.isTabEnabled(i)
+                if visible:
+                    tabs.setCurrentIndex(i)
+                    break
+
+
+MainWindow.set_workspace_mode = _nevis_t23c_set_workspace_mode
+
+
+# =============================================================================
+# TASK 23d — Nút draw active: style #1976D2 áp dụng từ đầu; Escape đã có ở T19
+# =============================================================================
+# _T23A_ACTIVE_BTN_STYLE đã được định nghĩa trong Task 23a.
+# Đảm bảo stylesheet được áp dụng ngay khi _build_ui chạy (không chỉ khi click).
+_T23D_PREV_BUILD_UI = MainWindow._build_ui
+
+
+def _nevis_t23d_build_ui(self):
+    result = _T23D_PREV_BUILD_UI(self)
+    # Apply active-button stylesheet once UI is built
+    if hasattr(self, "_type_btn_grid_widget"):
+        self._type_btn_grid_widget.setStyleSheet(_T23A_ACTIVE_BTN_STYLE)
+    return result
+
+
+MainWindow._build_ui = _nevis_t23d_build_ui
+
+
+# =============================================================================
+# TASK 23e — wheelEvent zoom tại vị trí chuột (QGraphicsView anchor trick)
+# =============================================================================
+_T23E_PREV_WHEEL = PreviewView.wheelEvent
+
+
+def _nevis_t23e_wheel_event(self, event):
+    delta = event.angleDelta().y()
+    if delta == 0:
+        return _T23E_PREV_WHEEL(self, event)
+    factor = 1.15 if delta > 0 else (1.0 / 1.15)
+    # Zoom centred on mouse cursor using QGraphicsView transform anchor
+    old_anchor = self.transformationAnchor()
+    self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+    self.scale(factor, factor)
+    self.setTransformationAnchor(old_anchor)
+    # In structural mode, refresh overlays (handles, grid, elevation labels)
+    if getattr(self.mainwin, "workspace_mode", "mep") == "structural":
+        self.draw_model()
+    event.accept()
+
+
+PreviewView.wheelEvent = _nevis_t23e_wheel_event
+
+
+# =============================================================================
+# TASK 24a — Properties Panel (panel thuộc tính bên phải, 220px)
+# =============================================================================
+APP_TEXT.setdefault("vi", {}).update({
+    "prop_title":        "Thuộc tính",
+    "prop_no_selection": "Chưa chọn đối tượng",
+    "prop_label_lbl":    "Nhãn",
+    "prop_width":        "Rộng W",
+    "prop_length":       "Dài L",
+    "prop_height":       "Cao / Dày H",
+    "prop_top_elev":     "Mặt trên (SL±mm)",
+    "prop_bot_elev":     "Đáy (SL±mm)",
+    "prop_ceil_bot":     "Đáy trần (SL+mm)",
+    "prop_update":       "Cập nhật",
+    "prop_delete":       "Xóa",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "prop_title":        "属性",
+    "prop_no_selection": "未選択",
+    "prop_label_lbl":    "ラベル",
+    "prop_width":        "幅 W",
+    "prop_length":       "奥行 L",
+    "prop_height":       "高さ / 厚さ H",
+    "prop_top_elev":     "天端 (SL±mm)",
+    "prop_bot_elev":     "底面 (SL±mm)",
+    "prop_ceil_bot":     "天井底 (SL+mm)",
+    "prop_update":       "更新",
+    "prop_delete":       "削除",
+})
+
+_T24A_ELEV_FIELDS_BY_TYPE = {
+    "slab":     ("top",),
+    "beam":     ("bot",),
+    "column":   ("top",),
+    "wall_rc":  ("top",),
+    "wall_lgs": ("top",),
+    "ceiling_lgs":  ("ceil",),
+}
+
+_T24A_PREV_BUILD_UI = MainWindow._build_ui
+
+
+def _nevis_t24a_build_ui(self):
+    result = _T24A_PREV_BUILD_UI(self)
+    if not hasattr(self, "tabs"):
+        return result
+    # Build properties widget
+    tab = QWidget()
+    vlay = QVBoxLayout(tab)
+    vlay.setContentsMargins(8, 8, 8, 8)
+    vlay.setSpacing(6)
+
+    self._prop_lbl_status = QLabel(self.tr("prop_no_selection"))
+    self._prop_lbl_status.setStyleSheet("color:#555; font-style:italic; font-size:11px;")
+    self._prop_lbl_status.setWordWrap(True)
+    vlay.addWidget(self._prop_lbl_status)
+
+    sep = QFrame()
+    sep.setFrameShape(QFrame.HLine)
+    sep.setStyleSheet("color:#CCC;")
+    vlay.addWidget(sep)
+
+    # Scrollable form
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QScrollArea.NoFrame)
+    form_container = QWidget()
+    form = QFormLayout(form_container)
+    form.setContentsMargins(0, 0, 0, 0)
+    form.setSpacing(5)
+
+    self._prop_cmb_type = QComboBox(form_container)
+    for etype, label in _nevis_structural_type_labels(self).items():
+        self._prop_cmb_type.addItem(label, etype)
+    form.addRow(self.tr("structural_type_label"), self._prop_cmb_type)
+
+    self._prop_edit_label = QLineEdit(form_container)
+    form.addRow(self.tr("prop_label_lbl"), self._prop_edit_label)
+
+    self._prop_edit_width  = QLineEdit(form_container)
+    self._prop_edit_length = QLineEdit(form_container)
+    self._prop_edit_height = QLineEdit(form_container)
+    form.addRow("{} (mm)".format(self.tr("prop_width")),  self._prop_edit_width)
+    form.addRow("{} (mm)".format(self.tr("prop_length")), self._prop_edit_length)
+    form.addRow("{} (mm)".format(self.tr("prop_height")), self._prop_edit_height)
+
+    self._prop_lbl_top_elev  = QLabel("{} (mm)".format(self.tr("prop_top_elev")))
+    self._prop_edit_top_elev = QLineEdit(form_container)
+    form.addRow(self._prop_lbl_top_elev, self._prop_edit_top_elev)
+
+    self._prop_lbl_bot_elev  = QLabel("{} (mm)".format(self.tr("prop_bot_elev")))
+    self._prop_edit_bot_elev = QLineEdit(form_container)
+    form.addRow(self._prop_lbl_bot_elev, self._prop_edit_bot_elev)
+
+    self._prop_lbl_ceil = QLabel("{} (mm)".format(self.tr("prop_ceil_bot")))
+    self._prop_edit_ceil = QLineEdit(form_container)
+    form.addRow(self._prop_lbl_ceil, self._prop_edit_ceil)
+
+    scroll.setWidget(form_container)
+    vlay.addWidget(scroll, 1)
+
+    # Action buttons
+    btn_row = QHBoxLayout()
+    self._prop_btn_update = QPushButton(self.tr("prop_update"))
+    self._prop_btn_delete = QPushButton(self.tr("prop_delete"))
+    self._prop_btn_delete.setStyleSheet("color:#C62828;")
+    btn_row.addWidget(self._prop_btn_update)
+    btn_row.addWidget(self._prop_btn_delete)
+    vlay.addLayout(btn_row)
+
+    # Wire signals
+    self._prop_cmb_type.currentIndexChanged.connect(
+        lambda: _t24a_update_field_visibility(self))
+    self._prop_btn_update.clicked.connect(lambda: _t24a_apply_update(self))
+    self._prop_btn_delete.clicked.connect(self._structural_delete_selected_and_refresh)
+
+    # Initially hide form until something is selected
+    form_container.setVisible(False)
+    self._prop_form_container = form_container
+    self._prop_btn_update.setVisible(False)
+    self._prop_btn_delete.setVisible(False)
+
+    self._prop_tab_index = self.tabs.addTab(tab, self.tr("prop_title"))
+    return result
+
+
+def _t24a_update_field_visibility(mainwin) -> None:
+    etype = str(mainwin._prop_cmb_type.currentData() or "slab")
+    show = _T24A_ELEV_FIELDS_BY_TYPE.get(etype, ("top",))
+    mainwin._prop_lbl_top_elev.setVisible("top" in show)
+    mainwin._prop_edit_top_elev.setVisible("top" in show)
+    mainwin._prop_lbl_bot_elev.setVisible("bot" in show)
+    mainwin._prop_edit_bot_elev.setVisible("bot" in show)
+    mainwin._prop_lbl_ceil.setVisible("ceil" in show)
+    mainwin._prop_edit_ceil.setVisible("ceil" in show)
+
+
+def _t24a_update_properties_panel(mainwin) -> None:
+    """Refresh the properties panel from the currently selected element."""
+    if not hasattr(mainwin, "_prop_lbl_status"):
+        return
+    elem_id = getattr(mainwin, "selected_structural_id", None)
+    element = _nevis_structural_find_element(mainwin, elem_id) if elem_id is not None else None
+    if element is None:
+        mainwin._prop_lbl_status.setText(mainwin.tr("prop_no_selection"))
+        mainwin._prop_form_container.setVisible(False)
+        mainwin._prop_btn_update.setVisible(False)
+        mainwin._prop_btn_delete.setVisible(False)
+        return
+    mainwin._prop_lbl_status.setText(
+        "{} — ID {}".format(
+            _nevis_structural_type_labels(mainwin).get(element.element_type, element.element_type),
+            element.id,
+        )
+    )
+    mainwin._prop_form_container.setVisible(True)
+    mainwin._prop_btn_update.setVisible(True)
+    mainwin._prop_btn_delete.setVisible(True)
+    # Fill values
+    idx = mainwin._prop_cmb_type.findData(element.element_type)
+    if idx >= 0:
+        mainwin._prop_cmb_type.blockSignals(True)
+        mainwin._prop_cmb_type.setCurrentIndex(idx)
+        mainwin._prop_cmb_type.blockSignals(False)
+    mainwin._prop_edit_label.setText(str(getattr(element, "label", "") or ""))
+    mainwin._prop_edit_width.setText("{:g}".format(float(getattr(element, "width", 0.0) or 0.0)))
+    mainwin._prop_edit_length.setText("{:g}".format(float(getattr(element, "length", 0.0) or 0.0)))
+    mainwin._prop_edit_height.setText("{:g}".format(float(getattr(element, "height", 0.0) or 0.0)))
+    mainwin._prop_edit_top_elev.setText("{:g}".format(float(getattr(element, "top_elevation", 0.0) or 0.0)))
+    mainwin._prop_edit_bot_elev.setText("{:g}".format(float(getattr(element, "bottom_elevation", 0.0) or 0.0)))
+    mainwin._prop_edit_ceil.setText("{:g}".format(float(getattr(element, "top_elevation", 2400.0) or 2400.0)))
+    _t24a_update_field_visibility(mainwin)
+
+
+def _t24a_apply_update(mainwin) -> None:
+    """Read form values and apply to the selected element."""
+    elem_id = getattr(mainwin, "selected_structural_id", None)
+    element = _nevis_structural_find_element(mainwin, elem_id) if elem_id is not None else None
+    if element is None:
+        return
+    etype = str(mainwin._prop_cmb_type.currentData() or element.element_type)
+    show = _T24A_ELEV_FIELDS_BY_TYPE.get(etype, ("top",))
+    def _float(edit, default=0.0):
+        try:
+            return float(edit.text().strip())
+        except (ValueError, TypeError):
+            return default
+    new_w = _float(mainwin._prop_edit_width, element.width)
+    new_l = _float(mainwin._prop_edit_length, element.length)
+    new_h = _float(mainwin._prop_edit_height, element.height)
+    if "top" in show:
+        top_e = _float(mainwin._prop_edit_top_elev, element.top_elevation)
+        bot_e = top_e - new_h
+    elif "bot" in show:
+        bot_e = _float(mainwin._prop_edit_bot_elev, element.bottom_elevation)
+        top_e = bot_e + new_h
+    elif "ceil" in show:
+        top_e = _float(mainwin._prop_edit_ceil, element.top_elevation)
+        bot_e = top_e - new_h
+    else:
+        top_e = element.top_elevation
+        bot_e = element.bottom_elevation
+    mainwin.save_undo_snapshot("prop_update_structural")
+    element.element_type  = etype
+    element.label         = mainwin._prop_edit_label.text().strip() or element.label
+    element.width         = max(new_w, 1.0)
+    element.length        = max(new_l, 1.0)
+    element.height        = max(new_h, 0.0)
+    element.top_elevation = top_e
+    element.bottom_elevation = bot_e
+    from modules.structural_input import rect_from_center_wl
+    xs = [p[0] for p in element.points]
+    ys = [p[1] for p in element.points]
+    if xs and ys:
+        cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+        element.points = rect_from_center_wl(cx, cy, element.width, element.length)
+    mainwin.preview.draw_model()
+    mainwin.lbl_status.setText(mainwin.tr("structural_updated").format(
+        label=element.label, width=element.width, length=element.length, height=element.height))
+
+
+def _nevis_t24a_structural_delete_and_refresh(self) -> None:
+    _nevis_delete_selected_structural_element(self)
+    self.selected_structural_id = None
+    self.preview.draw_model()
+
+
+MainWindow._build_ui = _nevis_t24a_build_ui
+MainWindow._structural_delete_selected_and_refresh = _nevis_t24a_structural_delete_and_refresh
+
+# Hook into draw_model to refresh panel
+_T24A_PREV_DRAW_MODEL = PreviewView.draw_model
+
+
+def _nevis_t24a_draw_model(self, *args, **kwargs):
+    result = _T24A_PREV_DRAW_MODEL(self, *args, **kwargs)
+    if getattr(self.mainwin, "workspace_mode", "mep") == "structural":
+        _t24a_update_properties_panel(self.mainwin)
+    return result
+
+
+PreviewView.draw_model = _nevis_t24a_draw_model
+
+# Patch set_workspace_mode to show/hide properties tab
+_T24A_PREV_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t24a_set_workspace_mode(self, mode: str) -> None:
+    _T24A_PREV_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "mep") == "structural"
+    tabs = getattr(self, "tabs", None)
+    if tabs is None:
+        return
+    pc_idx = getattr(self, "_prop_tab_index", -1)
+    if pc_idx >= 0:
+        _t23c_set_tab_visible(tabs, pc_idx, structural)
+    if structural and pc_idx >= 0:
+        tabs.setCurrentIndex(pc_idx)
+
+
+MainWindow.set_workspace_mode = _nevis_t24a_set_workspace_mode
+
+
+# =============================================================================
+# TASK 24b — Tooltip kích thước realtime khi kéo vẽ / resize
+# =============================================================================
+_T24B_PREV_MOUSE_MOVE    = PreviewView.mouseMoveEvent
+_T24B_PREV_MOUSE_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_t24b_mouse_move(self, event):
+    result = _T24B_PREV_MOUSE_MOVE(self, event)
+    # Show dimension tooltip during draw drag
+    start = getattr(self, "_structural_drag_start", None)
+    if start is not None and getattr(self.mainwin, "structural_draw_mode", False):
+        end = _nevis_structural_raw_scene_point(self, event)
+        w = abs(float(end[0]) - float(start[0]))
+        h = abs(float(end[1]) - float(start[1]))
+        QToolTip.showText(
+            QCursor.pos(),
+            "W: {:.0f} mm\nL: {:.0f} mm".format(w, h),
+            self,
+        )
+        return result
+    # Show tooltip during resize drag
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and (event.buttons() & Qt.LeftButton):
+        elem = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
+        if elem is not None:
+            QToolTip.showText(
+                QCursor.pos(),
+                "W: {:.0f} mm\nL: {:.0f} mm".format(
+                    float(getattr(elem, "width", 0.0) or 0.0),
+                    float(getattr(elem, "length", 0.0) or 0.0),
+                ),
+                self,
+            )
+        return result
+    QToolTip.hideText()
+    return result
+
+
+def _nevis_t24b_mouse_release(self, event):
+    QToolTip.hideText()
+    return _T24B_PREV_MOUSE_RELEASE(self, event)
+
+
+PreviewView.mouseMoveEvent    = _nevis_t24b_mouse_move
+PreviewView.mouseReleaseEvent = _nevis_t24b_mouse_release
+
+
+# =============================================================================
+# TASK 24c — Lưới chấm mờ bằng drawBackground (thay thế scene-dot approach)
+# =============================================================================
+
+def _nevis_t24c_draw_background(self, painter, rect):
+    """Override QGraphicsView.drawBackground: draw dotted grid in scene coords."""
+    super(PreviewView, self).drawBackground(painter, rect)
+    if getattr(self.mainwin, "workspace_mode", "mep") != "structural":
+        return
+    if not bool(getattr(self.mainwin, "structural_grid_enabled", True)):
+        return
+    grid_mm = float(getattr(self.mainwin, "structural_grid_mm", 3.0) or 3.0)
+    drawing_scale = float(getattr(self.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    spacing = grid_mm / drawing_scale  # scene units per grid line
+    if spacing < 0.5:
+        return
+    # Guard against absurdly fine grid (> 2000 lines visible)
+    visible_w = rect.width()
+    visible_h = rect.height()
+    if visible_w / spacing > 2000 or visible_h / spacing > 2000:
+        return
+    pen = QPen(QColor(165, 175, 188, 75))
+    pen.setStyle(Qt.DotLine)
+    pen.setCosmetic(True)  # 1px regardless of zoom
+    painter.setPen(pen)
+    import math as _math
+    x_start = _math.floor(rect.left() / spacing) * spacing
+    y_start = _math.floor(rect.top()  / spacing) * spacing
+    x = x_start
+    while x <= rect.right() + spacing:
+        painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
+        x += spacing
+    y = y_start
+    while y <= rect.bottom() + spacing:
+        painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
+        y += spacing
+
+
+PreviewView.drawBackground = _nevis_t24c_draw_background
+
+
+# Suppress old scene-dot grid so we don't double-draw
+def _nevis_t24c_draw_structural_grid_noop(view) -> None:
+    pass  # replaced by drawBackground above
+
+
+_nevis_draw_structural_grid = _nevis_t24c_draw_structural_grid_noop
+
+
+# Wire chk_structural_grid toggle to also invalidate the scene background
+_T24C_PREV_UPDATE_GRID = MainWindow.update_structural_grid_settings
+
+
+def _nevis_t24c_update_grid_settings(self) -> None:
+    _T24C_PREV_UPDATE_GRID(self)
+    if hasattr(self, "preview"):
+        self.preview.scene.invalidate(
+            self.preview.sceneRect(), QGraphicsScene.BackgroundLayer
+        )
+
+
+MainWindow.update_structural_grid_settings = _nevis_t24c_update_grid_settings
+
+
+# =============================================================================
+# TASK 25 — Post-draw UX: auto-exit draw mode + hover cursor (move/resize)
+#            + edge-snap highlight (yellow flash when edges align)
+# =============================================================================
+
+# --- 25a: Auto-exit draw mode after element is created ---
+_T25_PREV_CREATE = MainWindow._structural_create_from_drag
+
+
+def _nevis_t25_create_from_drag(self, start, end) -> bool:
+    result = _T25_PREV_CREATE(self, start, end)
+    if result:
+        # Exit draw mode so user can immediately select/resize the new element
+        self.set_structural_draw_mode(False)
+    return result
+
+
+MainWindow._structural_create_from_drag = _nevis_t25_create_from_drag
+
+
+# --- 25b: Hover cursor — center=SizeAll (move), edge=resize ---
+_T25_PREV_MOUSE_MOVE = PreviewView.mouseMoveEvent
+_T25_SNAP_THRESH_PX = 8  # pixels on screen
+
+
+def _nevis_t25_mouse_move(self, event):
+    result = _T25_PREV_MOUSE_MOVE(self, event)
+    # Only update cursor in select mode (not during draw/drag)
+    if getattr(self.mainwin, "structural_draw_mode", False):
+        return result
+    if event.buttons() != Qt.NoButton:
+        return result
+    # Hit-test: find element under cursor
+    pos = event.position() if hasattr(event, "position") else event.posF()
+    scene_pos = self.mapToScene(int(pos.x()), int(pos.y()))
+    elem_id = getattr(self.mainwin, "selected_structural_id", None)
+    element = _nevis_structural_find_element(self.mainwin, elem_id) if elem_id is not None else None
+    if element is None or not element.points:
+        self.viewport().setCursor(QCursor(Qt.ArrowCursor))
+        return result
+    handles = _nevis_structural_handle_positions(element)
+    if not handles:
+        return result
+    # Scale: screen px per scene unit
+    scale = abs(float(self.transform().m11())) or 1.0
+    thresh = _T25_SNAP_THRESH_PX / scale
+    sx, sy = scene_pos.x(), scene_pos.y()
+    # Check handle proximity
+    _cursor_map = {
+        "tl": Qt.SizeFDiagCursor, "br": Qt.SizeFDiagCursor,
+        "tr": Qt.SizeBDiagCursor, "bl": Qt.SizeBDiagCursor,
+        "t":  Qt.SizeVerCursor,   "b":  Qt.SizeVerCursor,
+        "l":  Qt.SizeHorCursor,   "r":  Qt.SizeHorCursor,
+    }
+    for hname, (hx, hy) in handles.items():
+        if abs(sx - hx) <= thresh and abs(sy - hy) <= thresh:
+            self.viewport().setCursor(QCursor(_cursor_map.get(hname, Qt.ArrowCursor)))
+            return result
+    # Check if inside element bounding box → move cursor
+    xs = [p[0] for p in element.points]
+    ys = [p[1] for p in element.points]
+    if xs and ys and min(xs) <= sx <= max(xs) and min(ys) <= sy <= max(ys):
+        self.viewport().setCursor(QCursor(Qt.SizeAllCursor))
+    else:
+        self.viewport().setCursor(QCursor(Qt.ArrowCursor))
+    return result
+
+
+PreviewView.mouseMoveEvent = _nevis_t25_mouse_move
+
+
+# --- 25c: Edge-snap highlight — yellow tint when dragged edge aligns ---
+_T25_SNAP_TOL_MM = 50.0  # real mm tolerance for edge alignment
+
+
+def _nevis_t25_find_snap_edge(mainwin, moving_elem, handle, scene_pos):
+    """Return (snapped_pos, aligned) tuple. aligned=True triggers highlight."""
+    if not moving_elem or not moving_elem.points:
+        return scene_pos, False
+    tol = _T25_SNAP_TOL_MM
+    sx, sy = scene_pos
+    best_dist = tol
+    snapped = scene_pos
+    aligned = False
+    for elem in getattr(mainwin.model, "structural_elements", []):
+        if elem.id == moving_elem.id or not elem.points:
+            continue
+        xs = [p[0] for p in elem.points]
+        ys = [p[1] for p in elem.points]
+        ex0, ex1 = min(xs), max(xs)
+        ey0, ey1 = min(ys), max(ys)
+        # X alignment (left/right handles or all)
+        if handle in ("tl", "bl", "l"):
+            for ex in (ex0, ex1):
+                if abs(sx - ex) < best_dist:
+                    best_dist = abs(sx - ex); snapped = (ex, sy); aligned = True
+        elif handle in ("tr", "br", "r"):
+            for ex in (ex0, ex1):
+                if abs(sx - ex) < best_dist:
+                    best_dist = abs(sx - ex); snapped = (ex, sy); aligned = True
+        # Y alignment
+        if handle in ("tl", "tr", "t"):
+            for ey in (ey0, ey1):
+                if abs(sy - ey) < best_dist:
+                    best_dist = abs(sy - ey); snapped = (snapped[0], ey); aligned = True
+        elif handle in ("bl", "br", "b"):
+            for ey in (ey0, ey1):
+                if abs(sy - ey) < best_dist:
+                    best_dist = abs(sy - ey); snapped = (snapped[0], ey); aligned = True
+    return snapped, aligned
+
+
+def _nevis_t25_apply_highlight(view, aligned: bool) -> None:
+    """Tint the viewport yellow when edges are aligned."""
+    if aligned:
+        view.setStyleSheet("QGraphicsView { background: #FFFDE7; }")
+    else:
+        view.setStyleSheet("")
+
+
+# Patch the resize mouse-move to add highlight when edge aligns
+_T25_PREV_RESIZE_MOVE = PreviewView.mouseMoveEvent
+
+
+def _nevis_t25_resize_highlight_move(self, event):
+    result = _T25_PREV_RESIZE_MOVE(self, event)
+    transform = getattr(self, "_structural_transform", None)
+    if transform is not None and (event.buttons() & Qt.LeftButton):
+        handle = transform.get("handle")
+        elem = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
+        if elem and handle:
+            pos = event.position() if hasattr(event, "position") else event.posF()
+            sp = self.mapToScene(int(pos.x()), int(pos.y()))
+            _, aligned = _nevis_t25_find_snap_edge(
+                self.mainwin, elem, handle, (sp.x(), sp.y()))
+            _nevis_t25_apply_highlight(self, aligned)
+    else:
+        _nevis_t25_apply_highlight(self, False)
+    return result
+
+
+PreviewView.mouseMoveEvent = _nevis_t25_resize_highlight_move
+
+# Clear highlight on release
+_T25_PREV_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_t25_release(self, event):
+    _nevis_t25_apply_highlight(self, False)
+    return _T25_PREV_RELEASE(self, event)
+
+
+PreviewView.mouseReleaseEvent = _nevis_t25_release
+
+
+# =============================================================================
+# TASK 25d — Escape / right-click to exit structural draw mode
+# =============================================================================
+
+_T25D_PREV_KEY = PreviewView.keyPressEvent
+
+
+def _nevis_t25d_keyPress(self, event):
+    if event.key() == Qt.Key_Escape:
+        if getattr(self.mainwin, "structural_draw_mode", False):
+            # Cancel in-progress drag
+            self._structural_drag_start = None
+            _nevis_structural_remove_preview(self)
+            _nevis_t17_remove_snap_marker(self)
+            self.mainwin.set_structural_draw_mode(False)
+            event.accept()
+            return
+        if getattr(self.mainwin, "stepped_slab_draw_mode", False):
+            self._stepped_slab_drag_start = None
+            _nevis_stepped_slab_remove_preview(self)
+            self.mainwin.stepped_slab_draw_mode = False
+            event.accept()
+            return
+    return _T25D_PREV_KEY(self, event)
+
+
+PreviewView.keyPressEvent = _nevis_t25d_keyPress
+
+# Right-click also cancels draw mode (standard CAD convention)
+_T25D_PREV_RCLICK = getattr(PreviewView, "mouseReleaseEvent", None)
+
+
+def _nevis_t25d_right_click(self, event):
+    if event.button() == Qt.RightButton:
+        if getattr(self.mainwin, "structural_draw_mode", False):
+            self._structural_drag_start = None
+            _nevis_structural_remove_preview(self)
+            _nevis_t17_remove_snap_marker(self)
+            self.mainwin.set_structural_draw_mode(False)
+            _nevis_t25_apply_highlight(self, False)
+            event.accept()
+            return
+        if getattr(self.mainwin, "stepped_slab_draw_mode", False):
+            self._stepped_slab_drag_start = None
+            _nevis_stepped_slab_remove_preview(self)
+            self.mainwin.stepped_slab_draw_mode = False
+            event.accept()
+            return
+    if _T25D_PREV_RCLICK:
+        return _T25D_PREV_RCLICK(self, event)
+
+
+PreviewView.mouseReleaseEvent = _nevis_t25d_right_click
+
+APP_TEXT.setdefault("vi", {}).update({
+    "draw_hint_structural": "Kéo để vẽ • Escape/Chuột phải: hủy",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "draw_hint_structural": "ドラッグして描画 • Escape/右クリック: キャンセル",
+})
+
+
+# =============================================================================
+# TASK 26 — Stepped Slab UI (sàn giật cấp / 段差スラブ)
+#   Button in structural panel → select parent slab → drag child region
+#   → dialog (offset/thickness/overlap) → create StructuralElement(is_stepped=True)
+# =============================================================================
+
+APP_TEXT.setdefault("vi", {}).update({
+    "stepped_slab_command":       "Sàn giật cấp",
+    "stepped_slab_title":         "Sàn giật cấp",
+    "stepped_slab_offset":        "Lệch SL (mm)",
+    "stepped_slab_thickness":     "Dày BT (mm)",
+    "stepped_slab_overlap":       "Chồng lấn (mm)",
+    "stepped_slab_draw_hint":     "Kéo vùng con bên trong sàn chính.",
+    "stepped_slab_select_parent": "Chọn sàn chính trước.",
+    "stepped_slab_outside":       "Vùng giật cấp phải nằm trong sàn chính.",
+    "stepped_slab_created":       "Đã tạo sàn giật cấp: lệch {offset:g} mm",
+    "stepped_slab_label":         "Sàn giật cấp",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "stepped_slab_command":       "段差スラブ",
+    "stepped_slab_title":         "段差スラブ作成",
+    "stepped_slab_offset":        "SL差 (mm)",
+    "stepped_slab_thickness":     "コンクリート厚 (mm)",
+    "stepped_slab_overlap":       "重ね幅 (mm)",
+    "stepped_slab_draw_hint":     "主スラブ内に子領域を描画",
+    "stepped_slab_select_parent": "まず主スラブを選択してください",
+    "stepped_slab_outside":       "段差スラブは主スラブ内に配置してください",
+    "stepped_slab_created":       "段差スラブ作成: 差 {offset:g} mm",
+    "stepped_slab_label":         "段差スラブ",
+})
+
+# --- Temp debug log (auto-deleted on app exit) ---
+import atexit as _atexit, tempfile as _tempfile, os as _os
+_T26_LOG = _tempfile.NamedTemporaryFile(mode="w", prefix="nevis_t26_", suffix=".log", delete=False)
+_T26_LOG_PATH = _T26_LOG.name
+def _t26_log(msg):
+    try:
+        _T26_LOG.write(msg + "\n"); _T26_LOG.flush()
+    except Exception:
+        pass
+def _t26_cleanup():
+    try: _T26_LOG.close()
+    except Exception: pass
+    try: _os.unlink(_T26_LOG_PATH)
+    except Exception: pass
+_atexit.register(_t26_cleanup)
+_t26_log(f"T26 LOG INIT at {_T26_LOG_PATH}")
+
+_T26_PREV_BUILD_UI = MainWindow._build_ui
+
+
+def _nevis_t26_build_ui(self):
+    result = _T26_PREV_BUILD_UI(self)
+    # Add "段差スラブ" button to the structural workspace group
+    grp = getattr(self, "g_structural_workspace", None)
+    if grp is None:
+        return result
+    layout = grp.layout()
+    btn = QPushButton(self.tr("stepped_slab_command"))
+    btn.setFixedHeight(24)
+    btn.setStyleSheet("font-size:11px; padding:0 4px; background:#e8f0fe; color:#1a3a6b;")
+    btn.setToolTip(self.tr("stepped_slab_draw_hint"))
+    btn.clicked.connect(self._on_stepped_slab_btn_clicked)
+    self._btn_stepped_slab = btn
+    layout.addWidget(btn)
+    return result
+
+
+MainWindow._build_ui = _nevis_t26_build_ui
+
+
+def _nevis_t26_on_stepped_slab_btn_clicked(self) -> None:
+    """Enter stepped-slab draw mode: require a parent slab to be selected first."""
+    elem_id = getattr(self, "selected_structural_id", None)
+    parent = _nevis_structural_find_element(self, elem_id) if elem_id is not None else None
+    _t26_log(f"BTN clicked: selected_id={elem_id} parent={parent} type={getattr(parent,'element_type','?') if parent else 'None'}")
+    if parent is None or getattr(parent, "element_type", "") != "slab":
+        self.lbl_status.setText(self.tr("stepped_slab_select_parent"))
+        return
+    self._stepped_slab_parent_id = int(elem_id)
+    self.stepped_slab_draw_mode = True
+    self.structural_draw_mode = False
+    self.lbl_status.setText(self.tr("stepped_slab_draw_hint"))
+    _t26_log(f"BTN: entered stepped_slab_draw_mode, parent_id={elem_id}")
+
+
+MainWindow._on_stepped_slab_btn_clicked = _nevis_t26_on_stepped_slab_btn_clicked
+
+
+def _nevis_t26_stepped_slab_dialog(mainwin, width: float, length: float) -> tuple | None:
+    """Show dialog: offset, thickness, overlap_width. Returns (offset, thickness, overlap) or None."""
+    from PySide6.QtWidgets import QDoubleSpinBox as _QDSpinBox
+    QDoubleSpinBox = _QDSpinBox
+    dlg = QDialog(mainwin)
+    dlg.setWindowTitle(mainwin.tr("stepped_slab_title"))
+    dlg.setMinimumWidth(280)
+    form = QFormLayout(dlg)
+    form.setContentsMargins(12, 12, 12, 12)
+    form.setSpacing(8)
+
+    sp_offset = QDoubleSpinBox(); sp_offset.setRange(1, 9999); sp_offset.setValue(50); sp_offset.setSuffix(" mm")
+    sp_thick  = QDoubleSpinBox(); sp_thick.setRange(1, 9999);  sp_thick.setValue(150);  sp_thick.setSuffix(" mm")
+    sp_over   = QDoubleSpinBox(); sp_over.setRange(0, 9999);   sp_over.setValue(60);   sp_over.setSuffix(" mm")
+
+    form.addRow(mainwin.tr("stepped_slab_offset"),    sp_offset)
+    form.addRow(mainwin.tr("stepped_slab_thickness"), sp_thick)
+    form.addRow(mainwin.tr("stepped_slab_overlap"),   sp_over)
+
+    info = QLabel(f"W={width:.0f} mm  L={length:.0f} mm")
+    info.setStyleSheet("color:#666; font-size:10px;")
+    form.addRow(info)
+
+    btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    btn_box.accepted.connect(dlg.accept)
+    btn_box.rejected.connect(dlg.reject)
+    form.addRow(btn_box)
+
+    if dlg.exec() != QDialog.Accepted:
+        return None
+    return sp_offset.value(), sp_thick.value(), sp_over.value()
+
+
+def _nevis_t26_clip_to_parent(parent, sx, sy, ex, ey):
+    """Clip child rect to stay within parent bounds. Returns (sx, sy, ex, ey) clipped."""
+    from modules.structural_geometry import rect_bounds
+    px0, py0, px1, py1 = rect_bounds(parent.points)
+    return (max(sx, px0), max(sy, py0), min(ex, px1), min(ey, py1))
+
+
+def _nevis_t26_create_stepped_slab(mainwin, start, end) -> bool:
+    _t26_log(f"CREATE: start={start} end={end} parent_id={getattr(mainwin,'_stepped_slab_parent_id',-1)}")
+    from modules.stepped_slab import compute_stepped_slab_elevation
+    from modules.structural_element import StructuralElement
+
+    parent = _nevis_structural_find_element(mainwin, getattr(mainwin, "_stepped_slab_parent_id", -1))
+    _t26_log(f"CREATE: parent found={parent is not None} pts={getattr(parent,'points','?') if parent else 'None'}")
+    if parent is None:
+        mainwin.lbl_status.setText(mainwin.tr("stepped_slab_select_parent"))
+        return False
+
+    sx, sy = min(start[0], end[0]), min(start[1], end[1])
+    ex, ey = max(start[0], end[0]), max(start[1], end[1])
+    # Clip to parent bounds automatically
+    sx, sy, ex, ey = _nevis_t26_clip_to_parent(parent, sx, sy, ex, ey)
+    raw_w, raw_l = ex - sx, ey - sy
+    _t26_log(f"CREATE: after clip sx={sx:.1f} sy={sy:.1f} ex={ex:.1f} ey={ey:.1f} w={raw_w:.1f} l={raw_l:.1f}")
+    if raw_w < 1.0 or raw_l < 1.0:
+        mainwin.lbl_status.setText(mainwin.tr("stepped_slab_outside"))
+        _t26_log("CREATE: rejected - too small after clip")
+        return False
+    child_pts = [(sx, sy), (ex, sy), (ex, ey), (sx, ey)]
+    _t26_log("CREATE: calling dialog...")
+    try:
+        result = _nevis_t26_stepped_slab_dialog(mainwin, raw_w, raw_l)
+    except Exception as _e:
+        _t26_log(f"CREATE: dialog EXCEPTION: {_e}")
+        import traceback; _t26_log(traceback.format_exc())
+        return False
+    _t26_log(f"CREATE: dialog result={result}")
+    if result is None:
+        return False
+    offset_mm, thickness_mm, overlap_mm = result
+
+    parent_top = float(getattr(parent, "top_elevation", 0.0) or 0.0)
+    top_elev = compute_stepped_slab_elevation(parent_top, offset_mm)
+    bot_elev = top_elev - thickness_mm
+
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(e, "id", 0)) for e in elements), default=0) + 1
+    stepped = StructuralElement(
+        id=next_id,
+        element_type="slab",
+        label=mainwin.tr("stepped_slab_label"),
+        points=child_pts,
+        width=raw_w,
+        length=raw_l,
+        height=thickness_mm,
+        top_elevation=top_elev,
+        bottom_elevation=bot_elev,
+        is_stepped=True,
+        parent_slab_id=int(parent.id),
+        overlap_width=overlap_mm,
+    )
+    mainwin.save_undo_snapshot("create_stepped_slab")
+    mainwin.model.structural_elements.append(stepped)
+    mainwin.selected_structural_id = stepped.id
+    mainwin.preview.draw_model()
+    mainwin.lbl_status.setText(mainwin.tr("stepped_slab_created").format(offset=offset_mm))
+    return True
+
+
+# Patch mouseReleaseEvent to handle stepped slab draw mode
+_T26_PREV_RELEASE = PreviewView.mouseReleaseEvent
+
+
+def _nevis_t26_mouse_release(self, event):
+    _t26_log(f"RELEASE: stepped_mode={getattr(self.mainwin,'stepped_slab_draw_mode',False)} btn={event.button()} drag_start={getattr(self,'_stepped_slab_drag_start',None)}")
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        start = getattr(self, "_stepped_slab_drag_start", None)
+        if start is not None:
+            end = _nevis_t26_raw_scene_point(self, event)
+            self._stepped_slab_drag_start = None
+            _nevis_t17_remove_snap_marker(self)
+            _nevis_structural_remove_preview(self)
+            # Remove previews
+            for attr in ("_stepped_preview_item", "_stepped_parent_highlight"):
+                it = getattr(self, attr, None)
+                if it is not None:
+                    try:
+                        self.scene.removeItem(it)
+                    except RuntimeError:
+                        pass
+                    setattr(self, attr, None)
+            _nevis_t26_create_stepped_slab(self.mainwin, start, end)
+            self.mainwin.stepped_slab_draw_mode = False
+            event.accept()
+            return
+    return _T26_PREV_RELEASE(self, event)
+
+
+PreviewView.mouseReleaseEvent = _nevis_t26_mouse_release
+
+# Patch mousePressEvent: start drag for stepped slab mode
+_T26_PREV_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_t26_raw_scene_point(view, event):
+    """Raw scene point (no grid snap) in real-world mm."""
+    pos = event.position() if hasattr(event, "position") else event.posF()
+    sp = view.mapToScene(int(pos.x()), int(pos.y()))
+    return _nevis_canvas_to_real_point(view.mainwin, (sp.x(), sp.y()))
+
+
+def _nevis_t26_mouse_press(self, event):
+    _t26_log(f"PRESS: stepped_mode={getattr(self.mainwin,'stepped_slab_draw_mode',False)} btn={event.button()}")
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        self._stepped_slab_drag_start = _nevis_t26_raw_scene_point(self, event)
+        _t26_log(f"PRESS: drag_start set to {self._stepped_slab_drag_start}")
+        event.accept()
+        return
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.RightButton:
+        self._stepped_slab_drag_start = None
+        _nevis_structural_remove_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        event.accept()
+        return
+    return _T26_PREV_PRESS(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_t26_mouse_press
+
+# Patch mouseMoveEvent: show preview rectangle
+_T26_PREV_MOVE = PreviewView.mouseMoveEvent
+
+
+def _nevis_t26_mouse_move(self, event):
+    result = _T26_PREV_MOVE(self, event)
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and (event.buttons() & Qt.LeftButton):
+        start = getattr(self, "_stepped_slab_drag_start", None)
+        if start is not None:
+            end_raw = _nevis_t26_raw_scene_point(self, event)
+            # Constrain end point to parent slab bounds
+            parent_id = getattr(self.mainwin, "_stepped_slab_parent_id", -1)
+            parent = _nevis_structural_find_element(self.mainwin, parent_id)
+            if parent and parent.points:
+                from modules.structural_geometry import rect_bounds
+                px0, py0, px1, py1 = rect_bounds(parent.points)
+                ex = max(px0, min(end_raw[0], px1))
+                ey = max(py0, min(end_raw[1], py1))
+                end = (ex, ey)
+            else:
+                end = end_raw
+            canvas_s = _nevis_real_to_canvas_point(self.mainwin, start)
+            canvas_e = _nevis_real_to_canvas_point(self.mainwin, end)
+            rect = QRectF(QPointF(*canvas_s), QPointF(*canvas_e)).normalized()
+            item = getattr(self, "_stepped_preview_item", None)
+            if item is None:
+                pen = QPen(QColor(55, 95, 145), 1.5, Qt.DashLine)
+                brush = QBrush(QColor(75, 125, 180, 60))
+                self._stepped_preview_item = self.scene.addRect(rect, pen, brush)
+                self._stepped_preview_item.setZValue(50)
+                # Highlight parent boundary in orange while dragging
+                if parent and parent.points:
+                    from modules.structural_geometry import rect_bounds
+                    bx0, by0, bx1, by1 = rect_bounds(parent.points)
+                    cs = _nevis_real_to_canvas_point(self.mainwin, (bx0, by0))
+                    ce = _nevis_real_to_canvas_point(self.mainwin, (bx1, by1))
+                    pr = QRectF(QPointF(*cs), QPointF(*ce)).normalized()
+                    p_pen = QPen(QColor(210, 100, 0), 2.0, Qt.SolidLine)
+                    self._stepped_parent_highlight = self.scene.addRect(pr, p_pen, QBrush(Qt.NoBrush))
+                    self._stepped_parent_highlight.setZValue(49)
+            else:
+                try:
+                    item.setRect(rect)
+                except RuntimeError:
+                    self._stepped_preview_item = None
+    elif not getattr(self.mainwin, "stepped_slab_draw_mode", False):
+        for attr in ("_stepped_preview_item", "_stepped_parent_highlight"):
+            it = getattr(self, attr, None)
+            if it is not None:
+                try:
+                    self.scene.removeItem(it)
+                except RuntimeError:
+                    pass
+                setattr(self, attr, None)
+    return result
+
+
+PreviewView.mouseMoveEvent = _nevis_t26_mouse_move
+
+
+# =============================================================================
+# TASK 27 — Polygon stepped slab + auto-merge same-param regions
+# =============================================================================
+
+APP_TEXT.setdefault("vi", {}).update({
+    "stepped_poly_hint":   "Bấm từng điểm • Double-click/Enter: đóng hình • Escape: hủy",
+    "stepped_poly_min":    "Cần ít nhất 3 điểm.",
+    "stepped_poly_merge":  "Đã gộp {n} vùng giật cấp thành 1 đa giác.",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "stepped_poly_hint":   "クリックで点を追加 • ダブルクリック/Enter: 閉じる • Escape: キャンセル",
+    "stepped_poly_min":    "最低3点が必要です。",
+    "stepped_poly_merge":  "{n}つの段差領域を1つのポリゴンに統合しました。",
+})
+
+# Switch stepped slab mode from rect-drag to polygon-click
+# The button now enters polygon mode; each left-click adds a vertex,
+# double-click or Enter closes and creates the element.
+
+_T27_POLY_PREVIEW_ITEMS = "_stepped_poly_preview_items"
+_T27_POLY_POINTS        = "_stepped_poly_points"
+_T27_POLY_LINE_ITEMS    = "_stepped_poly_line_items"
+_T27_POLY_CLOSE_ITEM    = "_stepped_poly_close_line"
+
+
+def _nevis_t27_clear_poly_preview(view):
+    for attr in (_T27_POLY_PREVIEW_ITEMS, _T27_POLY_LINE_ITEMS, _T27_POLY_CLOSE_ITEM):
+        items = getattr(view, attr, None)
+        if items is None:
+            continue
+        lst = items if isinstance(items, list) else [items]
+        for it in lst:
+            try:
+                view.scene.removeItem(it)
+            except RuntimeError:
+                pass
+        setattr(view, attr, None)
+    setattr(view, _T27_POLY_POINTS, [])
+
+
+def _nevis_t27_update_poly_preview(view):
+    pts = getattr(view, _T27_POLY_POINTS, [])
+    # Remove old line items
+    old = getattr(view, _T27_POLY_LINE_ITEMS, None) or []
+    for it in old:
+        try:
+            view.scene.removeItem(it)
+        except RuntimeError:
+            pass
+    lines = []
+    pen = QPen(QColor(55, 95, 145), 1.5, Qt.DashLine)
+    dot_pen = QPen(QColor(55, 95, 145), 1.0)
+    dot_brush = QBrush(QColor(55, 95, 145))
+    for i, pt in enumerate(pts):
+        cx, cy = _nevis_real_to_canvas_point(view.mainwin, pt)
+        dot = view.scene.addEllipse(cx - 4, cy - 4, 8, 8, dot_pen, dot_brush)
+        dot.setZValue(52)
+        lines.append(dot)
+        if i > 0:
+            px, py = _nevis_real_to_canvas_point(view.mainwin, pts[i - 1])
+            line = view.scene.addLine(px, py, cx, cy, pen)
+            line.setZValue(51)
+            lines.append(line)
+    # Closing line (first→last) in lighter pen
+    close_pen = QPen(QColor(55, 95, 145, 100), 1.0, Qt.DotLine)
+    old_close = getattr(view, _T27_POLY_CLOSE_ITEM, None)
+    if old_close is not None:
+        try:
+            view.scene.removeItem(old_close)
+        except RuntimeError:
+            pass
+    close_item = None
+    if len(pts) >= 3:
+        p0x, p0y = _nevis_real_to_canvas_point(view.mainwin, pts[0])
+        plx, ply = _nevis_real_to_canvas_point(view.mainwin, pts[-1])
+        close_item = view.scene.addLine(plx, ply, p0x, p0y, close_pen)
+        close_item.setZValue(51)
+    setattr(view, _T27_POLY_LINE_ITEMS, lines)
+    setattr(view, _T27_POLY_CLOSE_ITEM, close_item)
+
+
+def _nevis_t27_try_merge(mainwin, new_elem):
+    """Union new_elem with any existing stepped slabs on same parent with same params.
+    Returns the final element (merged or original) and removes merged originals."""
+    try:
+        from shapely.geometry import Polygon as _SPoly
+        from shapely.ops import unary_union as _union
+    except ImportError:
+        return new_elem
+    existing = list(getattr(mainwin.model, "structural_elements", []) or [])
+    candidates = [
+        e for e in existing
+        if e.id != new_elem.id
+        and bool(getattr(e, "is_stepped", False))
+        and int(getattr(e, "parent_slab_id", -1)) == int(getattr(new_elem, "parent_slab_id", -2))
+        and abs(float(getattr(e, "top_elevation", 0)) - float(getattr(new_elem, "top_elevation", 0))) < 1.0
+        and abs(float(getattr(e, "height", 0)) - float(getattr(new_elem, "height", 0))) < 1.0
+        and abs(float(getattr(e, "overlap_width", 0)) - float(getattr(new_elem, "overlap_width", 0))) < 1.0
+        and len(getattr(e, "points", [])) >= 3
+    ]
+    if not candidates:
+        return new_elem
+    # Build union polygon
+    polys = [_SPoly(e.points) for e in candidates if _SPoly(e.points).is_valid]
+    polys.append(_SPoly(new_elem.points) if len(new_elem.points) >= 3 else None)
+    polys = [p for p in polys if p is not None and p.is_valid]
+    merged = _union(polys)
+    if merged.is_empty or not hasattr(merged, "exterior"):
+        return new_elem
+    # Extract merged polygon coords
+    merged_pts = [(round(x, 1), round(y, 1)) for x, y in list(merged.exterior.coords)[:-1]]
+    from modules.structural_element import StructuralElement, structural_element_to_dict, structural_element_from_dict
+    d = structural_element_to_dict(new_elem)
+    d["points"] = merged_pts
+    d["width"] = merged.bounds[2] - merged.bounds[0]
+    d["length"] = merged.bounds[3] - merged.bounds[1]
+    merged_elem = structural_element_from_dict(d)
+    # Remove old candidates from model
+    ids_to_remove = {e.id for e in candidates}
+    mainwin.model.structural_elements = [
+        e for e in mainwin.model.structural_elements if e.id not in ids_to_remove
+    ]
+    n = len(candidates)
+    if n > 0:
+        mainwin.lbl_status.setText(mainwin.tr("stepped_poly_merge").format(n=n + 1))
+    return merged_elem
+
+
+# Patch _nevis_t26_create_stepped_slab to call merge after creation
+_T27_PREV_CREATE = _nevis_t26_create_stepped_slab
+
+
+def _nevis_t27_create_stepped_slab(mainwin, start_or_pts, end=None) -> bool:
+    """Handles both rect-drag (start, end) and polygon-click (list of pts, None)."""
+    from modules.stepped_slab import compute_stepped_slab_elevation
+    from modules.structural_element import StructuralElement
+
+    parent = _nevis_structural_find_element(mainwin, getattr(mainwin, "_stepped_slab_parent_id", -1))
+    if parent is None:
+        mainwin.lbl_status.setText(mainwin.tr("stepped_slab_select_parent"))
+        return False
+
+    if end is None:
+        # Polygon mode: start_or_pts is a list of real-world (x, y) points
+        raw_pts = list(start_or_pts)
+        if len(raw_pts) < 3:
+            mainwin.lbl_status.setText(mainwin.tr("stepped_poly_min"))
+            return False
+        from shapely.geometry import Polygon as _P
+        sp = _P(raw_pts)
+        bounds = sp.bounds  # (minx, miny, maxx, maxy)
+        raw_w = bounds[2] - bounds[0]
+        raw_l = bounds[3] - bounds[1]
+        child_pts = raw_pts
+    else:
+        # Rect mode (legacy): delegate to original
+        return _T27_PREV_CREATE(mainwin, start_or_pts, end)
+
+    result = _nevis_t26_stepped_slab_dialog(mainwin, raw_w, raw_l)
+    if result is None:
+        return False
+    offset_mm, thickness_mm, overlap_mm = result
+
+    parent_top = float(getattr(parent, "top_elevation", 0.0) or 0.0)
+    top_elev = compute_stepped_slab_elevation(parent_top, offset_mm)
+    bot_elev = top_elev - thickness_mm
+
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    next_id = max((int(getattr(e, "id", 0)) for e in elements), default=0) + 1
+    stepped = StructuralElement(
+        id=next_id,
+        element_type="slab",
+        label=mainwin.tr("stepped_slab_label"),
+        points=child_pts,
+        width=raw_w,
+        length=raw_l,
+        height=thickness_mm,
+        top_elevation=top_elev,
+        bottom_elevation=bot_elev,
+        is_stepped=True,
+        parent_slab_id=int(parent.id),
+        overlap_width=overlap_mm,
+    )
+    mainwin.save_undo_snapshot("create_stepped_slab")
+    mainwin.model.structural_elements.append(stepped)
+    # Auto-merge with same-param stepped slabs
+    merged = _nevis_t27_try_merge(mainwin, stepped)
+    if merged is not stepped:
+        mainwin.model.structural_elements = [
+            e if e.id != stepped.id else merged
+            for e in mainwin.model.structural_elements
+        ]
+    mainwin.selected_structural_id = merged.id
+    mainwin.preview.draw_model()
+    mainwin.lbl_status.setText(mainwin.tr("stepped_slab_created").format(offset=offset_mm))
+    return True
+
+
+# Patch mousePressEvent to handle polygon-click mode (single click = add point)
+_T27_PREV_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_t27_mouse_press(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        pt = _nevis_t26_raw_scene_point(self, event)
+        pts = getattr(self, _T27_POLY_POINTS, None)
+        if pts is None:
+            setattr(self, _T27_POLY_POINTS, [])
+            pts = getattr(self, _T27_POLY_POINTS)
+        pts.append(pt)
+        _t26_log(f"T27 POLY: added point {pt}, total={len(pts)}")
+        _nevis_t27_update_poly_preview(self)
+        event.accept()
+        return
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.RightButton:
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        event.accept()
+        return
+    return _T27_PREV_PRESS(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_t27_mouse_press
+
+
+# Double-click closes the polygon
+_T27_PREV_DCLICK = getattr(PreviewView, "mouseDoubleClickEvent", None)
+
+
+def _nevis_t27_double_click(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.button() == Qt.LeftButton:
+        pts = list(getattr(self, _T27_POLY_POINTS, []) or [])
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        if len(pts) >= 3:
+            _nevis_t27_create_stepped_slab(self.mainwin, pts, None)
+        else:
+            self.mainwin.lbl_status.setText(self.mainwin.tr("stepped_poly_min"))
+        event.accept()
+        return
+    if _T27_PREV_DCLICK:
+        return _T27_PREV_DCLICK(self, event)
+
+
+PreviewView.mouseDoubleClickEvent = _nevis_t27_double_click
+
+
+# Enter key also closes polygon
+_T27_PREV_KEY = PreviewView.keyPressEvent
+
+
+def _nevis_t27_key_press(self, event):
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+        pts = list(getattr(self, _T27_POLY_POINTS, []) or [])
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        if len(pts) >= 3:
+            _nevis_t27_create_stepped_slab(self.mainwin, pts, None)
+        else:
+            self.mainwin.lbl_status.setText(self.mainwin.tr("stepped_poly_min"))
+        event.accept()
+        return
+    if getattr(self.mainwin, "stepped_slab_draw_mode", False) and event.key() == Qt.Key_Escape:
+        _nevis_t27_clear_poly_preview(self)
+        self.mainwin.stepped_slab_draw_mode = False
+        event.accept()
+        return
+    return _T27_PREV_KEY(self, event)
+
+
+PreviewView.keyPressEvent = _nevis_t27_key_press
+
+# Update status hint when mode starts
+_T27_PREV_BTN_CLICK = MainWindow._on_stepped_slab_btn_clicked
+
+
+def _nevis_t27_btn_click(self):
+    _T27_PREV_BTN_CLICK(self)
+    if getattr(self, "stepped_slab_draw_mode", False):
+        self.lbl_status.setText(self.tr("stepped_poly_hint"))
+        setattr(self.preview, _T27_POLY_POINTS, [])
+
+
+MainWindow._on_stepped_slab_btn_clicked = _nevis_t27_btn_click
+
+
+# =============================================================================
+# TASK 28 — Unified slab rendering: parent "punches out" stepped slab areas
+# =============================================================================
+# Problem: when a stepped slab child exists, the parent slab still fills the
+# child area with its own hatch → visually cluttered and confusing.
+# Fix: render parent slab as a QPainterPath with the child polygon subtracted
+# (donut shape). Stepped slabs are rendered at ZValue=15 (above parent=12).
+
+_T28_PREV_DRAW_ITEMS = _nevis_structural_draw_items
+
+
+def _nevis_t28_draw_items(view) -> None:
+    from PySide6.QtGui import QPainterPath
+    elements = list(getattr(view.mainwin.model, "structural_elements", []) or [])
+    if not elements:
+        return
+
+    # Walls/columns/beams → junction-merge renderer (seams disappear at intersections)
+    _WALL_TYPES = ("wall_lgs", "wall_rc", "column", "beam")
+    wall_elements = [e for e in elements if getattr(e, "element_type", "") in _WALL_TYPES]
+    slab_elements = [e for e in elements if getattr(e, "element_type", "") not in _WALL_TYPES]
+    try:
+        bounds = _nevis_w3_draw_walls(view, wall_elements, None)
+    except Exception as _e:
+        print(f"WARN _nevis_w3_draw_walls failed: {_e}", flush=True)
+        bounds = None
+
+    # Build lookup: parent_id → list of stepped child polygons (canvas coords)
+    stepped_children: dict = {}
+    for el in slab_elements:
+        if bool(getattr(el, "is_stepped", False)) and len(getattr(el, "points", [])) >= 3:
+            pid = int(getattr(el, "parent_slab_id", -1))
+            canvas_pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in el.points]
+            poly = QPolygonF([QPointF(x, y) for x, y in canvas_pts])
+            stepped_children.setdefault(pid, []).append(poly)
+
+    sel_id = int(getattr(view.mainwin, "selected_structural_id", -1) or -1)
+
+    # --- Pass 1: parent slabs/ceilings (non-stepped) with punch-out ---
+    for element in slab_elements:
+        pts = getattr(element, "points", [])
+        if len(pts) < 3:
+            continue
+        if bool(getattr(element, "is_stepped", False)):
+            continue  # rendered in pass 2
+
+        eid = int(getattr(element, "id", -1))
+        canvas_pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in pts]
+        poly = QPolygonF([QPointF(x, y) for x, y in canvas_pts])
+
+        children = stepped_children.get(eid, [])
+        if children:
+            # Build parent path minus child polygons
+            parent_path = QPainterPath()
+            parent_path.addPolygon(poly)
+            parent_path.closeSubpath()
+            for cpoly in children:
+                child_path = QPainterPath()
+                child_path.addPolygon(cpoly)
+                child_path.closeSubpath()
+                parent_path = parent_path.subtracted(child_path)
+
+            pen = QPen(QColor(105, 112, 120), 2.0, Qt.DashLine)
+            brush = QBrush(QColor(145, 150, 158, 28))
+            item = view.scene.addPath(parent_path, pen, brush)
+        else:
+            pen = QPen(QColor(105, 112, 120), 2.0, Qt.DashLine)
+            brush = QBrush(QColor(145, 150, 158, 28))
+            item = view.scene.addPolygon(poly, pen, brush)
+
+        item.setZValue(12)
+        item.setData(0, ("structural_element", eid))
+        item_bounds = item.sceneBoundingRect()
+        bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+
+        label = _nevis_structural_type_labels(view.mainwin).get(
+            element.element_type,
+            str(getattr(element, "label", "") or element.element_type),
+        )
+        text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
+        text.setDefaultTextColor(QColor(85, 90, 98))
+        text.setZValue(13)
+        text.setAcceptedMouseButtons(Qt.NoButton)
+        tr = text.boundingRect()
+        text.setPos(item_bounds.center().x() - tr.width() / 2, item_bounds.center().y() - tr.height() / 2)
+
+        if sel_id == eid:
+            _nevis_structural_draw_handles(view, element)
+
+    # --- Pass 2: stepped slab children (always on top) ---
+    for element in slab_elements:
+        pts = getattr(element, "points", [])
+        if len(pts) < 3:
+            continue
+        if not bool(getattr(element, "is_stepped", False)):
+            continue
+
+        eid = int(getattr(element, "id", -1))
+        canvas_pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in pts]
+        poly = QPolygonF([QPointF(x, y) for x, y in canvas_pts])
+
+        pen = QPen(QColor(55, 95, 145), 2.0, Qt.DashLine)
+        brush = QBrush(QColor(75, 125, 180, 115), Qt.BDiagPattern)
+        item = view.scene.addPolygon(poly, pen, brush)
+        item.setZValue(15)  # above parent (12) always
+        item.setData(0, ("structural_element", eid))
+        item_bounds = item.sceneBoundingRect()
+        bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+
+        # Overlap zone
+        ovw = float(getattr(element, "overlap_width", 0.0) or 0.0)
+        if ovw > 0:
+            try:
+                from modules.stepped_slab import stepped_slab_overlap_region
+                ov_pts = stepped_slab_overlap_region(element, element, ovw)
+                if ov_pts:
+                    ov_canvas = [_nevis_real_to_canvas_point(view.mainwin, p) for p in ov_pts]
+                    ov_poly = QPolygonF([QPointF(x, y) for x, y in ov_canvas])
+                    ov_pen = QPen(QColor(220, 140, 0), 1.5, Qt.DotLine)
+                    ov_brush = QBrush(QColor(255, 200, 0, 40))
+                    ov_item = view.scene.addPolygon(ov_poly, ov_pen, ov_brush)
+                    ov_item.setZValue(16)
+                    ov_item.setAcceptedMouseButtons(Qt.NoButton)
+                    ov_item.setData(0, "structural_overlap_zone")
+            except Exception:
+                pass
+
+        label = view.mainwin.tr("stepped_slab_label")
+        text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
+        text.setDefaultTextColor(QColor(55, 95, 145))
+        text.setZValue(16)
+        text.setAcceptedMouseButtons(Qt.NoButton)
+        tr = text.boundingRect()
+        text.setPos(item_bounds.center().x() - tr.width() / 2, item_bounds.center().y() - tr.height() / 2)
+
+        if sel_id == eid:
+            _nevis_structural_draw_handles(view, element)
+
+    if bounds is not None:
+        view.scene.setSceneRect(view.scene.sceneRect().united(bounds.adjusted(-20, -20, 20, 20)))
+
+
+_nevis_structural_draw_items = _nevis_t28_draw_items
+
+
+# =============================================================================
+# TASK 29 — Hide right panel in structural mode + Section cut (断面図) split view
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Part A: Hide right_shell completely when structural, restore when MEP
+# ---------------------------------------------------------------------------
+_T29_PREV_SET_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_t29_set_workspace_mode(self, mode: str) -> None:
+    _T29_PREV_SET_WORKSPACE(self, mode)
+    structural = getattr(self, "workspace_mode", "mep") == "structural"
+    rs = getattr(self, "right_shell", None)
+    if rs is not None:
+        if structural:
+            # Save current sizes then collapse right panel
+            if not getattr(self, "_t29_right_hidden", False):
+                self._t29_right_saved_sizes = self.splitter.sizes()
+                sizes = self.splitter.sizes()
+                total = sum(sizes)
+                # Give right_shell's space to center
+                self.splitter.setSizes([sizes[0], total - sizes[0], 0])
+                rs.hide()
+                self._t29_right_hidden = True
+        else:
+            if getattr(self, "_t29_right_hidden", False):
+                rs.show()
+                saved = getattr(self, "_t29_right_saved_sizes", None)
+                if saved:
+                    self.splitter.setSizes(saved)
+                self._t29_right_hidden = False
+
+
+MainWindow.set_workspace_mode = _nevis_t29_set_workspace_mode
+
+
+# ---------------------------------------------------------------------------
+# Part B: Section cut (断面図) — draw cut line on plan, split-view result
+# ---------------------------------------------------------------------------
+
+APP_TEXT.setdefault("vi", {}).update({
+    "section_cut_hint":   "Click điểm đầu đường cắt (chỉ trục X hoặc Y)",
+    "section_cut_end":    "Click điểm kết thúc",
+    "section_cut_side":   "Click phía MẶT CẮT nhìn vào (trên/dưới/trái/phải đường cắt)",
+    "section_cut_done":   "Mặt cắt đã tạo — kéo thanh giữa để thay đổi tỉ lệ",
+    "section_cut_cancel": "Đã hủy đường cắt",
+    "section_cut_too_short": "Đường cắt quá ngắn — hãy chọn điểm cuối khác điểm đầu",
+})
+APP_TEXT.setdefault("jp", {}).update({
+    "section_cut_hint":   "切断線の始点をクリック (X軸またはY軸のみ)",
+    "section_cut_end":    "終点をクリック",
+    "section_cut_side":   "断面を見る方向をクリック (切断線の上/下/左/右)",
+    "section_cut_done":   "断面図を作成しました — 中央のハンドルで幅調整",
+    "section_cut_cancel": "切断線をキャンセルしました",
+    "section_cut_too_short": "切断線が短すぎます — 始点と異なる終点を選択してください",
+})
+
+# Section cut state machine: "idle" → "start" → "end" → "side" → "view"
+_T29_SECTION_MODE = "_section_cut_mode"       # "idle"|"start"|"end"|"side"
+_T29_SECTION_START = "_section_start_pt"      # (rx, ry)
+_T29_SECTION_END   = "_section_end_pt"        # (rx, ry)
+_T29_SECTION_AXIS  = "_section_axis"          # "X" | "Y"
+_T29_SECTION_LINE_ITEM = "_section_line_item"
+_T29_SECTION_SPLITTER  = "_section_splitter"  # inner QSplitter (plan|section)
+_T29_SECTION_VIEW      = "_section_view"      # SectionPreviewView instance
+_T29_MIN_CUT_LENGTH_MM = 10.0
+
+
+class _NevisSectionGraphicsView(QGraphicsView):
+    """Section viewport with CAD-style wheel zoom and left-drag pan."""
+
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+        self.mainwin = None
+        self._sec_info_lbl = None
+
+    def wheelEvent(self, event):
+        factor = 1.15 if event.angleDelta().y() > 0 else (1.0 / 1.15)
+        current_scale = abs(self.transform().m11())
+        next_scale = current_scale * factor
+        if 0.02 <= next_scale <= 50.0:
+            self.scale(factor, factor)
+        event.accept()
+
+    def mousePressEvent(self, event):
+        from PySide6.QtCore import Qt
+        if event.button() == Qt.LeftButton:
+            sp = self.mapToScene(event.pos())
+            item = self.scene().itemAt(sp, self.transform())
+            mw = self.mainwin
+            if item is not None and mw is not None:
+                try:
+                    d = item.data(0)
+                except Exception:
+                    d = None
+                if isinstance(d, tuple) and len(d) == 2 and d[0] == "se":
+                    eid = d[1]
+                    elem = next(
+                        (e for e in getattr(mw.model, "structural_elements", [])
+                         if int(getattr(e, "id", -1)) == eid),
+                        None,
+                    )
+                    if elem is not None:
+                        etype = getattr(elem, "element_type", "")
+                        top_e = float(getattr(elem, "top_elevation", 0.0) or 0.0)
+                        bot_e = float(getattr(elem, "bottom_elevation", 0.0) or 0.0)
+                        h = float(getattr(elem, "height", 0.0) or 0.0)
+                        w = float(getattr(elem, "width", 0.0) or 0.0)
+                        l = float(getattr(elem, "length", 0.0) or 0.0)
+                        msg = (
+                            f"[{etype}]  W={w:.0f}  L={l:.0f}  H={h:.0f} mm"
+                            f"  |  ▲{top_e:+.0f}  ▼{bot_e:+.0f}  — ダブルクリックで編集"
+                        )
+                        lbl = self._sec_info_lbl
+                        if lbl is not None:
+                            try:
+                                lbl.setText(msg)
+                            except RuntimeError:
+                                pass
+                        event.accept()
+                        return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        from PySide6.QtCore import Qt
+        if event.button() == Qt.LeftButton:
+            sp = self.mapToScene(event.pos())
+            item = self.scene().itemAt(sp, self.transform())
+            mw = self.mainwin
+            if item is not None and mw is not None:
+                try:
+                    d = item.data(0)
+                except Exception:
+                    d = None
+                if isinstance(d, tuple) and len(d) == 2 and d[0] == "se":
+                    eid = d[1]
+                    _nevis_t21_edit_existing(mw, eid)
+                    event.accept()
+                    return
+        super().mouseDoubleClickEvent(event)
+
+
+def _nevis_t29_section_clear_preview(view):
+    it = getattr(view, _T29_SECTION_LINE_ITEM, None)
+    if it is not None:
+        try:
+            view.scene.removeItem(it)
+        except RuntimeError:
+            pass
+        setattr(view, _T29_SECTION_LINE_ITEM, None)
+
+
+def _nevis_t29_section_enter(mainwin):
+    """Start section-cut drawing mode."""
+    setattr(mainwin, _T29_SECTION_MODE, "start")
+    mainwin.lbl_status.setText(mainwin.tr("section_cut_hint"))
+
+
+def _nevis_t29_section_compute(mainwin):
+    """Build section geometry from stored start/end/side and render."""
+    start = getattr(mainwin, _T29_SECTION_START, None)
+    end   = getattr(mainwin, _T29_SECTION_END, None)
+    side  = getattr(mainwin, "_section_view_side", None)
+    if start is None or end is None or side is None:
+        return
+    _nevis_t29_show_split_view(mainwin, start, end, side)
+
+
+def _nevis_t29_show_split_view(mainwin, start, end, side):
+    """Add section panel directly into main splitter at index 2 (where right_shell was)."""
+    from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QWidget, QVBoxLayout, QLabel
+    from PySide6.QtGui import QBrush, QColor, QFont
+    from PySide6.QtCore import Qt
+
+    # Tear down any existing section view
+    _nevis_t29_section_exit(mainwin)
+
+    # Build section widget
+    section_container = QWidget()
+    sec_layout = QVBoxLayout(section_container)
+    sec_layout.setContentsMargins(0, 0, 0, 0)
+    sec_layout.setSpacing(0)
+
+    header = QLabel("  断面図")
+    header.setFixedHeight(22)
+    header.setStyleSheet("background:#1565C0; color:white; font-weight:bold; font-size:11px;")
+    sec_layout.addWidget(header)
+
+    # Parent the scene so it survives after the delayed fit callbacks finish.
+    section_scene = QGraphicsScene(section_container)
+    section_view = _NevisSectionGraphicsView(section_scene)
+    section_view.setBackgroundBrush(QBrush(QColor(248, 250, 255)))
+    section_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    section_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    section_view.setObjectName("section_canvas")
+    section_view.mainwin = mainwin
+    sec_layout.addWidget(section_view, 1)
+
+    # Info bar: shows element info on single-click
+    _sec_info_bar = QLabel("  クリックで要素を選択、ダブルクリックで編集")
+    _sec_info_bar.setFixedHeight(20)
+    _sec_info_bar.setStyleSheet(
+        "background:#E8EDF5; color:#333; font-size:10px; padding-left:6px;"
+    )
+    sec_layout.addWidget(_sec_info_bar)
+    section_view._sec_info_lbl = _sec_info_bar
+
+    # Populate section scene
+    _nevis_t29_render_section(mainwin, section_scene, start, end, side)
+    # Delay fitInView until widget has its final geometry
+    def _fit():
+        try:
+            r = section_scene.itemsBoundingRect()
+            if not r.isEmpty():
+                r = r.adjusted(-30, -30, 30, 30)
+                section_scene.setSceneRect(r)
+                section_view.resetTransform()
+                section_view.fitInView(r, Qt.KeepAspectRatio)
+                section_view.update()
+        except RuntimeError:
+            pass
+    QTimer.singleShot(200, _fit)
+    QTimer.singleShot(600, _fit)  # second pass in case first fires too early
+
+    # Insert into main splitter at index 2 (right_shell position, currently hidden)
+    # right_shell is already hidden; we insert the section view in its place
+    mainwin.splitter.insertWidget(2, section_container)
+    mainwin.splitter.setCollapsible(2, False)
+    # Give plan view ~58%, section view ~42%; right_shell stays at index 3 with size 0
+    sizes = mainwin.splitter.sizes()
+    total = sum(sizes)
+    left_w = sizes[0] if sizes else 220
+    plan_w  = int((total - left_w) * 0.58)
+    sec_w   = int((total - left_w) * 0.42)
+    n = mainwin.splitter.count()
+    new_sizes = [left_w, plan_w, sec_w] + [0] * max(0, n - 3)
+    mainwin.splitter.setSizes(new_sizes)
+    section_container.show()
+
+    setattr(mainwin, _T29_SECTION_SPLITTER, section_container)
+    setattr(mainwin, _T29_SECTION_VIEW, section_view)
+
+    # Draw the cut line on plan view
+    _nevis_t29_draw_cut_line_on_plan(mainwin, start, end, side)
+
+    mainwin.lbl_status.setText(mainwin.tr("section_cut_done"))
+
+
+def _nevis_t29_render_section(mainwin, scene, start, end, side):
+    """Render structural elements as seen from the section cut plane."""
+    from PySide6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPolygonF
+    from PySide6.QtCore import Qt, QPointF, QRectF
+
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+
+    sx, sy = start
+    ex, ey = end
+    axis = getattr(mainwin, _T29_SECTION_AXIS, "X")
+
+    # Determine horiz extent from cut line so we can normalize coords
+    if axis == "X":
+        horiz_min_cut = min(sx, ex)
+        horiz_max_cut = max(sx, ex)
+    else:
+        horiz_min_cut = min(sy, ey)
+        horiz_max_cut = max(sy, ey)
+    cut_span = max(horiz_max_cut - horiz_min_cut, 1.0)
+
+    # One scale for horizontal dimensions and elevations preserves real ratios.
+    GEOMETRY_SCALE = 0.1  # 1 scene unit = 10 mm; fitInView handles viewport zoom
+    VIEW_WIDTH = cut_span * GEOMETRY_SCALE
+    MARGIN_LEFT = 30.0
+    EL_SCALE = GEOMETRY_SCALE
+    gl_y = 120.0         # GL at this scene Y; elements grow upward (smaller Y)
+
+    # Flip horizontal axis so the section matches the viewing direction:
+    #   axis=X, side=above (looking south): left=east → higher real coord on left
+    #   axis=Y, side=right (looking west):  left=south → higher real coord on left
+    _flip_horiz = (
+        (axis == "X" and side == "above")
+        or (axis == "Y" and side == "right")
+    )
+
+    def _real_x_to_scene(rx):
+        if _flip_horiz:
+            return MARGIN_LEFT + (horiz_max_cut - rx) * GEOMETRY_SCALE
+        return MARGIN_LEFT + (rx - horiz_min_cut) * GEOMETRY_SCALE
+
+    # Title
+    title = scene.addText("断面図", QFont("Segoe UI", 9, QFont.Bold))
+    title.setDefaultTextColor(QColor(55, 95, 145))
+    title.setPos(MARGIN_LEFT, 2)
+    title.setZValue(10)
+
+    # SL±0 is the primary structural datum for every floor.
+    sl_y = gl_y  # alias — code below uses sl_y to be explicit
+    cut_line = scene.addLine(MARGIN_LEFT - 10, sl_y, MARGIN_LEFT + VIEW_WIDTH + 10, sl_y,
+                             QPen(QColor(180, 0, 0), 1.0, Qt.DashLine))
+    cut_line.setZValue(8)
+    sl_label = scene.addText("SL±0", QFont("Segoe UI", 7))
+    sl_label.setDefaultTextColor(QColor(180, 0, 0))
+    sl_label.setPos(2, sl_y - 16)
+    sl_label.setZValue(9)
+
+    # GL (ground level) — drawn only when the model has a datum with datum_type="GL".
+    _level_datums = getattr(mainwin.model, "level_datums", {}) or {}
+    _gl_datum = next(
+        (d for d in _level_datums.values() if getattr(d, "datum_type", "") == "GL"),
+        None,
+    )
+    if _gl_datum is not None:
+        _gl_elev_mm = float(getattr(_gl_datum, "elevation_mm", 0.0) or 0.0)
+        _gl_y = sl_y - _gl_elev_mm * EL_SCALE
+        gl_line = scene.addLine(
+            MARGIN_LEFT - 10, _gl_y, MARGIN_LEFT + VIEW_WIDTH + 10, _gl_y,
+            QPen(QColor(100, 140, 60), 1.0, Qt.DashDotLine),
+        )
+        gl_line.setZValue(8)
+        _gl_name = getattr(_gl_datum, "name", "") or "GL"
+        gl_text_item = scene.addText(_gl_name, QFont("Segoe UI", 7))
+        gl_text_item.setDefaultTextColor(QColor(80, 120, 40))
+        gl_text_item.setPos(2, _gl_y - 16)
+        gl_text_item.setZValue(9)
+
+    # FL (Finish Level) datum — drawn when model has datum_type="FL".
+    # FL can also be computed from the tallest slab top + its finish_thickness_mm.
+    _fl_datum = next(
+        (d for d in _level_datums.values() if getattr(d, "datum_type", "") == "FL"),
+        None,
+    )
+    _fl_elev_mm = None
+    if _fl_datum is not None:
+        _fl_elev_mm = float(getattr(_fl_datum, "elevation_mm", 0.0) or 0.0)
+    else:
+        # Auto-compute FL from slabs with finish_thickness_mm field.
+        for _e in elements:
+            if getattr(_e, "element_type", "") == "slab":
+                _ft = float(getattr(_e, "finish_thickness_mm", 0.0) or 0.0)
+                if _ft > 0:
+                    _candidate = float(getattr(_e, "top_elevation", 0.0)) + _ft
+                    if _fl_elev_mm is None or _candidate > _fl_elev_mm:
+                        _fl_elev_mm = _candidate
+    if _fl_elev_mm is not None:
+        _fl_y = sl_y - _fl_elev_mm * EL_SCALE
+        fl_line = scene.addLine(
+            MARGIN_LEFT - 10, _fl_y, MARGIN_LEFT + VIEW_WIDTH + 10, _fl_y,
+            QPen(QColor(30, 100, 180), 1.2, Qt.DashLine),
+        )
+        fl_line.setZValue(8)
+        _fl_name = getattr(_fl_datum, "name", "") if _fl_datum else "FL"
+        fl_label = _fl_name or "▽FL"
+        fl_text_item = scene.addText(fl_label, QFont("Segoe UI", 7))
+        fl_text_item.setDefaultTextColor(QColor(25, 80, 160))
+        fl_text_item.setPos(2, _fl_y - 16)
+        fl_text_item.setZValue(9)
+
+    if not elements:
+        return
+
+    # Render every parent slab and its stepped regions as one material body.
+    slab_assemblies = build_unified_slab_sections(elements, axis, sy if axis == "X" else sx)
+    handled_slab_ids = set()
+    slab_pen = QPen(QColor(70, 80, 90), 1.0, Qt.SolidLine)
+    slab_brush = QBrush(QColor(185, 195, 210, 170), Qt.FDiagPattern)
+    overlap_pen = QPen(QColor(85, 105, 120), 0.8, Qt.DashLine)
+
+    for assembly in slab_assemblies:
+        unified_path = QPainterPath()
+        elevation_positions = {}
+        for piece in assembly.pieces:
+            handled_slab_ids.add(int(piece.source_id))
+            scene_x0 = _real_x_to_scene(piece.start_mm)
+            scene_x1 = _real_x_to_scene(piece.end_mm)
+            scene_yt = gl_y - piece.top_elevation * EL_SCALE
+            scene_yb = gl_y - piece.bottom_elevation * EL_SCALE
+            piece_rect = QRectF(
+                QPointF(scene_x0, scene_yt), QPointF(scene_x1, scene_yb)
+            ).normalized()
+            piece_path = QPainterPath()
+            piece_path.addRect(piece_rect)
+            unified_path = piece_path if unified_path.isEmpty() else unified_path.united(piece_path)
+            marker_mm = piece.marker_mm if piece.marker_mm is not None else piece.start_mm
+            marker_x = _real_x_to_scene(marker_mm)
+            elevation_positions.setdefault(piece.top_elevation, (marker_x, scene_yt))
+
+        if unified_path.isEmpty():
+            continue
+        slab_item = scene.addPath(unified_path, slab_pen, slab_brush)
+        slab_item.setZValue(5)
+        slab_item.setData(0, ("se", assembly.parent_id))
+
+        # One material label for the complete slab assembly.
+        slab_label = _nevis_structural_type_labels(mainwin).get("slab", "Sàn")
+        label_item = scene.addText(slab_label, QFont("Segoe UI", 7))
+        label_item.setDefaultTextColor(QColor(40, 50, 60))
+        label_item.setPos(unified_path.boundingRect().left() + 4,
+                          unified_path.boundingRect().top() + 3)
+        label_item.setZValue(6)
+
+        # Japanese elevation marker: red downward triangle with its point on the edge.
+        for elevation, (label_x, label_y) in sorted(elevation_positions.items(), reverse=True):
+            triangle = QPolygonF([
+                QPointF(label_x - 5, label_y - 9),
+                QPointF(label_x + 5, label_y - 9),
+                QPointF(label_x, label_y),
+            ])
+            triangle_item = scene.addPolygon(
+                triangle, QPen(QColor(190, 35, 35), 0.8), QBrush(QColor(190, 35, 35))
+            )
+            triangle_item.setAcceptedMouseButtons(Qt.NoButton)
+            triangle_item.setZValue(7)
+            elevation_text = "±0" if abs(elevation) < 0.5 else f"{elevation:+.0f}"
+            elev_item = scene.addText(elevation_text, QFont("Segoe UI", 7))
+            elev_item.setDefaultTextColor(QColor(175, 30, 30))
+            elev_item.setPos(label_x + 7, label_y - 18)
+            elev_item.setAcceptedMouseButtons(Qt.NoButton)
+            elev_item.setZValue(7)
+
+        # Overlap bands: structural rebar lap-splice zones (orange diagonal hatch)
+        for band in assembly.overlap_bands:
+            bx0 = _real_x_to_scene(band.start_mm)
+            bx1 = _real_x_to_scene(band.end_mm)
+            byt = gl_y - band.top_elevation * EL_SCALE
+            byb = gl_y - band.bottom_elevation * EL_SCALE
+            band_rect = QRectF(QPointF(bx0, byt), QPointF(bx1, byb)).normalized()
+            if band_rect.width() < 0.5:
+                continue
+            band_pen = QPen(QColor(180, 80, 0), 0.8, Qt.SolidLine)
+            band_brush = QBrush(QColor(220, 120, 0, 100), Qt.BDiagPattern)
+            band_item = scene.addRect(band_rect, band_pen, band_brush)
+            band_item.setZValue(5.5)
+            band_item.setAcceptedMouseButtons(Qt.NoButton)
+
+        # ── Finish layers (lớp hoàn thiện) above this slab assembly ──────────
+        # Find the slab element for this assembly to get its finish_layers.
+        _parent_elem = next(
+            (e for e in elements if int(getattr(e, "id", -1)) == assembly.parent_id),
+            None,
+        )
+        _f_layers = list(getattr(_parent_elem, "finish_layers", []) or []) if _parent_elem else []
+        if not _f_layers:
+            _ft = float(getattr(_parent_elem, "finish_thickness_mm", 0.0) or 0.0) if _parent_elem else 0.0
+            if _ft > 0:
+                _f_layers = [{"name": "仕上げ", "thickness": _ft}]
+
+        if _f_layers:
+            def _finish_layer_color(name: str):
+                name_lower = name.lower()
+                for keywords, rgba in _NEVIS_FINISH_LAYER_COLORS:
+                    if any(kw.lower() in name_lower for kw in keywords):
+                        return QColor(*rgba)
+                return QColor(*_NEVIS_FINISH_LAYER_DEFAULT_COLOR)
+
+            # FL surface is always flat at the HIGHEST piece top (parent slab level).
+            # For stepped slab: only RC steps down; raised-floor support legs compensate,
+            # so the finish surface stays flat across all pieces.
+            _fl_ref_elevation = max(p.top_elevation for p in assembly.pieces)
+            _finish_intervals = merge_section_intervals(
+                [(piece.start_mm, piece.end_mm) for piece in assembly.pieces]
+            )
+            _layer_z_offset = 0.0
+            for _lay in _f_layers:
+                _lay_thick = float(_lay.get("thickness", 0.0))
+                if _lay_thick <= 0:
+                    continue
+                _lay_color = _finish_layer_color(str(_lay.get("name", "")))
+                _lay_pen = QPen(QColor(80, 80, 80, 100), 0.5, Qt.SolidLine)
+                _lay_brush = QBrush(_lay_color)
+                # Draw this finish layer as one continuous band across all pieces
+                # (same top elevation for every piece — FL does NOT follow the step)
+                _lay_top_mm = _fl_ref_elevation + _layer_z_offset + _lay_thick
+                _lay_bot_mm = _fl_ref_elevation + _layer_z_offset
+                _lay_yt = gl_y - _lay_top_mm * EL_SCALE
+                _lay_yb = gl_y - _lay_bot_mm * EL_SCALE
+                for _finish_start, _finish_end in _finish_intervals:
+                    _px0 = _real_x_to_scene(_finish_start)
+                    _px1 = _real_x_to_scene(_finish_end)
+                    _lay_rect = QRectF(QPointF(_px0, _lay_yt), QPointF(_px1, _lay_yb)).normalized()
+                    _lay_item = scene.addRect(_lay_rect, _lay_pen, _lay_brush)
+                    _lay_item.setZValue(5)
+                # Layer thickness label (right edge of first continuous band)
+                if _finish_intervals:
+                    _lx = _real_x_to_scene(_finish_intervals[0][1])
+                    _ly_mid = (_lay_yt + _lay_yb) / 2.0
+                    _lay_name = str(_lay.get("name", ""))
+                    _lay_label_text = f"{_lay_name} {_lay_thick:.0f}"
+                    _lay_lbl = scene.addText(_lay_label_text, QFont("Segoe UI", 6))
+                    _lay_lbl.setDefaultTextColor(QColor(40, 40, 100, 200))
+                    _lay_lbl.setPos(_lx + 2, _ly_mid - 7)
+                    _lay_lbl.setZValue(6)
+                _layer_z_offset += _lay_thick
+        # ── End finish layers ────────────────────────────────────────────────
+
+    # Build slab floor map: list of (start_mm, end_mm, top_elevation) from slab assemblies.
+    # Used to make wall/column bottoms follow the slab surface (stepped or flat).
+    _slab_floor_map = []
+    for _asm in slab_assemblies:
+        for _pc in _asm.pieces:
+            _slab_floor_map.append((_pc.start_mm, _pc.end_mm, float(_pc.top_elevation)))
+
+    def _wall_bottom_segments(h_start, h_end, stored_bot):
+        """Split [h_start, h_end] at slab-piece boundaries and return
+        list of (seg_start, seg_end, effective_bottom_elevation).
+        The effective bottom follows the slab surface: it drops down into
+        recessed (stepped) slab areas and stays at stored_bot elsewhere."""
+        bpts = sorted({h_start, h_end} |
+                      {s for s, e, _ in _slab_floor_map if h_start < s < h_end} |
+                      {e for s, e, _ in _slab_floor_map if h_start < e < h_end})
+        segs = []
+        for i in range(len(bpts) - 1):
+            seg_s, seg_e = bpts[i], bpts[i + 1]
+            mid = (seg_s + seg_e) / 2.0
+            # Find the lowest slab top at this mid-point (stepped slabs are negative)
+            slab_top = 0.0  # SL±0 if no slab below
+            for (s, e, top) in _slab_floor_map:
+                if s <= mid <= e:
+                    slab_top = min(slab_top, top)
+            # Effective bottom: follow slab surface down (min = most negative)
+            eff_bot = min(stored_bot, slab_top)
+            segs.append((seg_s, seg_e, eff_bot))
+        return segs if segs else [(h_start, h_end, stored_bot)]
+
+    for element in elements:
+        if (getattr(element, "element_type", None) == "slab"
+                and int(getattr(element, "id", -1)) in handled_slab_ids):
+            continue
+        pts = getattr(element, "points", [])
+        if len(pts) < 3:
+            continue
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        x0, x1 = min(xs), max(xs)
+        y0, y1 = min(ys), max(ys)
+        h = float(getattr(element, "height", 150) or 150)
+        top_e = float(getattr(element, "top_elevation", 0) or 0)
+        # Use stored bottom_elevation; fall back to top - height for legacy elements
+        _stored_bot = getattr(element, "bottom_elevation", None)
+        bot_e = float(_stored_bot) if _stored_bot is not None else (top_e - h)
+
+        # Check if element is intersected by cut line
+        if axis == "X":
+            # Cut line is horizontal (fixed Y = sy), view direction = up/down
+            cut_coord = sy  # Y position of cut (real-world mm)
+            lo, hi = min(y0, y1), max(y0, y1)
+            if not (lo <= cut_coord <= hi):
+                continue
+            # Horizontal extent of element along X
+            horiz_start = x0
+            horiz_end   = x1
+            # Viewing side: "above" = side < cut, "below" = side > cut
+            in_view = True
+            if side == "above" and not (y0 < cut_coord):
+                in_view = False
+            if side == "below" and not (y1 > cut_coord):
+                in_view = False
+        else:
+            # Cut line is vertical (fixed X = sx)
+            cut_coord = sx
+            lo, hi = min(x0, x1), max(x0, x1)
+            if not (lo <= cut_coord <= hi):
+                continue
+            horiz_start = y0
+            horiz_end   = y1
+            in_view = True
+
+        # Draw element in section: X = normalized horiz span, Y = elevation.
+        # Split into segments so the bottom follows the slab surface (stepped slab aware).
+        scene_yt = gl_y - top_e * EL_SCALE
+
+        eid = int(getattr(element, "id", -1))
+        _etype = getattr(element, "element_type", "")
+
+        _SECT_STYLE = {
+            "slab":       (QColor(70, 80, 95),    QBrush(QColor(185, 195, 210, 170), Qt.FDiagPattern)),
+            "wall_rc":    (QColor(55, 55, 60),    QBrush(QColor(160, 160, 165, 180), Qt.FDiagPattern)),
+            "column":     (QColor(50, 50, 55),    QBrush(QColor(130, 132, 138, 210))),
+            "beam":       (QColor(90, 55, 30),    QBrush(QColor(195, 160, 110, 170))),
+            "wall_lgs":   (QColor(50, 90, 150),   QBrush(QColor(200, 220, 245, 140))),
+            "ceiling_lgs":(QColor(40, 140, 80),   QBrush(QColor(180, 230, 200, 120))),
+        }
+        if bool(getattr(element, "is_stepped", False)):
+            pen   = QPen(QColor(55, 95, 145), 1.0, Qt.SolidLine)
+            brush = QBrush(QColor(75, 125, 180, 100), Qt.BDiagPattern)
+        else:
+            _s_col, _s_brush = _SECT_STYLE.get(_etype, (QColor(75, 80, 90), QBrush(QColor(195, 200, 210, 155))))
+            pen   = QPen(_s_col, 1.0, Qt.SolidLine)
+            brush = _s_brush
+        # Only wall/column/beam follow slab; slabs and ceilings use stored bot directly
+        _do_slab_follow = _etype in ("wall_rc", "wall_lgs", "column", "beam")
+        bottom_segs = (_wall_bottom_segments(horiz_start, horiz_end, bot_e)
+                       if _do_slab_follow else [(horiz_start, horiz_end, bot_e)])
+
+        rect_item = None
+        for seg_s, seg_e, seg_bot in bottom_segs:
+            sx0 = _real_x_to_scene(seg_s)
+            sx1 = _real_x_to_scene(seg_e)
+            syb = gl_y - seg_bot * EL_SCALE
+            ri = scene.addRect(
+                QRectF(QPointF(sx0, scene_yt), QPointF(sx1, syb)).normalized(),
+                pen, brush,
+            )
+            ri.setZValue(5)
+            ri.setData(0, ("se", eid))
+            if rect_item is None:
+                rect_item = ri  # first segment used for label positioning
+
+        if rect_item is None:
+            continue
+
+        scene_x0 = _real_x_to_scene(horiz_start)
+        scene_x1 = _real_x_to_scene(horiz_end)
+
+        # Elevation label on right (type label removed to reduce clutter)
+        elev_txt = f"▲{top_e:+.0f}"
+        et = scene.addText(elev_txt, QFont("Segoe UI", 7))
+        et.setDefaultTextColor(QColor(180, 80, 0))
+        et.setPos(scene_x1 + 4, scene_yt)
+        et.setZValue(6)
+
+    # ── Pipe section view: circles where pipes cross the cut line ──────────────
+    _pipe_sys_colors = {
+        "VP": QColor(30, 80, 200, 200),
+        "DV": QColor(130, 80, 20, 200),
+        "VU": QColor(60, 160, 60, 200),
+        "TMP": QColor(200, 80, 30, 200),
+    }
+    _p_model = mainwin.model
+    _p_scale = float(getattr(_p_model, "drawing_scale", 1.0) or 1.0)
+    _p_origin = getattr(_p_model, "scale_origin", (0.0, 0.0)) or (0.0, 0.0)
+
+    def _c2r(cx, cy):
+        return ((cx - _p_origin[0]) * _p_scale, (cy - _p_origin[1]) * _p_scale)
+
+    _cut_fixed = sy if axis == "X" else sx
+    for _edge in getattr(_p_model, "edges", []):
+        _na = _p_model.nodes.get(_edge.a)
+        _nb = _p_model.nodes.get(_edge.b)
+        if _na is None or _nb is None:
+            continue
+        _rax, _ray = _c2r(_na.x, _na.y)
+        _rbx, _rby = _c2r(_nb.x, _nb.y)
+        _fa, _aa = (_ray, _rax) if axis == "X" else (_rax, _ray)
+        _fb, _ab = (_rby, _rbx) if axis == "X" else (_rbx, _rby)
+        if abs(_fb - _fa) < 1e-6:
+            continue
+        _lo, _hi = min(_fa, _fb), max(_fa, _fb)
+        if not (_lo <= _cut_fixed <= _hi):
+            continue
+        _t = (_cut_fixed - _fa) / (_fb - _fa)
+        _cross_along = _aa + _t * (_ab - _aa)
+        if not (horiz_min_cut <= _cross_along <= horiz_max_cut):
+            continue
+        _za = _edge.start_z if _edge.start_z is not None else _na.z
+        _zb = _edge.end_z if _edge.end_z is not None else _nb.z
+        if _za is None:
+            _lda = _p_model.level_datums.get(_na.level_id)
+            _za = float(getattr(_lda, "elevation_mm", 0.0)) if _lda else 0.0
+        if _zb is None:
+            _ldb = _p_model.level_datums.get(_nb.level_id)
+            _zb = float(getattr(_ldb, "elevation_mm", 0.0)) if _ldb else 0.0
+        _z_cross = float(_za) + _t * (float(_zb) - float(_za))
+        _size_str = str(_edge.size or "65")
+        try:
+            _dn = float(_size_str.split("x")[0])
+        except (ValueError, IndexError):
+            _dn = 65.0
+        _r = max(1.5, (_dn / 2.0) * EL_SCALE)
+        _pcx = _real_x_to_scene(_cross_along)
+        _pcy = gl_y - _z_cross * EL_SCALE
+        _sys = str(getattr(_edge, "system_type", "") or "").upper()
+        _pcol = _pipe_sys_colors.get(_sys, QColor(120, 120, 120, 200))
+        _pe_pen = QPen(_pcol, 1.0, Qt.SolidLine)
+        _pe_brush = QBrush(QColor(_pcol.red(), _pcol.green(), _pcol.blue(), 50))
+        _circ = scene.addEllipse(_pcx - _r, _pcy - _r, _r * 2, _r * 2, _pe_pen, _pe_brush)
+        _circ.setZValue(7)
+        _szt = scene.addText(_size_str, QFont("Segoe UI", 5))
+        _szt.setDefaultTextColor(_pcol.darker(130))
+        _szt.setPos(_pcx + _r + 1, _pcy - 6)
+        _szt.setZValue(8)
+    # ── End pipe section ──────────────────────────────────────────────────────
+
+    for item in scene.items():
+        try:
+            d = None
+            try:
+                d = item.data(0)
+            except Exception:
+                pass
+            if isinstance(d, tuple) and d[0] == "se":
+                continue  # structural elements keep mouse events for click-to-edit
+            item.setAcceptedMouseButtons(Qt.NoButton)
+        except AttributeError:
+            pass
+    scene.setSceneRect(scene.itemsBoundingRect().adjusted(-20, -20, 20, 40))
+
+
+def _nevis_t29_draw_cut_line_on_plan(mainwin, start, end, side):
+    """Draw cut line + direction arrow on the plan preview."""
+    from PySide6.QtGui import QPen, QColor, QBrush, QPolygonF
+    from PySide6.QtCore import Qt, QPointF
+    view = mainwin.preview
+    cs = _nevis_real_to_canvas_point(mainwin, start)
+    ce = _nevis_real_to_canvas_point(mainwin, end)
+    pen = QPen(QColor(220, 0, 0), 2.5, Qt.SolidLine)
+    line_item = view.scene.addLine(cs[0], cs[1], ce[0], ce[1], pen)
+    line_item.setZValue(50)
+    line_item.setData(0, "section_cut_line")
+    # Tick marks at ends
+    for pt in (cs, ce):
+        perp_size = 10
+        if getattr(mainwin, _T29_SECTION_AXIS, "X") == "X":
+            t1 = view.scene.addLine(pt[0], pt[1] - perp_size, pt[0], pt[1] + perp_size, pen)
+        else:
+            t1 = view.scene.addLine(pt[0] - perp_size, pt[1], pt[0] + perp_size, pt[1], pen)
+        t1.setZValue(50)
+        t1.setData(0, "section_cut_line")
+
+
+def _nevis_t29_section_exit(mainwin):
+    """Remove section panel from main splitter, restore plan-only view."""
+    sp = getattr(mainwin, _T29_SECTION_SPLITTER, None)
+    if sp is None:
+        return
+    try:
+        sp.setParent(None)
+        sp.deleteLater()
+    except RuntimeError:
+        pass
+    setattr(mainwin, _T29_SECTION_SPLITTER, None)
+    setattr(mainwin, _T29_SECTION_VIEW, None)
+    # Restore main splitter: left_shell + center full width + right_shell=0
+    try:
+        sizes = mainwin.splitter.sizes()
+        total = sum(sizes)
+        left_w = sizes[0] if sizes else 220
+        n = mainwin.splitter.count()
+        new_sizes = [left_w, total - left_w] + [0] * max(0, n - 2)
+        mainwin.splitter.setSizes(new_sizes)
+    except Exception:
+        pass
+    # Remove cut line items from plan scene
+    try:
+        for it in list(mainwin.preview.scene.items()):
+            try:
+                if it.data(0) == "section_cut_line":
+                    mainwin.preview.scene.removeItem(it)
+            except (RuntimeError, AttributeError):
+                pass
+    except Exception:
+        pass
+
+
+# Wire up 断面図 button
+_T29_ORIG_SECTION_BTN = getattr(MainWindow, "_on_section_view_btn_clicked", None)
+
+
+def _nevis_t29_section_btn(self):
+    current_mode = getattr(self, _T29_SECTION_MODE, "idle")
+    if current_mode != "idle":
+        # Cancel
+        _nevis_t29_section_clear_preview(self.preview)
+        setattr(self, _T29_SECTION_MODE, "idle")
+        _nevis_t29_section_exit(self)
+        self.lbl_status.setText(self.tr("section_cut_cancel"))
+        return
+    _nevis_t29_section_enter(self)
+
+
+def _nevis_t29_get_section_button(mainwin):
+    """Find the 断面図 button widget."""
+    from PySide6.QtWidgets import QPushButton
+    for btn in mainwin.findChildren(QPushButton):
+        if "断面" in (btn.text() or "") or "断面図" in (btn.objectName() or ""):
+            return btn
+    return None
+
+
+# Wire button at startup via patching the existing 断面図 button connection
+_T29_ORIG_BUILD_UI = MainWindow._build_ui if hasattr(MainWindow, "_build_ui") else None
+
+
+def _nevis_t29_wire_section_btn(self):
+    """Called once after build_ui to wire section button."""
+    btn = _nevis_t29_get_section_button(self)
+    if btn is not None:
+        try:
+            btn.clicked.disconnect()
+        except Exception:
+            pass
+        btn.clicked.connect(lambda: _nevis_t29_section_btn(self))
+
+
+# Patch preview mouse events for section cut line drawing
+_T29_PREV_PRESS = PreviewView.mousePressEvent
+_T29_PREV_MOVE  = PreviewView.mouseMoveEvent
+
+
+def _nevis_t29_mouse_press(self, event):
+    mode = getattr(self.mainwin, _T29_SECTION_MODE, "idle")
+    if mode == "idle":
+        return _T29_PREV_PRESS(self, event)
+
+    if event.button() == Qt.RightButton:
+        _nevis_t29_section_clear_preview(self)
+        setattr(self.mainwin, _T29_SECTION_MODE, "idle")
+        _nevis_t29_section_exit(self.mainwin)
+        self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_cancel"))
+        event.accept()
+        return
+
+    if event.button() != Qt.LeftButton:
+        return _T29_PREV_PRESS(self, event)
+
+    pt = _nevis_t26_raw_scene_point(self, event)
+
+    if mode == "start":
+        setattr(self.mainwin, _T29_SECTION_START, pt)
+        setattr(self.mainwin, _T29_SECTION_MODE, "end")
+        self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_end"))
+        event.accept()
+        return
+
+    if mode == "end":
+        start = getattr(self.mainwin, _T29_SECTION_START)
+        # Lock to axis: whichever delta is larger
+        dx = abs(pt[0] - start[0])
+        dy = abs(pt[1] - start[1])
+        if max(dx, dy) < _T29_MIN_CUT_LENGTH_MM:
+            self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_too_short"))
+            _nevis_section_debug(
+                "section_cut_rejected",
+                reason="too_short",
+                start=start,
+                attempted_end=pt,
+                length_mm=max(dx, dy),
+            )
+            event.accept()
+            return
+        if dx >= dy:
+            # Horizontal line — Y locked
+            end_pt = (pt[0], start[1])
+            setattr(self.mainwin, _T29_SECTION_AXIS, "X")
+        else:
+            # Vertical line — X locked
+            end_pt = (start[0], pt[1])
+            setattr(self.mainwin, _T29_SECTION_AXIS, "Y")
+        setattr(self.mainwin, _T29_SECTION_END, end_pt)
+        _nevis_t29_section_clear_preview(self)
+        # Draw locked line
+        cs = _nevis_real_to_canvas_point(self.mainwin, start)
+        ce = _nevis_real_to_canvas_point(self.mainwin, end_pt)
+        from PySide6.QtGui import QPen, QColor
+        pen = QPen(QColor(220, 0, 0), 2.0, Qt.DashLine)
+        li = self.scene.addLine(cs[0], cs[1], ce[0], ce[1], pen)
+        li.setZValue(50)
+        li.setData(0, "section_cut_line")
+        setattr(self, _T29_SECTION_LINE_ITEM, li)
+        setattr(self.mainwin, _T29_SECTION_MODE, "side")
+        self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_side"))
+        event.accept()
+        return
+
+    if mode == "side":
+        start = getattr(self.mainwin, _T29_SECTION_START)
+        end_pt = getattr(self.mainwin, _T29_SECTION_END)
+        axis = getattr(self.mainwin, _T29_SECTION_AXIS, "X")
+        # Determine side from click position relative to cut line
+        if axis == "X":
+            cut_y = start[1]
+            side = "above" if pt[1] < cut_y else "below"
+        else:
+            cut_x = start[0]
+            side = "left" if pt[0] < cut_x else "right"
+        setattr(self.mainwin, "_section_view_side", side)
+        setattr(self.mainwin, _T29_SECTION_MODE, "idle")
+        _nevis_t29_section_clear_preview(self)
+        _nevis_t29_show_split_view(self.mainwin, start, end_pt, side)
+        event.accept()
+        return
+
+    return _T29_PREV_PRESS(self, event)
+
+
+def _nevis_t29_mouse_move(self, event):
+    mode = getattr(self.mainwin, _T29_SECTION_MODE, "idle")
+    if mode in ("end", "side"):
+        pt = _nevis_t26_raw_scene_point(self, event)
+        _nevis_t29_section_clear_preview(self)
+        start = getattr(self.mainwin, _T29_SECTION_START, pt)
+        if mode == "end":
+            dx = abs(pt[0] - start[0])
+            dy = abs(pt[1] - start[1])
+            if dx >= dy:
+                end_pt = (pt[0], start[1])
+            else:
+                end_pt = (start[0], pt[1])
+        else:
+            end_pt = getattr(self.mainwin, _T29_SECTION_END, pt)
+        cs = _nevis_real_to_canvas_point(self.mainwin, start)
+        ce = _nevis_real_to_canvas_point(self.mainwin, end_pt)
+        from PySide6.QtGui import QPen, QColor
+        pen = QPen(QColor(220, 0, 0), 2.0, Qt.DashLine)
+        li = self.scene.addLine(cs[0], cs[1], ce[0], ce[1], pen)
+        li.setZValue(50)
+        li.setData(0, "section_cut_line")
+        setattr(self, _T29_SECTION_LINE_ITEM, li)
+    return _T29_PREV_MOVE(self, event)
+
+
+PreviewView.mousePressEvent = _nevis_t29_mouse_press
+PreviewView.mouseMoveEvent  = _nevis_t29_mouse_move
+
+
+# Wire 断面図 button after window is fully shown (deferred)
+_T29_ORIG_SHOW = MainWindow.show
+
+
+def _nevis_t29_show(self):
+    _T29_ORIG_SHOW(self)
+    _nevis_t29_wire_section_btn(self)
+
+
+MainWindow.show = _nevis_t29_show
+
+
+# =============================================================================
+# STRUCTURAL PANEL COMPACT LAYOUT - readable controls in the 220px sidebar
+# =============================================================================
+_NEVIS_STRUCTURAL_PANEL_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_STRUCTURAL_PANEL_PREV_REFRESH = MainWindow.refresh_language_texts
+_NEVIS_STRUCTURAL_PANEL_PREV_SHOW = MainWindow.show
+_NEVIS_STRUCTURAL_PANEL_PREV_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_structural_panel_place_section_button(self):
+    compact = getattr(self, "_structural_compact_panel", None)
+    button = getattr(self, "btn_section_cut", None)
+    if compact is None or button is None:
+        return
+    layout = compact.layout()
+    button.setParent(compact)
+    button.setMinimumHeight(31)
+    button.setMaximumHeight(31)
+    button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    if layout.indexOf(button) < 0:
+        # type grid, command row, stepped slab, then section view
+        layout.insertWidget(3, button)
+    button.setVisible(getattr(self, "workspace_mode", "mep") == "structural")
+
+
+def _nevis_apply_clear_checkbox_style(checkbox):
+    icon_path = (nevis_app_dir() / "Ico" / "checkmark.svg").as_posix()
+    checkbox.setStyleSheet(
+        "QCheckBox { spacing:6px; color:#1E2A3A; font-weight:500; }"
+        "QCheckBox::indicator { width:16px; height:16px; border:1px solid #8796AA; "
+        "border-radius:3px; background:#FFFFFF; }"
+        "QCheckBox::indicator:hover { border-color:#1976D2; background:#EAF2FC; }"
+        "QCheckBox::indicator:checked { background:#1976D2; border:1px solid #125AA3; "
+        f"image:url(\"{icon_path}\"); }}"
+    )
+
+
+def _nevis_preview_toolbar_responsive(self, compact: bool, narrow: bool = False):
+    """Keep the preview toolbar grouped and readable at reduced widths."""
+    layout = getattr(self, "preview_toolbar_layout", None)
+    if layout is None:
+        return
+
+    # These commands now live in the structural sidebar, never in this toolbar.
+    legacy_stepped = getattr(self, "btn_stepped_slab", None)
+    if legacy_stepped is not None:
+        legacy_stepped.hide()
+    section_button = getattr(self, "btn_section_cut", None)
+    primary = [
+        self.btn_detail_preview,
+        self.btn_center_undo,
+        self.btn_fit,
+    ]
+    background = [
+        self.btn_open_reference_background,
+        self.chk_reference_background_visible,
+        self.lbl_reference_background_opacity,
+        self.slider_reference_background_opacity,
+        self.btn_align_reference_background,
+        self.lbl_reference_background_angle,
+    ]
+    scale_button = getattr(self, "btn_scale_reference_background", None)
+    if scale_button is not None:
+        background.append(scale_button)
+
+    self._preview_primary_widgets = primary
+    self._preview_background_widgets = background
+    for column in range(12):
+        layout.setColumnStretch(column, 0)
+    for button in primary + [w for w in background if isinstance(w, QPushButton)]:
+        button.setMinimumWidth(0)
+        button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+    self.btn_detail_preview.setMaximumWidth(180)
+    self.btn_center_undo.setMaximumWidth(120)
+    self.btn_fit.setMaximumWidth(80)
+
+    if narrow:
+        layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 3)
+        for column, widget in enumerate(primary):
+            layout.addWidget(widget, 1, column, 1, 1, Qt.AlignLeft)
+        layout.addWidget(background[0], 2, 0)
+        layout.addWidget(background[1], 2, 1, 1, 2)
+        layout.addWidget(background[2], 3, 0)
+        layout.addWidget(background[3], 3, 1)
+        layout.addWidget(background[5], 3, 2)
+        layout.addWidget(background[4], 4, 0)
+        if len(background) > 6:
+            layout.addWidget(background[6], 4, 1)
+        layout.setColumnStretch(3, 1)
+    elif compact:
+        layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 8)
+        for column, widget in enumerate(primary):
+            layout.addWidget(widget, 1, column, 1, 1, Qt.AlignLeft)
+        layout.setColumnStretch(3, 1)
+        for column, widget in enumerate(background):
+            layout.addWidget(widget, 2, column)
+        layout.setColumnStretch(7, 1)
+    else:
+        layout.addWidget(self.lbl_drawing_preview, 0, 0)
+        layout.setColumnStretch(1, 1)
+        for column, widget in enumerate(primary, start=2):
+            layout.addWidget(widget, 0, column)
+        for offset, widget in enumerate(background):
+            layout.addWidget(widget, 0, 2 + len(primary) + offset)
+
+    self._preview_toolbar_compact = bool(compact)
+    self._preview_toolbar_narrow = bool(narrow)
+    layout.invalidate()
+    if section_button is not None:
+        QTimer.singleShot(0, lambda: _nevis_structural_panel_place_section_button(self))
+
+
+def _nevis_run_clash_check(self):
+    """Chay 2.5D clash detection, luu ket qua vao self._clash_pipe_keys va cap nhat canvas."""
+    from modules.clash_detection import find_clashes
+
+    model = getattr(self, "model", None)
+    if model is None:
+        return
+
+    elements = list(getattr(model, "structural_elements", []) or [])
+    edges = list(getattr(model, "edges", []) or [])
+    nodes = getattr(model, "nodes", {})
+
+    class _PipeAdapter:
+        def __init__(self, edge, n1, n2):
+            self.id = edge.key
+            sz = edge.start_z
+            ez = edge.end_z
+            self.z_elevation = (
+                ((sz or 0.0) + (ez or sz or 0.0)) / 2.0
+                if sz is not None
+                else (ez or 0.0)
+            )
+            self.points = [(n1.x, n1.y), (n2.x, n2.y)]
+
+    adapted = []
+    for e in edges:
+        n1 = nodes.get(e.a)
+        n2 = nodes.get(e.b)
+        if n1 is None or n2 is None:
+            continue
+        adapted.append(_PipeAdapter(e, n1, n2))
+
+    results = find_clashes(adapted, elements)
+    self._clash_pipe_keys = {r.pipe_id for r in results}
+    self._clash_results = results
+
+    canvas = getattr(self, "canvas", None)
+    if canvas is not None:
+        canvas.update()
+
+    count = len(results)
+    if count:
+        self.statusBar().showMessage(
+            self.tr("clash_found").format(count) if "{" in self.tr("clash_found") else
+            f"⚠ {count} xung đột phát hiện — ống đỏ trên bản vẽ"
+        )
+    else:
+        self.statusBar().showMessage(
+            self.tr("clash_none") if hasattr(self, "_tr_map") else
+            "✓ Không có xung đột"
+        )
+
+
+MainWindow.run_clash_check = _nevis_run_clash_check
+
+
+def _nevis_structural_panel_build_ui(self):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_BUILD_UI(self)
+    group = getattr(self, "g_structural_workspace", None)
+    type_widget = getattr(self, "_type_btn_grid_widget", None)
+    if group is None or type_widget is None:
+        return result
+
+    compact = QWidget(group)
+    compact_layout = QVBoxLayout(compact)
+    compact_layout.setContentsMargins(0, 0, 0, 0)
+    compact_layout.setSpacing(6)
+
+    # Two columns leave enough width for Vietnamese and Japanese labels.
+    type_widget.setParent(compact)
+    type_layout = type_widget.layout()
+    while type_layout.count():
+        type_layout.takeAt(0)
+    type_layout.setHorizontalSpacing(6)
+    type_layout.setVerticalSpacing(5)
+    for index, element_type in enumerate(_NEVIS_T19_STRUCTURAL_TYPES):
+        button = self._type_btns[element_type]
+        button.setMinimumWidth(0)
+        button.setFixedHeight(29)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setStyleSheet("font-size:11px; padding:1px 4px;")
+        type_layout.addWidget(button, index // 2, index % 2)
+    type_layout.setColumnStretch(0, 1)
+    type_layout.setColumnStretch(1, 1)
+    compact_layout.addWidget(type_widget)
+
+    command_row = QHBoxLayout()
+    command_row.setSpacing(6)
+    for button in (self.btn_workspace_draw, self.btn_workspace_delete):
+        button.setParent(compact)
+        button.setMinimumHeight(31)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        command_row.addWidget(button)
+    compact_layout.addLayout(command_row)
+
+    stepped_button = getattr(self, "_btn_stepped_slab", None)
+    if stepped_button is not None:
+        stepped_button.setParent(compact)
+        stepped_button.setMinimumHeight(31)
+        stepped_button.setMaximumHeight(31)
+        stepped_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        compact_layout.addWidget(stepped_button)
+
+    section_button = getattr(self, "btn_section_cut", None)
+    if section_button is not None:
+        section_button.setParent(compact)
+        section_button.setMinimumHeight(31)
+        section_button.setMaximumHeight(31)
+        section_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        compact_layout.addWidget(section_button)
+
+    # Clash detection button.
+    if not hasattr(self, "_btn_clash_check"):
+        self._btn_clash_check = QPushButton()
+        self._btn_clash_check.setMinimumHeight(31)
+        self._btn_clash_check.setMaximumHeight(31)
+        self._btn_clash_check.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._btn_clash_check.setStyleSheet(
+            "QPushButton { background:#c62828; color:white; font-weight:bold; border-radius:4px; }"
+            "QPushButton:hover { background:#e53935; }"
+            "QPushButton:pressed { background:#b71c1c; }"
+        )
+        self._btn_clash_check.clicked.connect(lambda: self.run_clash_check())
+    self._btn_clash_check.setText(self.tr("clash_check_btn") if hasattr(self, "_tr_map") else "⚠ Kiểm tra clash")
+    self._btn_clash_check.setParent(compact)
+    compact_layout.addWidget(self._btn_clash_check)
+
+    # A 3mm construction snap step replaces the old 303mm module preset.
+    grid_box = QWidget(compact)
+    grid_layout = QGridLayout(grid_box)
+    grid_layout.setContentsMargins(0, 2, 0, 0)
+    grid_layout.setHorizontalSpacing(6)
+    grid_layout.setVerticalSpacing(3)
+    self.chk_structural_grid.setParent(grid_box)
+    self.chk_structural_grid.setText(self.tr("structural_grid_enabled"))
+    _nevis_apply_clear_checkbox_style(self.chk_structural_grid)
+    grid_layout.addWidget(self.chk_structural_grid, 0, 0, 1, 3)
+    self._lbl_structural_snap_step = QLabel(self.tr("structural_snap_step"), grid_box)
+    grid_layout.addWidget(self._lbl_structural_snap_step, 1, 0)
+    self.edit_structural_grid.setParent(grid_box)
+    self.edit_structural_grid.setText("3")
+    self.edit_structural_grid.setVisible(True)
+    self.edit_structural_grid.setFixedWidth(55)
+    self.edit_structural_grid.setAlignment(Qt.AlignCenter)
+    grid_layout.addWidget(self.edit_structural_grid, 1, 1)
+    self._lbl_structural_grid_unit = QLabel("mm", grid_box)
+    grid_layout.addWidget(self._lbl_structural_grid_unit, 1, 2)
+    grid_layout.setColumnStretch(0, 1)
+    compact_layout.addWidget(grid_box)
+
+    self.lbl_structural_grid.hide()
+    custom_index = self.cmb_structural_grid.findData("custom")
+    self.cmb_structural_grid.blockSignals(True)
+    self.cmb_structural_grid.setCurrentIndex(custom_index)
+    self.cmb_structural_grid.blockSignals(False)
+    self.cmb_structural_grid.hide()
+    self.structural_grid_mm = 3.0
+
+    _nevis_apply_clear_checkbox_style(self.chk_reference_background_visible)
+
+    group.layout().insertWidget(0, compact)
+    self._structural_compact_panel = compact
+
+    for button_name in ("btn_grid_axis_add", "btn_grid_axis_delete", "btn_grid_axis_rename"):
+        button = getattr(self, button_name, None)
+        if button is not None:
+            button.setMinimumHeight(29)
+    return result
+
+
+def _nevis_structural_panel_refresh(self, *args, **kwargs):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_REFRESH(self, *args, **kwargs)
+    label = getattr(self, "_lbl_structural_snap_step", None)
+    if label is not None:
+        label.setText(self.tr("structural_snap_step"))
+    return result
+
+
+def _nevis_structural_panel_show(self):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_SHOW(self)
+    _nevis_structural_panel_place_section_button(self)
+    return result
+
+
+def _nevis_structural_panel_workspace(self, mode):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_WORKSPACE(self, mode)
+    _nevis_structural_panel_place_section_button(self)
+    return result
+
+
+MainWindow._build_ui = _nevis_structural_panel_build_ui
+MainWindow.refresh_language_texts = _nevis_structural_panel_refresh
+MainWindow.show = _nevis_structural_panel_show
+MainWindow.set_workspace_mode = _nevis_structural_panel_workspace
+MainWindow._set_preview_toolbar_compact = _nevis_preview_toolbar_responsive
+
+
+# =============================================================================
+# TASK 29 DIAGNOSTICS - structured runtime log, no behavior changes
+# =============================================================================
+_NEVIS_SECTION_DEBUG_SESSION = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+
+def _nevis_section_debug(event, **details):
+    """Append one JSON record for reproducing section-view UI failures."""
+    try:
+        record = {
+            "time": datetime.now().isoformat(timespec="milliseconds"),
+            "session": _NEVIS_SECTION_DEBUG_SESSION,
+            "event": str(event),
+        }
+        record.update(details)
+        path = nevis_app_dir() / "section_debug.log"
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        # Diagnostics must never change application behavior.
+        pass
+
+
+def _nevis_section_element_snapshot(element):
+    points = list(getattr(element, "points", []) or [])
+    return {
+        "id": getattr(element, "id", None),
+        "type": getattr(element, "element_type", None),
+        "label": getattr(element, "label", None),
+        "is_stepped": bool(getattr(element, "is_stepped", False)),
+        "parent_slab_id": getattr(element, "parent_slab_id", None),
+        "overlap_width": getattr(element, "overlap_width", None),
+        "top_elevation": getattr(element, "top_elevation", None),
+        "bottom_elevation": getattr(element, "bottom_elevation", None),
+        "height": getattr(element, "height", None),
+        "points": points,
+    }
+
+
+def _nevis_section_scene_snapshot(scene):
+    try:
+        bounds = scene.itemsBoundingRect()
+        scene_rect = scene.sceneRect()
+        return {
+            "item_count": len(scene.items()),
+            "items_bounds": [bounds.x(), bounds.y(), bounds.width(), bounds.height()],
+            "scene_rect": [scene_rect.x(), scene_rect.y(), scene_rect.width(), scene_rect.height()],
+        }
+    except Exception as exc:
+        return {"snapshot_error": repr(exc)}
+
+
+_NEVIS_SECTION_LOG_PREV_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_section_log_workspace(self, mode):
+    before = self.splitter.sizes() if hasattr(self, "splitter") else []
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_WORKSPACE(self, mode)
+    except Exception as exc:
+        _nevis_section_debug("workspace_error", requested_mode=mode, error=repr(exc))
+        raise
+    right_shell = getattr(self, "right_shell", None)
+    _nevis_section_debug(
+        "workspace_changed",
+        requested_mode=mode,
+        actual_mode=getattr(self, "workspace_mode", None),
+        splitter_before=before,
+        splitter_after=self.splitter.sizes() if hasattr(self, "splitter") else [],
+        right_shell_visible=right_shell.isVisible() if right_shell is not None else None,
+    )
+    return result
+
+
+MainWindow.set_workspace_mode = _nevis_section_log_workspace
+
+
+_NEVIS_SECTION_LOG_PREV_CREATE = MainWindow._structural_create_from_drag
+
+
+def _nevis_section_log_create(self, start, end):
+    before = list(getattr(self.model, "structural_elements", []) or [])
+    _nevis_section_debug(
+        "structural_create_start",
+        draw_type=getattr(self, "structural_draw_type", None),
+        start=start,
+        end=end,
+        element_count=len(before),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_CREATE(self, start, end)
+    except Exception as exc:
+        _nevis_section_debug("structural_create_error", error=repr(exc))
+        raise
+    after = list(getattr(self.model, "structural_elements", []) or [])
+    before_ids = {getattr(item, "id", None) for item in before}
+    created = [item for item in after if getattr(item, "id", None) not in before_ids]
+    _nevis_section_debug(
+        "structural_create_done",
+        result=result,
+        element_count=len(after),
+        created=[_nevis_section_element_snapshot(item) for item in created],
+        status=self.lbl_status.text() if hasattr(self, "lbl_status") else None,
+    )
+    return result
+
+
+MainWindow._structural_create_from_drag = _nevis_section_log_create
+
+
+_NEVIS_SECTION_LOG_PREV_STEPPED_CREATE = _nevis_t27_create_stepped_slab
+
+
+def _nevis_section_log_stepped_create(mainwin, start_or_points, end=None):
+    before = list(getattr(mainwin.model, "structural_elements", []) or [])
+    _nevis_section_debug(
+        "stepped_slab_create_start",
+        input_points=start_or_points,
+        end=end,
+        selected_parent_id=getattr(getattr(mainwin, "_selected_structural_element", None), "id", None),
+        element_count=len(before),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_STEPPED_CREATE(mainwin, start_or_points, end)
+    except Exception as exc:
+        _nevis_section_debug("stepped_slab_create_error", error=repr(exc))
+        raise
+    after = list(getattr(mainwin.model, "structural_elements", []) or [])
+    _nevis_section_debug(
+        "stepped_slab_create_done",
+        result=result,
+        element_count=len(after),
+        elements=[_nevis_section_element_snapshot(item) for item in after],
+        status=mainwin.lbl_status.text() if hasattr(mainwin, "lbl_status") else None,
+    )
+    return result
+
+
+_nevis_t27_create_stepped_slab = _nevis_section_log_stepped_create
+
+
+_NEVIS_SECTION_LOG_PREV_BUTTON = _nevis_t29_section_btn
+
+
+def _nevis_section_log_button(mainwin):
+    mode_before = getattr(mainwin, _T29_SECTION_MODE, "idle")
+    _nevis_section_debug(
+        "section_button",
+        mode_before=mode_before,
+        splitter_sizes=mainwin.splitter.sizes(),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_BUTTON(mainwin)
+    except Exception as exc:
+        _nevis_section_debug("section_button_error", mode_before=mode_before, error=repr(exc))
+        raise
+    _nevis_section_debug(
+        "section_button_done",
+        mode_after=getattr(mainwin, _T29_SECTION_MODE, "idle"),
+        status=mainwin.lbl_status.text() if hasattr(mainwin, "lbl_status") else None,
+    )
+    return result
+
+
+_nevis_t29_section_btn = _nevis_section_log_button
+
+
+_NEVIS_SECTION_LOG_PREV_RENDER = _nevis_t29_render_section
+
+
+def _nevis_section_log_render(mainwin, scene, start, end, side):
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    axis = getattr(mainwin, _T29_SECTION_AXIS, "X")
+    _nevis_section_debug(
+        "section_render_start",
+        start=start,
+        end=end,
+        side=side,
+        axis=axis,
+        elements=[_nevis_section_element_snapshot(item) for item in elements],
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_RENDER(mainwin, scene, start, end, side)
+    except Exception as exc:
+        _nevis_section_debug("section_render_error", error=repr(exc))
+        raise
+    _nevis_section_debug("section_render_done", **_nevis_section_scene_snapshot(scene))
+    return result
+
+
+_nevis_t29_render_section = _nevis_section_log_render
+
+
+_NEVIS_SECTION_LOG_PREV_SPLIT = _nevis_t29_show_split_view
+
+
+def _nevis_section_log_split(mainwin, start, end, side):
+    before = mainwin.splitter.sizes()
+    _nevis_section_debug(
+        "section_split_start",
+        start=start,
+        end=end,
+        side=side,
+        axis=getattr(mainwin, _T29_SECTION_AXIS, None),
+        splitter_before=before,
+        splitter_count=mainwin.splitter.count(),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_SPLIT(mainwin, start, end, side)
+    except Exception as exc:
+        _nevis_section_debug("section_split_error", error=repr(exc))
+        raise
+    view = getattr(mainwin, _T29_SECTION_VIEW, None)
+    scene = view.scene() if view is not None else None
+    _nevis_section_debug(
+        "section_split_created",
+        splitter_after=mainwin.splitter.sizes(),
+        splitter_count=mainwin.splitter.count(),
+        view_size=[view.width(), view.height()] if view is not None else None,
+        **(_nevis_section_scene_snapshot(scene) if scene is not None else {}),
+    )
+
+    def _log_delayed_fit(delay_ms):
+        current_view = getattr(mainwin, _T29_SECTION_VIEW, None)
+        current_scene = current_view.scene() if current_view is not None else None
+        _nevis_section_debug(
+            "section_fit_observed",
+            delay_ms=delay_ms,
+            splitter_sizes=mainwin.splitter.sizes(),
+            view_size=[current_view.width(), current_view.height()] if current_view is not None else None,
+            transform=[
+                current_view.transform().m11(), current_view.transform().m22()
+            ] if current_view is not None else None,
+            **(_nevis_section_scene_snapshot(current_scene) if current_scene is not None else {}),
+        )
+
+    QTimer.singleShot(250, lambda: _log_delayed_fit(250))
+    QTimer.singleShot(700, lambda: _log_delayed_fit(700))
+    return result
+
+
+_nevis_t29_show_split_view = _nevis_section_log_split
+
+
+_NEVIS_SECTION_LOG_PREV_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_section_log_mouse_press(self, event):
+    mode_before = getattr(self.mainwin, _T29_SECTION_MODE, "idle")
+    if mode_before == "idle":
+        return _NEVIS_SECTION_LOG_PREV_PRESS(self, event)
+    try:
+        point = _nevis_t26_raw_scene_point(self, event)
+    except Exception:
+        point = None
+    _nevis_section_debug(
+        "section_mouse_press",
+        mode_before=mode_before,
+        button=int(event.button().value) if hasattr(event.button(), "value") else str(event.button()),
+        point=point,
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_PRESS(self, event)
+    except Exception as exc:
+        _nevis_section_debug("section_mouse_press_error", mode_before=mode_before, error=repr(exc))
+        raise
+    _nevis_section_debug(
+        "section_mouse_press_done",
+        mode_before=mode_before,
+        mode_after=getattr(self.mainwin, _T29_SECTION_MODE, "idle"),
+        start=getattr(self.mainwin, _T29_SECTION_START, None),
+        end=getattr(self.mainwin, _T29_SECTION_END, None),
+        axis=getattr(self.mainwin, _T29_SECTION_AXIS, None),
+        side=getattr(self.mainwin, "_section_view_side", None),
+        status=self.mainwin.lbl_status.text() if hasattr(self.mainwin, "lbl_status") else None,
+    )
+    return result
+
+
+PreviewView.mousePressEvent = _nevis_section_log_mouse_press
+
+
+_nevis_section_debug(
+    "session_start",
+    task="29f_retest",
+    commit="6dce023",
+    log_version=1,
+)
+
+
+# =============================================================================
+# SHARED MODEL REFRESH — section view auto-updates when plan model changes
+# =============================================================================
+
+# Runtime library cache: resolve once with the proven resolver, never scan during draw.
+_NEVIS_FAST_PREV_MATCH = MainWindow.matching_library_path
+_NEVIS_FAST_PREV_RESOLVE = MainWindow.resolve_fitting_library_path_for_jww
+_NEVIS_FAST_PREV_SIZING = MainWindow.apply_branch_sizing
+_NEVIS_FAST_PREV_TRIM = MainWindow.ruby_trim_for_fitting_side
+_NEVIS_FAST_PREV_CONNECTORS = _json_connector_objects
+_NEVIS_FAST_PREV_APPLY = MainWindow.apply_common
+_NEVIS_FAST_CONNECTOR_CACHE = {}
+
+
+def _nevis_fast_matching_path(self, nid, ftype, size):
+    if getattr(self, "_nevis_drawing_model", False) and nid in self.model.fittings:
+        fit = self.model.fittings[nid]
+        path = str(getattr(fit, "library_path", "") or "")
+        if path:
+            return path
+    return _NEVIS_FAST_PREV_MATCH(self, nid, ftype, size)
+
+
+def _nevis_fast_resolve_path(self, nid, fit):
+    for attr in ("quick_library_path", "library_path", "selected_library_path", "exact_library_path"):
+        path = str(getattr(fit, attr, "") or "")
+        if path:
+            return path
+    if getattr(self, "_nevis_drawing_model", False):
+        return ""
+    path = str(_NEVIS_FAST_PREV_RESOLVE(self, nid, fit) or "")
+    if path:
+        fit.library_path = path
+    return path
+
+
+def _nevis_fast_json_connectors(path):
+    key = str(path or "")
+    if key not in _NEVIS_FAST_CONNECTOR_CACHE:
+        _NEVIS_FAST_CONNECTOR_CACHE[key] = _NEVIS_FAST_PREV_CONNECTORS(path)
+    return _NEVIS_FAST_CONNECTOR_CACHE[key]
+
+
+def _nevis_fast_trim(self, nid, other, size, mat):
+    cache = getattr(self, "_nevis_fast_trim_cache", None)
+    if not isinstance(cache, dict):
+        cache = self._nevis_fast_trim_cache = {}
+    fit = self.model.fittings.get(int(nid))
+    node = self.model.nodes.get(int(nid))
+    neighbors = tuple(
+        (nb, round(self.model.nodes[nb].x, 4), round(self.model.nodes[nb].y, 4))
+        for nb in self.model.neighbors(int(nid)) if nb in self.model.nodes
+    )
+    key = (int(nid), int(other), str(size), str(mat), str(getattr(fit, "ftype", "")),
+           str(getattr(fit, "size", "")), str(getattr(fit, "library_path", "")),
+           round(getattr(node, "x", 0.0), 4), round(getattr(node, "y", 0.0), 4), neighbors)
+    if key not in cache:
+        cache[key] = _NEVIS_FAST_PREV_TRIM(self, nid, other, size, mat)
+    return cache[key]
+
+
+def _nevis_fast_apply_sizing(self, main_size, terminal_type):
+    result = _NEVIS_FAST_PREV_SIZING(self, main_size, terminal_type)
+    self._nevis_fast_trim_cache = {}
+    for nid, fit in getattr(self.model, "fittings", {}).items():
+        if getattr(fit, "manual", False) and getattr(fit, "quick_library_path", ""):
+            continue
+        # Automatic fitting type/size is now final. Clear stale paths, then let
+        # the proven legacy resolver choose the exact material/folder variant
+        # once. draw_model only consumes this bound path and never searches.
+        for attr in ("quick_library_path", "library_path", "selected_library_path", "exact_library_path"):
+            setattr(fit, attr, "")
+        path = str(_NEVIS_FAST_PREV_RESOLVE(self, nid, fit) or "")
+        for attr in ("library_path", "selected_library_path", "exact_library_path"):
+            setattr(fit, attr, path)
+    return result
+
+
+def _nevis_fast_apply_common(self, *args, **kwargs):
+    result = _NEVIS_FAST_PREV_APPLY(self, *args, **kwargs)
+    try:
+        self._refresh_timer.stop()
+    except Exception:
+        pass
+    return result
+
+
+MainWindow.matching_library_path = _nevis_fast_matching_path
+MainWindow.resolve_fitting_library_path_for_jww = _nevis_fast_resolve_path
+MainWindow.apply_branch_sizing = _nevis_fast_apply_sizing
+MainWindow.ruby_trim_for_fitting_side = _nevis_fast_trim
+MainWindow.apply_common = _nevis_fast_apply_common
+_json_connector_objects = _nevis_fast_json_connectors
+
+_NEVIS_FAST_PREV_DRAW = PreviewView.draw_model
+
+
+def _nevis_fast_draw_model(self, *args, **kwargs):
+    self.mainwin._nevis_drawing_model = True
+    try:
+        return _NEVIS_FAST_PREV_DRAW(self, *args, **kwargs)
+    finally:
+        self.mainwin._nevis_drawing_model = False
+
+
+PreviewView.draw_model = _nevis_fast_draw_model
+
+_NEVIS_PREV_DRAW_MODEL = PreviewView.draw_model
+
+
+def _nevis_draw_model_with_section_refresh(self):
+    result = _NEVIS_PREV_DRAW_MODEL(self)
+    mw = getattr(self, "mainwin", None)
+    if mw is None:
+        return result
+    container = getattr(mw, _T29_SECTION_SPLITTER, None)
+    if container is None:
+        return result
+    try:
+        if not container.isVisible():
+            return result
+    except RuntimeError:
+        return result
+    # Debounce: schedule one refresh per event loop cycle, skip if already pending.
+    if getattr(mw, "_section_refresh_pending", False):
+        return result
+    mw._section_refresh_pending = True
+
+    def _do_refresh():
+        mw._section_refresh_pending = False
+        try:
+            container2 = getattr(mw, _T29_SECTION_SPLITTER, None)
+            if container2 is None or not container2.isVisible():
+                return
+        except RuntimeError:
+            return
+        start = getattr(mw, _T29_SECTION_START, None)
+        end = getattr(mw, _T29_SECTION_END, None)
+        side = getattr(mw, "_section_view_side", None)
+        if start is None or end is None or side is None:
+            return
+        sec_view = getattr(mw, _T29_SECTION_VIEW, None)
+        if sec_view is None:
+            return
+        try:
+            sec_scene = sec_view.scene()
+            if sec_scene is None:
+                return
+            sec_scene.clear()
+            _nevis_t29_render_section(mw, sec_scene, start, end, side)
+            r = sec_scene.itemsBoundingRect()
+            if not r.isEmpty():
+                sec_scene.setSceneRect(r.adjusted(-30, -30, 30, 30))
+        except RuntimeError:
+            pass
+
+    QTimer.singleShot(0, _do_refresh)
+    return result
+
+
+PreviewView.draw_model = _nevis_draw_model_with_section_refresh
+
+
+# =============================================================================
 # NEVIS ENTRYPOINT - kept after all hotfix patches so appended patches are active
 # =============================================================================
 def main():
     app = QApplication(sys.argv)
     try:
         from nevis_activation_guard import ensure_activation_or_show
-        if not ensure_activation_or_show():
+    except ModuleNotFoundError as ex:
+        if ex.name == "nevis_activation_guard":
+            print(
+                "NEVIS_ACTIVATION_WARNING: nevis_activation_guard.py not found; continuing in dev mode.",
+                file=sys.stderr,
+            )
+        else:
+            QMessageBox.critical(None, "NEVIS Activation", str(ex))
             sys.exit(2)
     except Exception as ex:
         QMessageBox.critical(None, "NEVIS Activation", str(ex))
         sys.exit(2)
+    else:
+        if not ensure_activation_or_show():
+            sys.exit(2)
     # BẢN THƯỜNG / 通常版:
     # Không kiểm tra license.dat để tiện test, copy thư mục, chạy nội bộ.
     # Khi phát hành bản khóa máy, bật lại hàm nevis_license_valid() ở bản license.
     temp = sys.argv[1] if len(sys.argv)>1 else None
     w = MainWindow(temp)
     w.show()
+    w._log_startup_timing("STARTUP_COMPLETE")
     sys.exit(app.exec())
 
 if __name__ == "__main__":

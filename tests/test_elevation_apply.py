@@ -4,7 +4,7 @@ import unittest
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from modules.elevation_apply import apply_elevation_review
+from modules.elevation_apply import apply_elevation_review, undo_elevation_apply
 from modules.elevation_review import build_proposal_review
 
 
@@ -13,6 +13,8 @@ class DummyNode:
     id: int
     z: Optional[float] = None
     level_id: str = ""
+    x: float = 0.0
+    y: float = 0.0
 
 
 @dataclass
@@ -24,6 +26,7 @@ class DummyEdge:
     start_level_id: str = ""
     end_level_id: str = ""
     elevation_locked: bool = False
+    slope: Optional[float] = None
 
     @property
     def key(self) -> str:
@@ -84,6 +87,34 @@ class ElevationApplyTest(unittest.TestCase):
         self.assertEqual(model.edges[1].start_z, 100.0)
         self.assertIsNone(model.edges[1].end_z)
         self.assertEqual(result.summary.applied_count, 1)
+
+    def test_successful_apply_updates_slope_when_both_endpoints_are_known(self):
+        model = _linear_model()
+        model.nodes[2].x = 0.0
+        model.nodes[3].x = 5000.0
+        model.edges[1].end_z = 0.0
+        report = build_proposal_review(model)
+
+        result = apply_elevation_review(model, report)
+
+        self.assertTrue(result.success)
+        self.assertEqual(model.edges[1].start_z, 100.0)
+        self.assertEqual(model.edges[1].slope, -0.02)
+
+    def test_undo_restores_previous_slope_with_endpoint_value(self):
+        model = _linear_model()
+        model.nodes[2].x = 0.0
+        model.nodes[3].x = 5000.0
+        model.edges[1].end_z = 0.0
+        model.edges[1].slope = 0.5
+        report = build_proposal_review(model)
+        result = apply_elevation_review(model, report)
+
+        restored = undo_elevation_apply(model, result)
+
+        self.assertTrue(restored)
+        self.assertIsNone(model.edges[1].start_z)
+        self.assertEqual(model.edges[1].slope, 0.5)
 
     def test_conflict_is_hard_blocker(self):
         model = _linear_model()
