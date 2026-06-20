@@ -70,14 +70,24 @@ python -m pytest tests/ -q --ignore=tests/test_elevation_preview_ui.py --ignore=
   - Clash detection overlay (Task 22c).
   - GL datum trong mat cat.
 
+## Wall System — Trang thai (2026-06-20)
+
+| Phase | Noi dung | Trang thai |
+|-------|---------|------------|
+| W1 | Data Model + Presets (W-01~W-13) | XONG |
+| W2 | Dialog chinh tuong (preset, RC thick, LGS stud, stagger) | XONG |
+| W3a | Plan View LGS — junction auto-merge QPainterPath.united() | XONG |
+| W3b | Plan View RC — hatch fill (FDiagPattern) | XONG |
+| W4 | Section: FL finish bands tren slab + wall FL-cut annotation | XONG |
+| W5 | Section: Wall layer structure theo material_type voi mau rieng | XONG |
+| W6 | Dam/Cot finish (H-01, H-12) | CHO SPEC |
+| W7 | Tran thach cao LGS | CHO SPEC |
+
 ## Viec tiep theo
 
-1. Nguoi dung retest GUI.
-2. Commit + push (chua push phien nay).
-3. Nghien cuu ve ve sàn gỗ vs sàn gạch trong mat cat:
-   - 置き床 (oki-yuka): chan do (168mm) + ban go (20mm) + san go (12mm) = ~200mm.
-   - San gach truc tiep: lop vua (20mm) + gach (10mm) = ~30mm.
-   - Ve trong mat cat: the hien cac lop bang qua trinh hatch khac nhau.
+1. Nguoi dung test GUI: tao tuong LGS va RC, chon preset W-01/W-02/W-12, xem plan view va mat cat.
+2. Commit + push khi nguoi dung confirm OK.
+3. W6/W7: can nguoi dung cung cap chi tiet ban ve H-01, H-12, LGS tran.
 4. JWW export profile (hatch, layer, net in) — dai han.
 5. Kiem tra overlap display trong mat cat.
 
@@ -92,6 +102,7 @@ python -B Nevis_no_ui.py
 
 ## Ghi chu quan trong
 
+- **PIPE CODE LOCKED:** Doc `PIPE_CODE_LOCKED.md` truoc khi cham vao pipe rendering, fitting lookup, hoac PIPE_COLORS. Cac section nay da chot 2026-06.
 - `section_debug.log`: Khi debug GUI, khong xoa file nay; dung session ID va timestamp de doi chieu.
 - GEOMETRY_SCALE = 0.1 (scene unit / mm) trong mat cat.
 - Monkey-patching pattern: NEVIS patch vao MainWindow va PreviewView o cuoi file.

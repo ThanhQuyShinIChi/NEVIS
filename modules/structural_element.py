@@ -46,6 +46,21 @@ class StructuralElement:
     finish_layers: list = field(default_factory=list)
     finish_thickness_mm: float = 0.0
 
+    # Wall finish layers (lớp hoàn thiện tường)
+    # inner: layers from structural face going inward (toward room interior), ordered face→room
+    # outer: layers from structural face going outward (toward outside/corridor/other room)
+    # Each layer: {"name": str, "thickness": float, "material_type": str}
+    # material_type: "insulation_ur"|"insulation_gw"|"gl"|"gypsum"|"gypsum_fire"
+    #                "gypsum_hard"|"gypsum_wet"|"air_gap"|"lgs_frame"
+    # wall_rc_thickness: RC structural body thickness (mm) — Japan standard 180mm
+    # lgs_is_staggered: True for 千鳥配置 (W-01 界壁), frame_width = stud_width + 12
+    #                   False for single-row LGS, frame_width = stud_width + 2 (tracks)
+    wall_finish_inner: list = field(default_factory=list)
+    wall_finish_outer: list = field(default_factory=list)
+    wall_finish_type_code: str = ""
+    wall_rc_thickness: float = 180.0
+    lgs_is_staggered: bool = False
+
 
 VALID_TYPES = {"slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling"}
 
@@ -55,6 +70,28 @@ def get_finish_thickness(e: StructuralElement) -> float:
     if e.finish_layers:
         return sum(float(lay.get("thickness", 0.0)) for lay in e.finish_layers)
     return float(e.finish_thickness_mm)
+
+
+def get_wall_frame_width(e: StructuralElement) -> float:
+    """LGS effective frame width (mm).
+    Single-row: stud_width + 2mm (tracks).  千鳥: stud_width + 12mm."""
+    if e.element_type != "wall_lgs":
+        return 0.0
+    extra = 12.0 if e.lgs_is_staggered else 2.0
+    return float(e.stud_width) + extra
+
+
+def get_wall_total_width(e: StructuralElement) -> float:
+    """Total wall width = structural body + all finish layers (mm).
+    LGS: frame + inner_finish + outer_finish.
+    RC:  wall_rc_thickness + inner_finish + outer_finish."""
+    inner = sum(float(l.get("thickness", 0.0)) for l in e.wall_finish_inner)
+    outer = sum(float(l.get("thickness", 0.0)) for l in e.wall_finish_outer)
+    if e.element_type == "wall_lgs":
+        return get_wall_frame_width(e) + inner + outer
+    if e.element_type == "wall_rc":
+        return float(e.wall_rc_thickness) + inner + outer
+    return float(e.width)
 
 _DEFAULTS = StructuralElement(id=0, element_type="slab")
 
@@ -80,6 +117,11 @@ def structural_element_to_dict(e: StructuralElement) -> dict:
         "overlap_width": e.overlap_width,
         "finish_layers": list(e.finish_layers),
         "finish_thickness_mm": e.finish_thickness_mm,
+        "wall_finish_inner": list(e.wall_finish_inner),
+        "wall_finish_outer": list(e.wall_finish_outer),
+        "wall_finish_type_code": e.wall_finish_type_code,
+        "wall_rc_thickness": e.wall_rc_thickness,
+        "lgs_is_staggered": e.lgs_is_staggered,
     }
 
 
@@ -135,4 +177,17 @@ def structural_element_from_dict(d: dict) -> StructuralElement:
             if isinstance(lay, dict)
         ],
         finish_thickness_mm=_f("finish_thickness_mm", 0.0),
+        wall_finish_inner=[
+            {"name": str(l.get("name", "")), "thickness": float(l.get("thickness", 0.0)),
+             "material_type": str(l.get("material_type", "gypsum"))}
+            for l in d.get("wall_finish_inner", []) if isinstance(l, dict)
+        ],
+        wall_finish_outer=[
+            {"name": str(l.get("name", "")), "thickness": float(l.get("thickness", 0.0)),
+             "material_type": str(l.get("material_type", "gypsum"))}
+            for l in d.get("wall_finish_outer", []) if isinstance(l, dict)
+        ],
+        wall_finish_type_code=str(d.get("wall_finish_type_code", "")),
+        wall_rc_thickness=_f("wall_rc_thickness", 180.0),
+        lgs_is_staggered=_b("lgs_is_staggered", False),
     )

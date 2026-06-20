@@ -2120,6 +2120,7 @@ class VerticalTabButton(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(text.replace("\n", " / "))
 
+    # ── PIPE RENDERING ── Xem PIPE_CODE_LOCKED.md trước khi sửa.
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -3103,6 +3104,7 @@ class PreviewView(QGraphicsView):
             except Exception:
                 continue
 
+    # ── PIPE LINE PRIMITIVE ── Xem PIPE_CODE_LOCKED.md. Đừng đổi cosmetic=True mặc định.
     def _add_pipe_line(self, x1,y1,x2,y2,color,width,data,cosmetic=True,z=5):
         pen = QPen(color, width)
         # Keep pipe strokes visible after fit/zoom. Geometry scale stays real, line thickness stays readable.
@@ -26664,12 +26666,198 @@ def _nevis_structural_edit_existing(self, element_id: int) -> bool:
     return True
 
 
+def _nevis_w3_draw_walls(view, wall_elements, bounds_ref) -> object:
+    """W3a/W3b/W6: Draw wall/column/beam elements with type-specific styles and junction auto-merge.
+
+    RC elements (wall_rc, column, beam) that overlap or touch are drawn with a single merged
+    outer border — seams disappear at column-wall junctions, T/X-junctions, corners.
+    LGS walls merge within same-type groups.
+    Returns updated bounds (QRectF | None).
+    """
+    from collections import defaultdict
+
+    # Merge-group key rules:
+    #   wall_rc / column / beam  →  all go into key ("rc_solid", "")  → ONE merged border outline
+    #   wall_lgs                 →  grouped by (etype, tcode)          → merge within same preset
+    groups: dict = defaultdict(list)
+    for e in wall_elements:
+        if len(getattr(e, "points", [])) < 3:
+            continue
+        etype = str(getattr(e, "element_type", "wall_lgs"))
+        if etype in ("wall_rc", "column", "beam"):
+            merge_key = ("rc_solid", "")
+        else:
+            tcode = str(getattr(e, "wall_finish_type_code", "") or "")
+            merge_key = (etype, tcode)
+        groups[merge_key].append(e)
+
+    bounds = bounds_ref
+
+    def _canvas_polygon(elem):
+        pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in elem.points]
+        return QPolygonF([QPointF(x, y) for x, y in pts])
+
+    def _union_paths(elems):
+        """Return QPainterPath that is the union of all element polygons.
+        Also return list of (individual elem polygon, elem) for selection hit-testing."""
+        base = QPainterPath()
+        for e in elems:
+            poly = _canvas_polygon(e)
+            p = QPainterPath()
+            p.addPolygon(poly)
+            p.closeSubpath()
+            base = base.united(p)
+        return base
+
+    for (grp_key, _tcode), elems in groups.items():
+        grp_etype = grp_key  # "rc_solid" | "wall_lgs" | etc.
+        if grp_etype == "wall_lgs":
+            pen = QPen(QColor(40, 40, 40), 1.5, Qt.SolidLine)
+            brush = QBrush(QColor(200, 205, 215, 200))
+            finish_color = QColor(170, 175, 190, 220)
+            z_val = 11
+        else:  # rc_solid (wall_rc + column + beam merged group)
+            pen = QPen(QColor(50, 50, 55), 2.0, Qt.SolidLine)
+            brush = QBrush(QColor(158, 158, 163, 185), Qt.FDiagPattern)
+            finish_color = QColor(190, 195, 205, 180)
+            z_val = 12
+
+        # Union the merged outline — single border for entire rc_solid group
+        merged_path = _union_paths(elems)
+        merged_item = view.scene.addPath(merged_path, pen, brush)
+        merged_item.setZValue(z_val)
+        merged_item.setAcceptedMouseButtons(Qt.NoButton)
+
+        # Draw individual element polygons (transparent fill, for hit-test/selection/label)
+        for e in elems:
+            etype = str(getattr(e, "element_type", "wall_lgs"))
+            poly = _canvas_polygon(e)
+            hit_item = view.scene.addPolygon(
+                poly,
+                QPen(Qt.NoPen),
+                QBrush(Qt.NoBrush),
+            )
+            hit_item.setZValue(z_val + 0.1)
+            hit_item.setData(0, ("structural_element", int(e.id)))
+
+            # Finish layer bands for LGS walls (inner + outer strips)
+            if grp_etype == "wall_lgs":
+                pts = list(poly)
+                if len(pts) >= 4:
+                    # Determine wall direction from bounding box
+                    xs = [p.x() for p in pts]
+                    ys = [p.y() for p in pts]
+                    dx = max(xs) - min(xs)
+                    dy = max(ys) - min(ys)
+                    inner = list(getattr(e, "wall_finish_inner", []) or [])
+                    outer = list(getattr(e, "wall_finish_outer", []) or [])
+                    total_inner = sum(float(l.get("thickness", 0.0)) for l in inner)
+                    total_outer = sum(float(l.get("thickness", 0.0)) for l in outer)
+                    try:
+                        stud_w = float(getattr(e, "stud_width", 65.0) or 65.0)
+                        stagger = bool(getattr(e, "lgs_is_staggered", False))
+                        frame_w = stud_w + (12.0 if stagger else 2.0)
+                    except (TypeError, ValueError):
+                        frame_w = 47.0
+                    total_w = frame_w + total_inner + total_outer
+                    if total_w < 1.0:
+                        continue
+                    # Canvas scale: scene-units per mm
+                    if dx > dy:  # horizontal wall: thickness along Y
+                        real_h = dy / (abs(float(view.transform().m22())) or 1.0) if False else dy
+                        # Fraction of outer strip in canvas coords
+                        if total_w > 0:
+                            outer_frac = total_outer / total_w
+                            inner_frac = total_inner / total_w
+                        else:
+                            outer_frac = inner_frac = 0.0
+                        y0, y1 = min(ys), max(ys)
+                        x0, x1 = min(xs), max(xs)
+                        outer_h = (y1 - y0) * outer_frac
+                        inner_h = (y1 - y0) * inner_frac
+                        # Outer band (top strip)
+                        if outer_frac > 0.01:
+                            band = QPolygonF([
+                                QPointF(x0, y0), QPointF(x1, y0),
+                                QPointF(x1, y0 + outer_h), QPointF(x0, y0 + outer_h)
+                            ])
+                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
+                            bi.setZValue(z_val + 0.05)
+                            bi.setAcceptedMouseButtons(Qt.NoButton)
+                        # Inner band (bottom strip)
+                        if inner_frac > 0.01:
+                            band = QPolygonF([
+                                QPointF(x0, y1 - inner_h), QPointF(x1, y1 - inner_h),
+                                QPointF(x1, y1), QPointF(x0, y1)
+                            ])
+                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
+                            bi.setZValue(z_val + 0.05)
+                            bi.setAcceptedMouseButtons(Qt.NoButton)
+                    else:  # vertical wall: thickness along X
+                        if total_w > 0:
+                            outer_frac = total_outer / total_w
+                            inner_frac = total_inner / total_w
+                        else:
+                            outer_frac = inner_frac = 0.0
+                        x0, x1 = min(xs), max(xs)
+                        y0, y1 = min(ys), max(ys)
+                        outer_w = (x1 - x0) * outer_frac
+                        inner_w = (x1 - x0) * inner_frac
+                        if outer_frac > 0.01:
+                            band = QPolygonF([
+                                QPointF(x0, y0), QPointF(x0 + outer_w, y0),
+                                QPointF(x0 + outer_w, y1), QPointF(x0, y1)
+                            ])
+                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
+                            bi.setZValue(z_val + 0.05)
+                            bi.setAcceptedMouseButtons(Qt.NoButton)
+                        if inner_frac > 0.01:
+                            band = QPolygonF([
+                                QPointF(x1 - inner_w, y0), QPointF(x1, y0),
+                                QPointF(x1, y1), QPointF(x1 - inner_w, y1)
+                            ])
+                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
+                            bi.setZValue(z_val + 0.05)
+                            bi.setAcceptedMouseButtons(Qt.NoButton)
+
+            item_bounds = hit_item.sceneBoundingRect()
+            bounds = item_bounds if bounds is None else bounds.united(item_bounds)
+
+            # Label (type code) at center
+            tcode_lbl = str(getattr(e, "wall_finish_type_code", "") or "")
+            if not tcode_lbl:
+                _lbl_map = {"wall_rc": "RC壁", "column": "柱", "beam": "梁", "wall_lgs": "LGS"}
+                tcode_lbl = _lbl_map.get(etype, etype)
+            lbl = view.scene.addText(tcode_lbl, QFont("Segoe UI", 7))
+            lbl.setDefaultTextColor(QColor(55, 60, 80))
+            lbl.setZValue(13)
+            lbl.setAcceptedMouseButtons(Qt.NoButton)
+            br = lbl.boundingRect()
+            c = hit_item.sceneBoundingRect().center()
+            lbl.setPos(c.x() - br.width() / 2.0, c.y() - br.height() / 2.0)
+
+            # Selection handles
+            if int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(e.id):
+                _nevis_structural_draw_handles(view, e)
+
+    return bounds
+
+
 def _nevis_structural_draw_items(view) -> None:
     elements = list(getattr(view.mainwin.model, "structural_elements", []) or [])
     if not elements:
         return
     bounds = None
-    for element in elements:
+
+    # Separate structural solid elements for junction-aware rendering (W3/W6)
+    _W3_TYPES = ("wall_lgs", "wall_rc", "column", "beam")
+    wall_elements = [e for e in elements if getattr(e, "element_type", "") in _W3_TYPES]
+    non_wall_elements = [e for e in elements if getattr(e, "element_type", "") not in _W3_TYPES]
+
+    # Draw walls with junction-aware rendering
+    bounds = _nevis_w3_draw_walls(view, wall_elements, bounds)
+
+    for element in non_wall_elements:
         if len(getattr(element, "points", [])) < 3:
             continue
         if bool(getattr(element, "is_stepped", False)):
@@ -27874,11 +28062,26 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
             "slab": QColor(100, 140, 200, 160),
             "beam": QColor(140, 100, 180, 160),
             "column": QColor(180, 130, 60, 160),
-            "wall_rc": QColor(160, 160, 160, 160),
-            "wall_lgs": QColor(200, 190, 140, 160),
+            "wall_rc": QColor(155, 155, 160, 200),
+            "wall_lgs": QColor(195, 185, 135, 160),
             "ceiling": QColor(120, 190, 160, 160),
         }
+        # W5: material-type colors for finish layers in section
+        _W5_LAYER_COLORS = {
+            "insulation_ur": QColor(255, 200, 80, 190),
+            "insulation_gw": QColor(200, 235, 180, 190),
+            "gl": QColor(200, 180, 140, 200),
+            "gypsum": QColor(230, 230, 235, 220),
+            "gypsum_fire": QColor(230, 180, 170, 220),
+            "gypsum_hard": QColor(210, 210, 230, 220),
+            "gypsum_wet": QColor(180, 215, 230, 220),
+            "air_gap": QColor(240, 245, 255, 60),
+            "lgs_frame": QColor(170, 185, 170, 160),
+        }
+        _W5_LGS_FRAME_COLOR = QColor(130, 145, 155, 200)
+
         for idx, elem in enumerate(cut_elements):
+            etype = str(getattr(elem, "element_type", "slab"))
             top_e = float(getattr(elem, "top_elevation", 0.0) or 0.0)
             bot_e = float(getattr(elem, "bottom_elevation", 0.0) or 0.0)
             if abs(top_e - bot_e) < 1.0:
@@ -27886,11 +28089,119 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
             rect_y = ey(top_e)
             rect_h = abs(ey(bot_e) - ey(top_e))
             rect_x = margin_left + 10 + idx * elem_w
-            color = type_colors.get(getattr(elem, "element_type", "slab"), QColor(120, 140, 160, 120))
-            scene.addRect(rect_x, rect_y, elem_w - 4, rect_h,
-                          QPen(color.darker(130), 1.5), QBrush(color))
+            rect_w = elem_w - 4
+            color = type_colors.get(etype, QColor(120, 140, 160, 120))
+
+            # W5: wall layer rendering in section
+            if etype == "wall_lgs":
+                inner = list(getattr(elem, "wall_finish_inner", []) or [])
+                outer = list(getattr(elem, "wall_finish_outer", []) or [])
+                stud_w = float(getattr(elem, "stud_width", 65.0) or 65.0)
+                stagger = bool(getattr(elem, "lgs_is_staggered", False))
+                frame_w = stud_w + (12.0 if stagger else 2.0)
+                inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+                outer_sum = sum(float(l.get("thickness", 0.0)) for l in outer)
+                total_w = frame_w + inner_sum + outer_sum
+                if total_w > 0 and (inner or outer):
+                    # Draw layers left-to-right: outer | frame | inner
+                    scale_x = rect_w / total_w
+                    cur_x = rect_x
+                    # Outer layers
+                    for lay in outer:
+                        lw = float(lay.get("thickness", 0.0)) * scale_x
+                        lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                        scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                        cur_x += lw
+                    # LGS frame body
+                    fw = frame_w * scale_x
+                    scene.addRect(cur_x, rect_y, fw, rect_h,
+                                  QPen(_W5_LGS_FRAME_COLOR.darker(120), 0.8),
+                                  QBrush(_W5_LGS_FRAME_COLOR))
+                    cur_x += fw
+                    # Inner layers
+                    for lay in inner:
+                        lw = float(lay.get("thickness", 0.0)) * scale_x
+                        lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                        scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                        cur_x += lw
+                    # Outer border
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(QColor(60, 60, 65), 1.2), QBrush(Qt.NoBrush))
+                else:
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(color.darker(130), 1.5), QBrush(color))
+            elif etype == "wall_rc":
+                inner = list(getattr(elem, "wall_finish_inner", []) or [])
+                rc_thick = float(getattr(elem, "wall_rc_thickness", 180.0) or 180.0)
+                inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+                total_w = rc_thick + inner_sum
+                if total_w > 0 and inner:
+                    scale_x = rect_w / total_w
+                    cur_x = rect_x
+                    # RC body (concrete hatch)
+                    rw = rc_thick * scale_x
+                    scene.addRect(cur_x, rect_y, rw, rect_h,
+                                  QPen(QColor(60, 60, 65), 1.2),
+                                  QBrush(QColor(155, 155, 160, 200), Qt.FDiagPattern))
+                    cur_x += rw
+                    # Inner finish layers
+                    for lay in inner:
+                        lw = float(lay.get("thickness", 0.0)) * scale_x
+                        lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                        scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                        cur_x += lw
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(QColor(60, 60, 65), 1.5), QBrush(Qt.NoBrush))
+                else:
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(color.darker(130), 1.5),
+                                  QBrush(color, Qt.FDiagPattern))
+            elif etype == "slab":
+                # W4: slab with FL finish layer bands above it
+                scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                              QPen(color.darker(130), 1.5), QBrush(color))
+                fl_layers = list(getattr(elem, "finish_layers", []) or [])
+                fl_mm = float(getattr(elem, "finish_thickness_mm", 0.0) or 0.0)
+                if not fl_layers and fl_mm > 0:
+                    # Fallback: single layer for finish_thickness_mm
+                    fl_layers = [{"name": "仕上げ", "thickness": fl_mm, "material_type": "gypsum"}]
+                if fl_layers:
+                    # W4 finish layer colors (simple palette)
+                    _fl_layer_colors = [
+                        QColor(180, 140, 90, 200),   # 支持脚 (brown)
+                        QColor(210, 195, 160, 200),  # 置床パネル (tan)
+                        QColor(200, 165, 110, 200),  # フローリング (wood)
+                        QColor(230, 220, 200, 200),  # gypsum/other
+                    ]
+                    total_fl_mm = sum(float(l.get("thickness", 0.0)) for l in fl_layers)
+                    if total_fl_mm > 0:
+                        fl_px_per_mm = px_per_mm
+                        cur_bottom_y = rect_y  # top of slab = bottom of finish stack
+                        for li, lay in enumerate(reversed(fl_layers)):  # bottom→top in section
+                            layer_mm = float(lay.get("thickness", 0.0))
+                            if layer_mm <= 0:
+                                continue
+                            layer_h = layer_mm * fl_px_per_mm
+                            lc = _fl_layer_colors[li % len(_fl_layer_colors)]
+                            cur_bottom_y -= layer_h
+                            scene.addRect(rect_x, cur_bottom_y, rect_w, layer_h,
+                                          QPen(lc.darker(140), 0.5), QBrush(lc))
+                            lbl_lay = scene.addText(lay.get("name", "")[:6], QFont("Segoe UI", 5))
+                            lbl_lay.setDefaultTextColor(QColor(50, 35, 10))
+                            lbl_lay.setPos(rect_x + 1, cur_bottom_y + 1)
+            else:
+                scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                              QPen(color.darker(130), 1.5), QBrush(color))
+
             type_labels = _nevis_structural_type_labels(mainwin)
-            name = type_labels.get(getattr(elem, "element_type", ""), getattr(elem, "label", "?"))
+            name = type_labels.get(etype, getattr(elem, "label", "?"))
+            # W4: wall FL-cut annotation
+            if etype == "wall_lgs":
+                wall_type = str(getattr(elem, "wall_finish_type_code", "") or "")
+                if wall_type in ("W-01",):
+                    name = name + " [FL全カット]"
+                elif wall_type in ("W-02", "W-03"):
+                    name = name + " [フロ カット]"
             lbl_e = scene.addText(name, QFont("Segoe UI", 6))
             lbl_e.setDefaultTextColor(QColor(30, 30, 30))
             lbl_e.setPos(rect_x + 2, rect_y + 2)
@@ -28357,6 +28668,140 @@ _NEVIS_FINISH_LAYER_COLORS = [
 ]
 _NEVIS_FINISH_LAYER_DEFAULT_COLOR = (170, 210, 170, 150)  # green-tint default
 
+# ── WALL FINISH PRESETS ── Xem WALL_SYSTEM.md trước khi sửa.
+# Mỗi preset định nghĩa cấu tạo tường theo tiêu chuẩn Nhật.
+# inner: lớp từ mặt kết cấu → phía trong phòng (ordered: kết cấu → phòng)
+# outer: lớp từ mặt kết cấu → phía ngoài/hành lang/căn bên cạnh
+# material_type: "insulation_ur"|"insulation_gw"|"gl"|"gypsum"|"gypsum_fire"
+#                "gypsum_hard"|"gypsum_wet"|"air_gap"|"lgs_frame"
+_NEVIS_WALL_PRESETS = [
+    # ── RC外壁 (exterior RC walls) ──
+    {
+        "code": "W-12",
+        "desc": "RC+断熱材25+GL+石膏ボード12.5",
+        "usage": "RC外壁（内側仕上げ）",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 180.0,
+        "inner": [
+            {"name": "断熱材(ウレタン)", "thickness": 25.0, "material_type": "insulation_ur"},
+            {"name": "GL",              "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード",       "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    {
+        "code": "W-13",
+        "desc": "RC+GL+石膏ボード12.5",
+        "usage": "RC内壁・柱・梁面（断熱なし）",
+        "wall_type": "rc_interior",
+        "rc_thickness": 180.0,
+        "inner": [
+            {"name": "GL",        "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    {
+        "code": "W-04",
+        "desc": "RC+断熱材35+中空+LGS45+石膏ボード12.5",
+        "usage": "RC外壁ELV面・特殊部位",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 180.0,
+        "inner": [
+            {"name": "断熱材(GW)",  "thickness": 35.0, "material_type": "insulation_gw"},
+            {"name": "中空",        "thickness":  0.0, "material_type": "air_gap"},
+            {"name": "LGS45",      "thickness": 47.0, "material_type": "lgs_frame"},
+            {"name": "石膏ボード",  "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    # ── 柱・梁 外壁面仕上げ (Column / Beam exterior finish) ──
+    {
+        "code": "H-01",
+        "desc": "柱梁外壁面 ウレタン25+GL+石膏12.5",
+        "usage": "外壁に面する柱・梁の室内側（断熱あり）",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 0.0,   # body thickness controlled by element itself
+        "inner": [
+            {"name": "断熱材(ウレタン)", "thickness": 25.0, "material_type": "insulation_ur"},
+            {"name": "GL",              "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード",       "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    {
+        "code": "H-12",
+        "desc": "柱梁外壁面 GL+石膏12.5（断熱なし）",
+        "usage": "外壁に面する柱・梁の室内側（断熱なし）",
+        "wall_type": "rc_exterior",
+        "rc_thickness": 0.0,
+        "inner": [
+            {"name": "GL",        "thickness": 17.5, "material_type": "gl"},
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [],
+    },
+    # ── LGS間仕切壁 (LGS partition walls) ──
+    {
+        "code": "W-01",
+        "desc": "LGS65千鳥+GW充填+強化石膏21+硬質石膏9.5",
+        "usage": "耐火・遮音壁114条区画（住戸間界壁）",
+        "wall_type": "lgs_fire",
+        "rc_thickness": 0.0,
+        "lgs_stud_width": 65.0,
+        "lgs_is_staggered": True,   # 千鳥: frame_width = 65+12 = 77mm
+        "inner": [
+            {"name": "強化石膏ボード", "thickness": 21.0, "material_type": "gypsum_fire"},
+            {"name": "硬質石膏ボード", "thickness":  9.5, "material_type": "gypsum_hard"},
+        ],
+        "outer": [
+            {"name": "強化石膏ボード", "thickness": 21.0, "material_type": "gypsum_fire"},
+            {"name": "硬質石膏ボード", "thickness":  9.5, "material_type": "gypsum_hard"},
+        ],
+        # Total: 30.5 + 77 + 30.5 = 138mm
+    },
+    {
+        "code": "W-02",
+        "desc": "LGS45+石膏ボード12.5 両面",
+        "usage": "一般間仕切壁",
+        "wall_type": "lgs_general",
+        "rc_thickness": 0.0,
+        "lgs_stud_width": 45.0,
+        "lgs_is_staggered": False,  # frame_width = 45+2 = 47mm
+        "inner": [
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        "outer": [
+            {"name": "石膏ボード", "thickness": 12.5, "material_type": "gypsum"},
+        ],
+        # Total: 12.5 + 47 + 12.5 = 72mm (36mm each side from centerline)
+    },
+    {
+        "code": "W-03",
+        "desc": "LGS45+耐水石膏ボード12.5 両面",
+        "usage": "一般間仕切壁（水廻り：トイレ・洗面・浴室）",
+        "wall_type": "lgs_wet",
+        "rc_thickness": 0.0,
+        "lgs_stud_width": 45.0,
+        "lgs_is_staggered": False,
+        "inner": [
+            {"name": "耐水石膏ボード", "thickness": 12.5, "material_type": "gypsum_wet"},
+        ],
+        "outer": [
+            {"name": "耐水石膏ボード", "thickness": 12.5, "material_type": "gypsum_wet"},
+        ],
+        # Total: 12.5 + 47 + 12.5 = 72mm
+    },
+]
+
+
+def _nevis_wall_preset_by_code(code: str) -> dict:
+    """Return wall preset dict by code, or {} if not found."""
+    for p in _NEVIS_WALL_PRESETS:
+        if p.get("code") == code:
+            return p
+    return {}
+
 
 def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=None):
     """Extended dialog with per-type elevation inputs."""
@@ -28631,6 +29076,152 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     layout.addRow(lbl_ceil_bottom, edit_ceil_bottom)
     layout.addRow(lbl_finish, _fl_panel)
 
+    # ── WALL FINISH PANEL (W2) ── shown only for wall_rc / wall_lgs ──────────
+    _wall_panel = QWidget(dialog)
+    _wall_vbox = QVBoxLayout(_wall_panel)
+    _wall_vbox.setContentsMargins(0, 0, 0, 0)
+    _wall_vbox.setSpacing(6)
+
+    # Preset dropdown
+    _wall_preset_combo = QComboBox(_wall_panel)
+    _wall_preset_combo.addItem("--- カスタム / Tùy chỉnh ---", "")
+    for _wp in _NEVIS_WALL_PRESETS:
+        _wall_preset_combo.addItem(
+            "{} — {}".format(_wp["code"], _wp.get("desc", _wp.get("usage", ""))),
+            _wp["code"]
+        )
+    _wall_preset_row = QHBoxLayout()
+    _wall_preset_row.addWidget(QLabel("プリセット", _wall_panel))
+    _wall_preset_row.addWidget(_wall_preset_combo, 1)
+    _wall_vbox.addLayout(_wall_preset_row)
+
+    # RC thickness (wall_rc only)
+    init_rc_thick = float(getattr(element, "wall_rc_thickness", 180.0) or 180.0) if element is not None else 180.0
+    _wall_rc_group = QWidget(_wall_panel)
+    _wall_rc_vbox = QVBoxLayout(_wall_rc_group)
+    _wall_rc_vbox.setContentsMargins(0, 0, 0, 0)
+    _wall_rc_vbox.setSpacing(2)
+    _wall_rc_row = QHBoxLayout()
+    _wall_rc_row.addWidget(QLabel("RC厚 (mm)", _wall_rc_group))
+    _wall_rc_edit = QLineEdit("{:g}".format(init_rc_thick), _wall_rc_group)
+    _wall_rc_edit.setFixedWidth(70)
+    _wall_rc_row.addWidget(_wall_rc_edit)
+    _wall_rc_row.addStretch()
+    _wall_rc_vbox.addLayout(_wall_rc_row)
+    _wall_vbox.addWidget(_wall_rc_group)
+
+    # LGS controls (wall_lgs only)
+    init_stud = float(getattr(element, "stud_width", 65.0) or 65.0) if element is not None else 65.0
+    init_stagger = bool(getattr(element, "lgs_is_staggered", False)) if element is not None else False
+    _wall_lgs_group = QWidget(_wall_panel)
+    _wall_lgs_vbox = QVBoxLayout(_wall_lgs_group)
+    _wall_lgs_vbox.setContentsMargins(0, 0, 0, 0)
+    _wall_lgs_vbox.setSpacing(2)
+    _wall_lgs_row = QHBoxLayout()
+    _wall_lgs_stud_combo = QComboBox(_wall_lgs_group)
+    for _sw in [45.0, 65.0, 90.0]:
+        _wall_lgs_stud_combo.addItem("LGS{}".format(int(_sw)), _sw)
+    _idx_stud = _wall_lgs_stud_combo.findData(init_stud)
+    if _idx_stud >= 0:
+        _wall_lgs_stud_combo.setCurrentIndex(_idx_stud)
+    _wall_lgs_stagger_cb = QCheckBox("千鳥配置 (界壁)", _wall_lgs_group)
+    _wall_lgs_stagger_cb.setChecked(init_stagger)
+    _wall_lgs_row.addWidget(QLabel("スタッド", _wall_lgs_group))
+    _wall_lgs_row.addWidget(_wall_lgs_stud_combo)
+    _wall_lgs_row.addWidget(_wall_lgs_stagger_cb)
+    _wall_lgs_vbox.addLayout(_wall_lgs_row)
+    _wall_vbox.addWidget(_wall_lgs_group)
+
+    # Total width info label
+    _wall_total_lbl = QLabel("", _wall_panel)
+    _wall_total_lbl.setStyleSheet("color:#226; font-size:10px;")
+    _wall_vbox.addWidget(_wall_total_lbl)
+
+    # Inner/outer finish summary
+    _wall_layers_lbl = QLabel("", _wall_panel)
+    _wall_layers_lbl.setStyleSheet("color:#555; font-size:10px;")
+    _wall_layers_lbl.setWordWrap(True)
+    _wall_vbox.addWidget(_wall_layers_lbl)
+
+    # Cached finish layer lists (updated when preset changes or stud/RC changes)
+    _wall_state = {
+        "inner": list(getattr(element, "wall_finish_inner", []) or []) if element is not None else [],
+        "outer": list(getattr(element, "wall_finish_outer", []) or []) if element is not None else [],
+        "type_code": str(getattr(element, "wall_finish_type_code", "") or "") if element is not None else "",
+    }
+
+    def _wall_update_info():
+        etype = str(type_combo.currentData())
+        try:
+            stud_w = float(_wall_lgs_stud_combo.currentData() or 65.0)
+        except (TypeError, ValueError):
+            stud_w = 65.0
+        staggered = _wall_lgs_stagger_cb.isChecked()
+        try:
+            rc_thick = float(_wall_rc_edit.text().strip())
+        except (ValueError, TypeError):
+            rc_thick = 180.0
+        inner = _wall_state["inner"]
+        outer = _wall_state["outer"]
+        inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+        outer_sum = sum(float(l.get("thickness", 0.0)) for l in outer)
+        if etype == "wall_lgs":
+            extra = 12.0 if staggered else 2.0
+            structural = float(stud_w) + extra
+        else:
+            structural = float(rc_thick)
+        total = structural + inner_sum + outer_sum
+        _wall_total_lbl.setText("総厚: {:.0f} mm (躯体: {:.0f} mm)".format(total, structural))
+
+        def _fmt_layers(layers):
+            return " + ".join("{}:{:.0f}".format(l.get("name", ""), l.get("thickness", 0.0))
+                              for l in layers) or "なし"
+        if etype == "wall_lgs":
+            _wall_layers_lbl.setText("inner: {}  /  outer: {}".format(
+                _fmt_layers(inner), _fmt_layers(outer)))
+        else:
+            _wall_layers_lbl.setText("inner: {}".format(_fmt_layers(inner)))
+
+    def _wall_apply_preset(code):
+        p = _nevis_wall_preset_by_code(code)
+        if not p:
+            return
+        _wall_state["inner"] = list(p.get("inner", []))
+        _wall_state["outer"] = list(p.get("outer", []))
+        _wall_state["type_code"] = code
+        _wall_rc_edit.setText("{:g}".format(p.get("rc_thickness", 180.0)))
+        stud_w = p.get("lgs_stud_width", 65.0)
+        _idx = _wall_lgs_stud_combo.findData(float(stud_w))
+        if _idx >= 0:
+            _wall_lgs_stud_combo.setCurrentIndex(_idx)
+        _wall_lgs_stagger_cb.setChecked(bool(p.get("lgs_is_staggered", False)))
+        _wall_update_info()
+
+    def _on_wall_preset_changed(_idx):
+        code = _wall_preset_combo.currentData()
+        if code:
+            _wall_apply_preset(code)
+
+    _wall_preset_combo.currentIndexChanged.connect(_on_wall_preset_changed)
+    _wall_lgs_stud_combo.currentIndexChanged.connect(lambda _: _wall_update_info())
+    _wall_lgs_stagger_cb.toggled.connect(lambda _: _wall_update_info())
+    _wall_rc_edit.textChanged.connect(lambda _: _wall_update_info())
+
+    # Initialize from existing element's preset code
+    if element is not None:
+        _ec = str(getattr(element, "wall_finish_type_code", "") or "")
+        if _ec:
+            _pidx = _wall_preset_combo.findData(_ec)
+            if _pidx >= 0:
+                _wall_preset_combo.blockSignals(True)
+                _wall_preset_combo.setCurrentIndex(_pidx)
+                _wall_preset_combo.blockSignals(False)
+    _wall_update_info()
+
+    lbl_wall = QLabel("仕上げ構成", dialog)
+    layout.addRow(lbl_wall, _wall_panel)
+    # ── END WALL FINISH PANEL ─────────────────────────────────────────────────
+
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
@@ -28648,6 +29239,7 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         show_top = etype in ("slab",)
         show_bot = etype in ("beam",)
         show_ceil = etype in ("ceiling",)
+        show_wall = etype in ("wall_rc", "wall_lgs", "column", "beam")
         lbl_top_elev.setVisible(show_top)
         edit_top_elev.setVisible(show_top)
         lbl_bot_elev.setVisible(show_bot)
@@ -28656,6 +29248,13 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         edit_ceil_bottom.setVisible(show_ceil)
         lbl_finish.setVisible(show_top)
         _fl_panel.setVisible(show_top)
+        lbl_wall.setVisible(show_wall)
+        _wall_panel.setVisible(show_wall)
+        # RC thickness only relevant for wall_rc; hide for column/beam/lgs
+        _wall_rc_group.setVisible(show_wall and etype == "wall_rc")
+        _wall_lgs_group.setVisible(show_wall and etype == "wall_lgs")
+        if show_wall:
+            _wall_update_info()
         dialog.adjustSize()
 
     type_combo.currentIndexChanged.connect(_update_elevation_visibility)
@@ -28726,6 +29325,21 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
             finish_mm = max(0.0, float(_fl_mm_edit.text().strip()))
         except (ValueError, TypeError):
             finish_mm = sum(lay["thickness"] for lay in finish_layers)
+        # Collect wall finish data (for wall_rc / wall_lgs / column / beam)
+        if etype in ("wall_rc", "wall_lgs", "column", "beam"):
+            try:
+                w_rc_thick = float(_wall_rc_edit.text().strip())
+            except (ValueError, TypeError):
+                w_rc_thick = 180.0
+            w_stud = float(_wall_lgs_stud_combo.currentData() or 65.0)
+            w_stagger = _wall_lgs_stagger_cb.isChecked()
+            w_type_code = _wall_state["type_code"]
+            w_inner = list(_wall_state["inner"])
+            w_outer = list(_wall_state["outer"])
+            if preview_item.scene() is not None:
+                preview_item.scene().removeItem(preview_item)
+            return (etype, ew, el, eh, er, top_elevation, bottom_elevation,
+                    0.0, [], w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger)
         if preview_item.scene() is not None:
             preview_item.scene().removeItem(preview_item)
         return etype, ew, el, eh, er, top_elevation, bottom_elevation, finish_mm, finish_layers
@@ -28764,7 +29378,16 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
         return False
     finish_mm = 0.0
     finish_layers = []
-    if len(result) == 9:
+    w_type_code = ""
+    w_inner: list = []
+    w_outer: list = []
+    w_rc_thick = 180.0
+    w_stud = 65.0
+    w_stagger = False
+    if len(result) == 15:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
+    elif len(result) == 9:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
     elif len(result) == 8:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
@@ -28788,6 +29411,12 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
         bottom_elevation=bottom_elevation,
         finish_layers=finish_layers,
         finish_thickness_mm=finish_mm,
+        wall_finish_type_code=w_type_code,
+        wall_finish_inner=w_inner,
+        wall_finish_outer=w_outer,
+        wall_rc_thickness=w_rc_thick,
+        stud_width=w_stud,
+        lgs_is_staggered=w_stagger,
     )
     self.save_undo_snapshot("create_structural_element")
     self.model.structural_elements.append(element)
@@ -28813,7 +29442,16 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
         return False
     finish_mm = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0)
     finish_layers = list(getattr(element, "finish_layers", []) or [])
-    if len(result) == 9:
+    w_type_code = str(getattr(element, "wall_finish_type_code", "") or "")
+    w_inner = list(getattr(element, "wall_finish_inner", []) or [])
+    w_outer = list(getattr(element, "wall_finish_outer", []) or [])
+    w_rc_thick = float(getattr(element, "wall_rc_thickness", 180.0) or 180.0)
+    w_stud = float(getattr(element, "stud_width", 65.0) or 65.0)
+    w_stagger = bool(getattr(element, "lgs_is_staggered", False))
+    if len(result) == 15:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
+    elif len(result) == 9:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
     elif len(result) == 8:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
@@ -28835,6 +29473,12 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
     element.bottom_elevation = bottom_elevation
     element.finish_layers = finish_layers
     element.finish_thickness_mm = finish_mm
+    element.wall_finish_type_code = w_type_code
+    element.wall_finish_inner = w_inner
+    element.wall_finish_outer = w_outer
+    element.wall_rc_thickness = w_rc_thick
+    element.stud_width = w_stud
+    element.lgs_is_staggered = w_stagger
     self.preview.draw_model()
     self.lbl_status.setText(self.tr("structural_updated").format(
         label=element.label, width=width, length=length, height=height))
@@ -28956,7 +29600,16 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
         return False
     finish_mm = 0.0
     finish_layers = []
-    if len(result) == 9:
+    w_type_code = ""
+    w_inner: list = []
+    w_outer: list = []
+    w_rc_thick = 180.0
+    w_stud = 65.0
+    w_stagger = False
+    if len(result) == 15:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
+    elif len(result) == 9:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
     elif len(result) == 8:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
@@ -28980,6 +29633,12 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
         bottom_elevation=bottom_elevation,
         finish_layers=finish_layers,
         finish_thickness_mm=finish_mm,
+        wall_finish_type_code=w_type_code,
+        wall_finish_inner=w_inner,
+        wall_finish_outer=w_outer,
+        wall_rc_thickness=w_rc_thick,
+        stud_width=w_stud,
+        lgs_is_staggered=w_stagger,
     )
     self.save_undo_snapshot("create_structural_element")
     self.model.structural_elements.append(element)
