@@ -28295,42 +28295,56 @@ APP_TEXT.setdefault("vi", {}).update({
     "t21_top_elevation": "Mặt trên (SL±mm)",
     "t21_bottom_elevation": "Đáy (SL±mm)",
     "t21_ceiling_bottom": "Đáy trần (SL+mm)",
-    "t21_finish_thickness": "Lớp hoàn thiện",
+    "t21_finish_thickness": "FL = SL+",
+    "t21_fl_floor_type": "Loại sàn",
     "t21_fl_layer_name": "Tên lớp",
     "t21_fl_layer_thick": "Dày (mm)",
     "t21_fl_add": "+ Thêm lớp",
     "t21_fl_remove": "- Xóa",
     "t21_fl_total": "Tổng:",
+    "t21_fl_detail": "Chi tiết...",
+    "t21_fl_detail_hide": "Thu gọn...",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "t21_top_elevation": "天端 (SL±mm)",
     "t21_bottom_elevation": "底面 (SL±mm)",
     "t21_ceiling_bottom": "天井底 (SL+mm)",
-    "t21_finish_thickness": "仕上げ層",
+    "t21_finish_thickness": "FL = SL+",
+    "t21_fl_floor_type": "床種別",
     "t21_fl_layer_name": "層名",
     "t21_fl_layer_thick": "厚さ (mm)",
     "t21_fl_add": "+ 追加",
     "t21_fl_remove": "- 削除",
     "t21_fl_total": "合計:",
+    "t21_fl_detail": "詳細...",
+    "t21_fl_detail_hide": "閉じる",
 })
 
 _NEVIS_T21_FINISH_THICKNESS = 40.0
 
-# Preset finish layer stacks
-_NEVIS_FINISH_PRESETS = [
-    ("置き床 (200mm)", [
+# Floor finish type definitions: (label, fl_total_mm, layers_bottom_to_top)
+# fl_total_mm = FL - SL: the primary value the user sets.
+# layers: breakdown for section view + detail editor (defaults, user can override)
+_NEVIS_FINISH_TYPES = [
+    ("なし / Không có", 0.0, []),
+    ("置き床  FL+200", 200.0, [
         {"name": "支持脚", "thickness": 168.0},
         {"name": "置床パネル", "thickness": 20.0},
         {"name": "フローリング", "thickness": 12.0},
     ]),
-    ("Sàn gạch (30mm)", [
-        {"name": "Vữa lót", "thickness": 20.0},
-        {"name": "Gạch ceramic", "thickness": 10.0},
+    ("タイル直貼り  FL+30", 30.0, [
+        {"name": "モルタル", "thickness": 20.0},
+        {"name": "タイル", "thickness": 10.0},
     ]),
-    ("Sàn gỗ TT (15mm)", [
-        {"name": "Ván sàn gỗ", "thickness": 15.0},
+    ("フローリング直貼り  FL+15", 15.0, [
+        {"name": "フローリング", "thickness": 15.0},
+    ]),
+    ("カーペット  FL+10", 10.0, [
+        {"name": "カーペット", "thickness": 10.0},
     ]),
 ]
+# Keep backward-compat alias (used in old preset button logic)
+_NEVIS_FINISH_PRESETS = [(t[0], t[2]) for t in _NEVIS_FINISH_TYPES if t[2]]
 
 # Layer rendering colors in section view (name keyword → QColor RGBA)
 _NEVIS_FINISH_LAYER_COLORS = [
@@ -28385,38 +28399,54 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     lbl_bot_elev = QLabel(self.tr("t21_bottom_elevation"))
     lbl_ceil_bottom = QLabel(self.tr("t21_ceiling_bottom"))
 
-    # Floor finish layers panel (visible only for slab)
+    # Floor finish panel (visible only for slab)
+    # PRIMARY: FL = SL + ? mm (the only thing most users need to input)
+    # SECONDARY: layer breakdown in collapsible detail section
     init_layers = list(getattr(element, "finish_layers", []) or []) if element is not None else []
+    init_finish_mm = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0) if element is not None else 0.0
     lbl_finish = QLabel(self.tr("t21_finish_thickness"))
 
     _fl_panel = QWidget(dialog)
-    _fl_vbox = QVBoxLayout(_fl_panel)
-    _fl_vbox.setContentsMargins(0, 0, 0, 0)
-    _fl_vbox.setSpacing(3)
+    _fl_main_vbox = QVBoxLayout(_fl_panel)
+    _fl_main_vbox.setContentsMargins(0, 0, 0, 0)
+    _fl_main_vbox.setSpacing(4)
 
-    # Preset buttons row
-    _fl_preset_row = QHBoxLayout()
-    _fl_preset_row.setSpacing(4)
-    for _pname, _players in _NEVIS_FINISH_PRESETS:
-        _btn = QPushButton(_pname, _fl_panel)
-        _btn.setFixedHeight(22)
-        _btn.setStyleSheet("font-size:10px; padding:1px 4px;")
-        _fl_preset_row.addWidget(_btn)
-        def _make_preset_cb(layers):
-            def _cb():
-                _fl_table.setRowCount(0)
-                for lay in layers:
-                    row = _fl_table.rowCount()
-                    _fl_table.insertRow(row)
-                    _fl_table.setItem(row, 0, QTableWidgetItem(str(lay["name"])))
-                    _fl_table.setItem(row, 1, QTableWidgetItem("{:g}".format(lay["thickness"])))
-                _update_fl_total()
-            return _cb
-        _btn.clicked.connect(_make_preset_cb(_players))
-    _fl_vbox.addLayout(_fl_preset_row)
+    # Row 1: floor type dropdown + FL height field
+    _fl_top_row = QHBoxLayout()
+    _fl_top_row.setSpacing(6)
+    _fl_type_combo = QComboBox(_fl_panel)
+    for _ft_label, _ft_mm, _ft_layers in _NEVIS_FINISH_TYPES:
+        _fl_type_combo.addItem(_ft_label, (_ft_mm, _ft_layers))
+    _fl_type_combo.addItem("カスタム / Tùy chỉnh", (None, None))
+    _fl_mm_edit = QLineEdit(_fl_panel)
+    _fl_mm_edit.setFixedWidth(60)
+    _fl_mm_edit.setPlaceholderText("mm")
+    _fl_mm_unit = QLabel("mm", _fl_panel)
+    _fl_mm_unit.setStyleSheet("color:#555;")
+    _fl_top_row.addWidget(_fl_type_combo, 3)
+    _fl_top_row.addWidget(_fl_mm_edit)
+    _fl_top_row.addWidget(_fl_mm_unit)
+    _fl_main_vbox.addLayout(_fl_top_row)
 
-    # Table: name | thickness
-    _fl_table = QTableWidget(_fl_panel)
+    # Row 2: auto-computed breakdown info label
+    _fl_info_lbl = QLabel("", _fl_panel)
+    _fl_info_lbl.setStyleSheet("color:#555; font-size:10px;")
+    _fl_info_lbl.setWordWrap(True)
+    _fl_main_vbox.addWidget(_fl_info_lbl)
+
+    # Row 3: collapsible detail (layer table)
+    _fl_detail_btn = QPushButton(self.tr("t21_fl_detail"), _fl_panel)
+    _fl_detail_btn.setFixedHeight(20)
+    _fl_detail_btn.setStyleSheet("font-size:10px; text-align:left; border:none; color:#336;")
+    _fl_detail_btn.setCheckable(True)
+    _fl_main_vbox.addWidget(_fl_detail_btn)
+
+    _fl_detail_widget = QWidget(_fl_panel)
+    _fl_detail_vbox = QVBoxLayout(_fl_detail_widget)
+    _fl_detail_vbox.setContentsMargins(0, 0, 0, 0)
+    _fl_detail_vbox.setSpacing(2)
+
+    _fl_table = QTableWidget(_fl_detail_widget)
     _fl_table.setColumnCount(2)
     _fl_table.setHorizontalHeaderLabels([self.tr("t21_fl_layer_name"), self.tr("t21_fl_layer_thick")])
     _fl_table.horizontalHeader().setStretchLastSection(False)
@@ -28425,30 +28455,35 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     _fl_table.setColumnWidth(1, 70)
     _fl_table.verticalHeader().setDefaultSectionSize(22)
     _fl_table.verticalHeader().setVisible(False)
-    _fl_table.setMinimumHeight(80)
-    _fl_table.setMaximumHeight(160)
-    # Pre-fill from element
-    for lay in init_layers:
-        row = _fl_table.rowCount()
-        _fl_table.insertRow(row)
-        _fl_table.setItem(row, 0, QTableWidgetItem(str(lay.get("name", ""))))
-        _fl_table.setItem(row, 1, QTableWidgetItem("{:g}".format(float(lay.get("thickness", 0.0)))))
-    _fl_vbox.addWidget(_fl_table)
+    _fl_table.setMinimumHeight(70)
+    _fl_table.setMaximumHeight(150)
+    _fl_detail_vbox.addWidget(_fl_table)
 
-    # Add/Remove + total row
     _fl_ctrl_row = QHBoxLayout()
     _fl_ctrl_row.setSpacing(4)
-    _btn_add_layer = QPushButton(self.tr("t21_fl_add"), _fl_panel)
-    _btn_add_layer.setFixedHeight(22)
-    _btn_rem_layer = QPushButton(self.tr("t21_fl_remove"), _fl_panel)
-    _btn_rem_layer.setFixedHeight(22)
-    _lbl_total = QLabel("", _fl_panel)
+    _btn_add_layer = QPushButton(self.tr("t21_fl_add"), _fl_detail_widget)
+    _btn_add_layer.setFixedHeight(20)
+    _btn_rem_layer = QPushButton(self.tr("t21_fl_remove"), _fl_detail_widget)
+    _btn_rem_layer.setFixedHeight(20)
+    _lbl_total = QLabel("", _fl_detail_widget)
     _lbl_total.setStyleSheet("color:#225; font-size:10px;")
     _fl_ctrl_row.addWidget(_btn_add_layer)
     _fl_ctrl_row.addWidget(_btn_rem_layer)
     _fl_ctrl_row.addStretch()
     _fl_ctrl_row.addWidget(_lbl_total)
-    _fl_vbox.addLayout(_fl_ctrl_row)
+    _fl_detail_vbox.addLayout(_fl_ctrl_row)
+    _fl_main_vbox.addWidget(_fl_detail_widget)
+    _fl_detail_widget.setVisible(False)
+
+    def _fl_table_from_layers(layers):
+        _fl_table.blockSignals(True)
+        _fl_table.setRowCount(0)
+        for lay in layers:
+            row = _fl_table.rowCount()
+            _fl_table.insertRow(row)
+            _fl_table.setItem(row, 0, QTableWidgetItem(str(lay.get("name", ""))))
+            _fl_table.setItem(row, 1, QTableWidgetItem("{:g}".format(float(lay.get("thickness", 0.0)))))
+        _fl_table.blockSignals(False)
 
     def _update_fl_total():
         total = 0.0
@@ -28459,8 +28494,88 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
             except (ValueError, TypeError):
                 pass
         _lbl_total.setText("{} {:.0f} mm".format(self.tr("t21_fl_total"), total))
+        return total
 
-    _fl_table.cellChanged.connect(lambda *_: _update_fl_total())
+    def _update_fl_info():
+        layers = _get_current_layers()
+        if not layers:
+            _fl_info_lbl.setText("")
+            return
+        parts = []
+        for lay in layers:
+            t = float(lay.get("thickness", 0.0))
+            n = str(lay.get("name", ""))
+            if t > 0:
+                parts.append("{}:{:.0f}".format(n, t))
+        _fl_info_lbl.setText(" + ".join(parts) if parts else "")
+
+    def _get_current_layers():
+        rows = []
+        for r in range(_fl_table.rowCount()):
+            n_i = _fl_table.item(r, 0)
+            t_i = _fl_table.item(r, 1)
+            n = n_i.text().strip() if n_i else ""
+            try:
+                t = max(0.0, float(t_i.text())) if t_i else 0.0
+            except (ValueError, TypeError):
+                t = 0.0
+            if n or t > 0:
+                rows.append({"name": n, "thickness": t})
+        return rows
+
+    def _on_type_combo_changed(idx):
+        data = _fl_type_combo.itemData(idx)
+        if data is None or data[0] is None:
+            return  # custom: don't overwrite
+        fl_mm, layers = data
+        _fl_mm_edit.blockSignals(True)
+        _fl_mm_edit.setText(str(int(fl_mm)) if fl_mm and fl_mm == int(fl_mm) else "0")
+        _fl_mm_edit.blockSignals(False)
+        if layers is not None:
+            _fl_table_from_layers(layers)
+        _update_fl_total()
+        _update_fl_info()
+
+    def _on_fl_mm_changed(text):
+        try:
+            val = float(text)
+        except (ValueError, TypeError):
+            return
+        matched = -1
+        for i in range(_fl_type_combo.count()):
+            d = _fl_type_combo.itemData(i)
+            if d and d[0] is not None and abs(d[0] - val) < 0.5:
+                matched = i
+                break
+        _fl_type_combo.blockSignals(True)
+        if matched >= 0:
+            _fl_type_combo.setCurrentIndex(matched)
+            _, layers = _fl_type_combo.itemData(matched)
+            if layers:
+                _fl_table_from_layers(layers)
+        else:
+            _fl_type_combo.setCurrentIndex(_fl_type_combo.count() - 1)
+            # Auto-compute: for raised floor, assume 置床=20 + フローリング=12, rest = 支持脚
+            if val >= 32:
+                _fl_table_from_layers([
+                    {"name": "支持脚", "thickness": val - 32.0},
+                    {"name": "置床パネル", "thickness": 20.0},
+                    {"name": "フローリング", "thickness": 12.0},
+                ])
+            elif val > 0:
+                _fl_table_from_layers([{"name": "仕上げ", "thickness": val}])
+            else:
+                _fl_table.setRowCount(0)
+        _fl_type_combo.blockSignals(False)
+        _update_fl_total()
+        _update_fl_info()
+
+    def _toggle_detail(checked):
+        _fl_detail_widget.setVisible(checked)
+        _fl_detail_btn.setText(
+            self.tr("t21_fl_detail_hide") if checked else self.tr("t21_fl_detail")
+        )
+        dialog.adjustSize()
 
     def _add_fl_layer():
         row = _fl_table.rowCount()
@@ -28469,15 +28584,40 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         _fl_table.setItem(row, 1, QTableWidgetItem("0"))
         _fl_table.editItem(_fl_table.item(row, 0))
         _update_fl_total()
+        _update_fl_info()
 
     def _rem_fl_layer():
         row = _fl_table.currentRow()
         if row >= 0:
             _fl_table.removeRow(row)
         _update_fl_total()
+        _update_fl_info()
 
+    _fl_type_combo.currentIndexChanged.connect(_on_type_combo_changed)
+    _fl_mm_edit.textChanged.connect(_on_fl_mm_changed)
+    _fl_table.cellChanged.connect(lambda *_: (_update_fl_total(), _update_fl_info()))
+    _fl_detail_btn.toggled.connect(_toggle_detail)
     _btn_add_layer.clicked.connect(_add_fl_layer)
     _btn_rem_layer.clicked.connect(_rem_fl_layer)
+
+    # Initialize from element data
+    if init_layers:
+        _fl_table_from_layers(init_layers)
+        total = sum(float(l.get("thickness", 0.0)) for l in init_layers)
+        _fl_mm_edit.blockSignals(True)
+        _fl_mm_edit.setText(str(int(total)) if total == int(total) else "{:g}".format(total))
+        _fl_mm_edit.blockSignals(False)
+        _update_fl_total()
+        _update_fl_info()
+    elif init_finish_mm > 0:
+        _fl_mm_edit.blockSignals(True)
+        _fl_mm_edit.setText(str(int(init_finish_mm)) if init_finish_mm == int(init_finish_mm) else "{:g}".format(init_finish_mm))
+        _fl_mm_edit.blockSignals(False)
+        _on_fl_mm_changed(_fl_mm_edit.text())
+    else:
+        _fl_mm_edit.setText("0")
+        _update_fl_info()
+
     _update_fl_total()
 
     layout.addRow(self.tr("structural_type_label"), type_combo)
@@ -28580,19 +28720,12 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         else:
             top_elevation = top_e
             bottom_elevation = top_e - eh
-        # Collect finish layers from table
-        finish_layers = []
-        for _r in range(_fl_table.rowCount()):
-            _n_item = _fl_table.item(_r, 0)
-            _t_item = _fl_table.item(_r, 1)
-            _n = _n_item.text().strip() if _n_item else ""
-            try:
-                _t = max(0.0, float(_t_item.text())) if _t_item else 0.0
-            except (ValueError, TypeError):
-                _t = 0.0
-            if _n or _t > 0:
-                finish_layers.append({"name": _n, "thickness": _t})
-        finish_mm = sum(lay["thickness"] for lay in finish_layers)
+        # Collect finish: primary source = FL mm field; layers from detail table
+        finish_layers = _get_current_layers()
+        try:
+            finish_mm = max(0.0, float(_fl_mm_edit.text().strip()))
+        except (ValueError, TypeError):
+            finish_mm = sum(lay["thickness"] for lay in finish_layers)
         if preview_item.scene() is not None:
             preview_item.scene().removeItem(preview_item)
         return etype, ew, el, eh, er, top_elevation, bottom_elevation, finish_mm, finish_layers
