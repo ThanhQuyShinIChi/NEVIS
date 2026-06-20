@@ -40,6 +40,7 @@ from modules.section_view import (
     ElevationMarker, build_standard_markers, compute_ch, compute_fl,
     build_unified_slab_sections,
     elements_intersect_cut_line, format_elevation_label,
+    polygon_cut_intervals,
     format_beam_label, format_ceiling_ch, format_slab_label,
     section_marker_from_dict, section_marker_to_dict, sort_elements_by_elevation,
 )
@@ -96,7 +97,6 @@ def nevis_perf_log(name: str, elapsed_ms: float) -> None:
         with log_path.open("a", encoding="utf-8") as f:
             f.write(f"{stamp}.{int((time.time() % 1) * 1000):03d} {name} {elapsed_ms:.2f} ms\n")
     except Exception as log_error:
-        # Profiling must never affect engineering behavior or mask original errors.
         print(f"NEVIS_PROFILE_LOG_ERROR: {log_error}", file=sys.stderr)
 
 
@@ -121,9 +121,6 @@ class nevis_perf_scope:
 # -----------------------------------------------------------------------------
 # NEVIS machine license (portable folder, one machine)
 # -----------------------------------------------------------------------------
-# Ghi chú: khóa này dùng để chặn copy nguyên thư mục sang máy khác ở mức ứng dụng.
-# Nếu cần bảo vệ thương mại rất cao thì nên chuyển phần kiểm tra license sang server
-# hoặc module native. Với NEVIS nội bộ/portable, cách này đủ gọn và dễ vận hành.
 NEVIS_LICENSE_SECRET = b"NEVIS-MEP-NewVision-Integrated-System-2026"
 
 
@@ -155,7 +152,6 @@ def _first_wmic_value(alias: str, prop: str) -> str:
 def nevis_machine_fingerprint() -> str:
     """Return stable-ish Windows hardware identity parts, without exposing raw serials."""
     parts: List[str] = []
-    # Windows MachineGuid is stable for the installed OS.
     if os.name == "nt":
         try:
             import winreg  # type: ignore
@@ -163,12 +159,10 @@ def nevis_machine_fingerprint() -> str:
                 parts.append(str(winreg.QueryValueEx(k, "MachineGuid")[0]))
         except Exception:
             pass
-    # Hardware serials. WMIC exists on many Windows 10/11 machines; if absent, other parts remain.
     for alias, prop in (("bios", "SerialNumber"), ("baseboard", "SerialNumber"), ("cpu", "ProcessorId"), ("diskdrive", "SerialNumber")):
         v = _first_wmic_value(alias, prop)
         if v:
             parts.append(v)
-    # Last fallback prevents empty code when testing, but is weaker than Windows identifiers.
     if not parts:
         parts.append(str(uuid.getnode()))
         parts.append(os.environ.get("COMPUTERNAME", ""))
@@ -28057,7 +28051,36 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
             lbl_ch.setPos(margin_left + W - 55, ch_mid - 9)
 
         # Structural elements
-        elem_w = (W - 20) / max(len(cut_elements), 1)
+        # Build unified slab assemblies to render slab pieces along the cut line
+        assemblies = build_unified_slab_sections(elements, axis="Y", cut_coord=cut_x)
+        slab_pieces_by_source = {}
+        for asm in assemblies:
+            for piece in asm.pieces:
+                slab_pieces_by_source.setdefault(int(getattr(piece, "source_id", -1)), []).append(piece)
+        for src in slab_pieces_by_source:
+            slab_pieces_by_source[src].sort(key=lambda p: p.start_mm)
+
+        def _elem_cut_width_mm(elem):
+            intervals = polygon_cut_intervals(getattr(elem, "points", []) or [], "Y", cut_x)
+            if intervals:
+                return sum((end - start) for start, end in intervals)
+            w = float(getattr(elem, "width", 0.0) or 0.0)
+            l = float(getattr(elem, "length", 0.0) or 0.0)
+            return max(w, l, 1000.0)
+
+        render_items = []  # tuples: (kind, obj, width_mm) kind: 'element' or 'slab_piece'
+        for elem in cut_elements:
+            eid = int(getattr(elem, "id", -1))
+            if str(getattr(elem, "element_type", "")) == "slab" and eid in slab_pieces_by_source:
+                for piece in slab_pieces_by_source[eid]:
+                    render_items.append(("slab_piece", piece, float(piece.end_mm - piece.start_mm)))
+            else:
+                render_items.append(("element", elem, _elem_cut_width_mm(elem)))
+
+        total_mm = sum(it[2] for it in render_items) or 1.0
+        # map each render item to pixel width
+        px_widths = [(it[2] / total_mm) * (W - 20.0) for it in render_items]
+
         type_colors = {
             "slab": QColor(100, 140, 200, 160),
             "beam": QColor(140, 100, 180, 160),
@@ -28080,118 +28103,115 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
         }
         _W5_LGS_FRAME_COLOR = QColor(130, 145, 155, 200)
 
-        for idx, elem in enumerate(cut_elements):
-            etype = str(getattr(elem, "element_type", "slab"))
-            top_e = float(getattr(elem, "top_elevation", 0.0) or 0.0)
-            bot_e = float(getattr(elem, "bottom_elevation", 0.0) or 0.0)
-            if abs(top_e - bot_e) < 1.0:
-                top_e = bot_e + max(float(getattr(elem, "height", 200.0) or 200.0), 50.0)
-            rect_y = ey(top_e)
-            rect_h = abs(ey(bot_e) - ey(top_e))
-            rect_x = margin_left + 10 + idx * elem_w
-            rect_w = elem_w - 4
-            color = type_colors.get(etype, QColor(120, 140, 160, 120))
+        cur_x = margin_left + 10.0
+        for idx, it in enumerate(render_items):
+            kind, obj, _wmm = it
+            rect_x = cur_x
+            rect_w = max(2.0, px_widths[idx] - 4.0)
+            cur_x += px_widths[idx]
 
-            # W5: wall layer rendering in section
-            if etype == "wall_lgs":
-                inner = list(getattr(elem, "wall_finish_inner", []) or [])
-                outer = list(getattr(elem, "wall_finish_outer", []) or [])
-                stud_w = float(getattr(elem, "stud_width", 65.0) or 65.0)
-                stagger = bool(getattr(elem, "lgs_is_staggered", False))
-                frame_w = stud_w + (12.0 if stagger else 2.0)
-                inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
-                outer_sum = sum(float(l.get("thickness", 0.0)) for l in outer)
-                total_w = frame_w + inner_sum + outer_sum
-                if total_w > 0 and (inner or outer):
-                    # Draw layers left-to-right: outer | frame | inner
-                    scale_x = rect_w / total_w
-                    cur_x = rect_x
-                    # Outer layers
-                    for lay in outer:
-                        lw = float(lay.get("thickness", 0.0)) * scale_x
-                        lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
-                        scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
-                        cur_x += lw
-                    # LGS frame body
-                    fw = frame_w * scale_x
-                    scene.addRect(cur_x, rect_y, fw, rect_h,
-                                  QPen(_W5_LGS_FRAME_COLOR.darker(120), 0.8),
-                                  QBrush(_W5_LGS_FRAME_COLOR))
-                    cur_x += fw
-                    # Inner layers
-                    for lay in inner:
-                        lw = float(lay.get("thickness", 0.0)) * scale_x
-                        lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
-                        scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
-                        cur_x += lw
-                    # Outer border
+            if kind == "element":
+                elem = obj
+                etype = str(getattr(elem, "element_type", "slab"))
+                top_e = float(getattr(elem, "top_elevation", 0.0) or 0.0)
+                bot_e = float(getattr(elem, "bottom_elevation", 0.0) or 0.0)
+                if abs(top_e - bot_e) < 1.0:
+                    top_e = bot_e + max(float(getattr(elem, "height", 200.0) or 200.0), 50.0)
+                rect_y = ey(top_e)
+                rect_h = abs(ey(bot_e) - ey(top_e))
+                color = type_colors.get(etype, QColor(120, 140, 160, 120))
+
+                # W5: wall layer rendering in section
+                if etype == "wall_lgs":
+                    inner = list(getattr(elem, "wall_finish_inner", []) or [])
+                    outer = list(getattr(elem, "wall_finish_outer", []) or [])
+                    stud_w = float(getattr(elem, "stud_width", 65.0) or 65.0)
+                    stagger = bool(getattr(elem, "lgs_is_staggered", False))
+                    frame_w = stud_w + (12.0 if stagger else 2.0)
+                    inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+                    outer_sum = sum(float(l.get("thickness", 0.0)) for l in outer)
+                    total_w = frame_w + inner_sum + outer_sum
+                    if total_w > 0 and (inner or outer):
+                        scale_x = rect_w / total_w
+                        cur_x = rect_x
+                        for lay in outer:
+                            lw = float(lay.get("thickness", 0.0)) * scale_x
+                            lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                            scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                            cur_x += lw
+                        fw = frame_w * scale_x
+                        scene.addRect(cur_x, rect_y, fw, rect_h,
+                                      QPen(_W5_LGS_FRAME_COLOR.darker(120), 0.8),
+                                      QBrush(_W5_LGS_FRAME_COLOR))
+                        cur_x += fw
+                        for lay in inner:
+                            lw = float(lay.get("thickness", 0.0)) * scale_x
+                            lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                            scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                            cur_x += lw
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(QColor(60, 60, 65), 1.2), QBrush(Qt.NoBrush))
+                    else:
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(color.darker(130), 1.5), QBrush(color))
+                elif etype == "wall_rc":
+                    inner = list(getattr(elem, "wall_finish_inner", []) or [])
+                    rc_thick = float(getattr(elem, "wall_rc_thickness", 180.0) or 180.0)
+                    inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
+                    total_w = rc_thick + inner_sum
+                    if total_w > 0 and inner:
+                        scale_x = rect_w / total_w
+                        cur_x = rect_x
+                        rw = rc_thick * scale_x
+                        scene.addRect(cur_x, rect_y, rw, rect_h,
+                                      QPen(QColor(60, 60, 65), 1.2),
+                                      QBrush(QColor(155, 155, 160, 200), Qt.FDiagPattern))
+                        cur_x += rw
+                        for lay in inner:
+                            lw = float(lay.get("thickness", 0.0)) * scale_x
+                            lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
+                            scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
+                            cur_x += lw
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(QColor(60, 60, 65), 1.5), QBrush(Qt.NoBrush))
+                    else:
+                        scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                      QPen(color.darker(130), 1.5),
+                                      QBrush(color, Qt.FDiagPattern))
+                elif etype == "slab":
+                    # W4: slab with FL finish layer bands above it
                     scene.addRect(rect_x, rect_y, rect_w, rect_h,
-                                  QPen(QColor(60, 60, 65), 1.2), QBrush(Qt.NoBrush))
+                                  QPen(color.darker(130), 1.5), QBrush(color))
+                    fl_layers = list(getattr(elem, "finish_layers", []) or [])
+                    fl_mm = float(getattr(elem, "finish_thickness_mm", 0.0) or 0.0)
+                    if not fl_layers and fl_mm > 0:
+                        fl_layers = [{"name": "仕上げ", "thickness": fl_mm, "material_type": "gypsum"}]
+                    if fl_layers:
+                        _fl_layer_colors = [
+                            QColor(180, 140, 90, 200),
+                            QColor(210, 195, 160, 200),
+                            QColor(200, 165, 110, 200),
+                            QColor(230, 220, 200, 200),
+                        ]
+                        total_fl_mm = sum(float(l.get("thickness", 0.0)) for l in fl_layers)
+                        if total_fl_mm > 0:
+                            fl_px_per_mm = px_per_mm
+                            cur_bottom_y = rect_y
+                            for li, lay in enumerate(reversed(fl_layers)):
+                                layer_mm = float(lay.get("thickness", 0.0))
+                                if layer_mm <= 0:
+                                    continue
+                                layer_h = layer_mm * fl_px_per_mm
+                                lc = _fl_layer_colors[li % len(_fl_layer_colors)]
+                                cur_bottom_y -= layer_h
+                                scene.addRect(rect_x, cur_bottom_y, rect_w, layer_h,
+                                              QPen(lc.darker(140), 0.5), QBrush(lc))
+                                lbl_lay = scene.addText(lay.get("name", "")[:6], QFont("Segoe UI", 5))
+                                lbl_lay.setDefaultTextColor(QColor(50, 35, 10))
+                                lbl_lay.setPos(rect_x + 1, cur_bottom_y + 1)
                 else:
                     scene.addRect(rect_x, rect_y, rect_w, rect_h,
                                   QPen(color.darker(130), 1.5), QBrush(color))
-            elif etype == "wall_rc":
-                inner = list(getattr(elem, "wall_finish_inner", []) or [])
-                rc_thick = float(getattr(elem, "wall_rc_thickness", 180.0) or 180.0)
-                inner_sum = sum(float(l.get("thickness", 0.0)) for l in inner)
-                total_w = rc_thick + inner_sum
-                if total_w > 0 and inner:
-                    scale_x = rect_w / total_w
-                    cur_x = rect_x
-                    # RC body (concrete hatch)
-                    rw = rc_thick * scale_x
-                    scene.addRect(cur_x, rect_y, rw, rect_h,
-                                  QPen(QColor(60, 60, 65), 1.2),
-                                  QBrush(QColor(155, 155, 160, 200), Qt.FDiagPattern))
-                    cur_x += rw
-                    # Inner finish layers
-                    for lay in inner:
-                        lw = float(lay.get("thickness", 0.0)) * scale_x
-                        lc = _W5_LAYER_COLORS.get(lay.get("material_type", "gypsum"), QColor(220, 220, 225, 200))
-                        scene.addRect(cur_x, rect_y, lw, rect_h, QPen(lc.darker(130), 0.5), QBrush(lc))
-                        cur_x += lw
-                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
-                                  QPen(QColor(60, 60, 65), 1.5), QBrush(Qt.NoBrush))
-                else:
-                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
-                                  QPen(color.darker(130), 1.5),
-                                  QBrush(color, Qt.FDiagPattern))
-            elif etype == "slab":
-                # W4: slab with FL finish layer bands above it
-                scene.addRect(rect_x, rect_y, rect_w, rect_h,
-                              QPen(color.darker(130), 1.5), QBrush(color))
-                fl_layers = list(getattr(elem, "finish_layers", []) or [])
-                fl_mm = float(getattr(elem, "finish_thickness_mm", 0.0) or 0.0)
-                if not fl_layers and fl_mm > 0:
-                    # Fallback: single layer for finish_thickness_mm
-                    fl_layers = [{"name": "仕上げ", "thickness": fl_mm, "material_type": "gypsum"}]
-                if fl_layers:
-                    # W4 finish layer colors (simple palette)
-                    _fl_layer_colors = [
-                        QColor(180, 140, 90, 200),   # 支持脚 (brown)
-                        QColor(210, 195, 160, 200),  # 置床パネル (tan)
-                        QColor(200, 165, 110, 200),  # フローリング (wood)
-                        QColor(230, 220, 200, 200),  # gypsum/other
-                    ]
-                    total_fl_mm = sum(float(l.get("thickness", 0.0)) for l in fl_layers)
-                    if total_fl_mm > 0:
-                        fl_px_per_mm = px_per_mm
-                        cur_bottom_y = rect_y  # top of slab = bottom of finish stack
-                        for li, lay in enumerate(reversed(fl_layers)):  # bottom→top in section
-                            layer_mm = float(lay.get("thickness", 0.0))
-                            if layer_mm <= 0:
-                                continue
-                            layer_h = layer_mm * fl_px_per_mm
-                            lc = _fl_layer_colors[li % len(_fl_layer_colors)]
-                            cur_bottom_y -= layer_h
-                            scene.addRect(rect_x, cur_bottom_y, rect_w, layer_h,
-                                          QPen(lc.darker(140), 0.5), QBrush(lc))
-                            lbl_lay = scene.addText(lay.get("name", "")[:6], QFont("Segoe UI", 5))
-                            lbl_lay.setDefaultTextColor(QColor(50, 35, 10))
-                            lbl_lay.setPos(rect_x + 1, cur_bottom_y + 1)
-            else:
-                scene.addRect(rect_x, rect_y, rect_w, rect_h,
-                              QPen(color.darker(130), 1.5), QBrush(color))
 
             type_labels = _nevis_structural_type_labels(mainwin)
             name = type_labels.get(etype, getattr(elem, "label", "?"))
