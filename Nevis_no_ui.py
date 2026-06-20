@@ -10,6 +10,7 @@ NEVIS MEP PipeTool - single Python version v1.3 rebuild preview/library
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 import functools
 import json
 import math
@@ -37,6 +38,7 @@ from modules.grid_axis import (
 )
 from modules.section_view import (
     ElevationMarker, build_standard_markers, compute_ch, compute_fl,
+    build_unified_slab_sections,
     elements_intersect_cut_line, format_elevation_label,
     format_beam_label, format_ceiling_ch, format_slab_label,
     section_marker_from_dict, section_marker_to_dict, sort_elements_by_elevation,
@@ -49,7 +51,7 @@ from modules.scale_calibration import canvas_to_real, compute_scale, real_to_can
 
 try:
     from PySide6.QtCore import Qt, QPointF, QRectF, QTimer, QLineF
-    from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QIcon, QPolygonF, QRawFont
+    from PySide6.QtGui import QAction, QBrush, QColor, QCursor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QIcon, QPolygonF, QRawFont
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QFileDialog, QMessageBox,
         QHBoxLayout, QVBoxLayout, QGridLayout, QGroupBox, QLabel, QLineEdit,
@@ -26122,6 +26124,7 @@ APP_TEXT.setdefault("vi", {}).update({
     "structural_grid_label": "Lưới",
     "structural_grid_enabled": "Bật lưới",
     "structural_grid_custom": "Tùy chỉnh",
+    "structural_snap_step": "Bước bắt (mm)",
     "scale_calibrate": "Căn tỷ lệ",
     "scale_click_1": "Click điểm 1 trên bản nền.",
     "scale_click_2": "Click điểm 2 trên bản nền.",
@@ -26186,6 +26189,7 @@ APP_TEXT.setdefault("jp", {}).update({
     "structural_grid_label": "グリッド",
     "structural_grid_enabled": "グリッド表示",
     "structural_grid_custom": "任意",
+    "structural_snap_step": "スナップ間隔 (mm)",
     "scale_calibrate": "縮尺設定",
     "scale_click_1": "背景図の1点目をクリック。",
     "scale_click_2": "背景図の2点目をクリック。",
@@ -26244,7 +26248,7 @@ def _nevis_structural_snap_scene_point(view, scene_point) -> tuple[float, float]
         getattr(view.mainwin, "workspace_mode", get_default_mode()) == "structural"
         and bool(getattr(view.mainwin, "structural_grid_enabled", True))
     ):
-        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 303.0))
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 3.0))
     scale = abs(float(view.transform().m11())) or 1.0
     tolerance_scene = (10.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
     candidates = [
@@ -26699,7 +26703,7 @@ def _nevis_draw_structural_grid(view) -> None:
     real_b = _nevis_canvas_to_real_point(mainwin, (visible.right(), visible.bottom()))
     points = grid_points_in_view(
         real_a[0], real_a[1], real_b[0], real_b[1],
-        getattr(mainwin, "structural_grid_mm", 303.0),
+        getattr(mainwin, "structural_grid_mm", 3.0),
     )
     scale = abs(float(view.transform().m11())) or 1.0
     radius = 1.25 / scale
@@ -26772,7 +26776,7 @@ def _nevis_structural_build_ui(self):
     self.structural_draw_mode = False
     self.stepped_slab_draw_mode = False
     self.pending_stepped_slab = None
-    self.structural_grid_mm = 303.0
+    self.structural_grid_mm = 3.0
     self.structural_grid_enabled = True
     self.selected_structural_id = None
     self._nevis_redo_stack = []
@@ -26847,7 +26851,7 @@ def _nevis_structural_build_ui(self):
     for label, value in (("303 mm", 303.0), ("455 mm", 455.0), ("910 mm", 910.0)):
         self.cmb_structural_grid.addItem(label, value)
     self.cmb_structural_grid.addItem(self.tr("structural_grid_custom"), "custom")
-    self.edit_structural_grid = QLineEdit("303", self.g_structural_workspace)
+    self.edit_structural_grid = QLineEdit("3", self.g_structural_workspace)
     self.edit_structural_grid.setMaximumWidth(75)
     self.edit_structural_grid.setVisible(False)
     grid_row.addWidget(self.chk_structural_grid)
@@ -28116,7 +28120,7 @@ def _nevis_t19_snap_scene_point(view, scene_point) -> tuple:
         getattr(view.mainwin, "workspace_mode", "mep") == "structural"
         and grid_enabled
     ):
-        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 303.0))
+        return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 3.0))
     import math as _math
     scale = abs(float(view.transform().m11())) or 1.0
     tol = (10.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
@@ -29212,7 +29216,7 @@ def _nevis_t24c_draw_background(self, painter, rect):
         return
     if not bool(getattr(self.mainwin, "structural_grid_enabled", True)):
         return
-    grid_mm = float(getattr(self.mainwin, "structural_grid_mm", 303.0) or 303.0)
+    grid_mm = float(getattr(self.mainwin, "structural_grid_mm", 3.0) or 3.0)
     drawing_scale = float(getattr(self.mainwin.model, "drawing_scale", 1.0) or 1.0)
     spacing = grid_mm / drawing_scale  # scene units per grid line
     if spacing < 0.5:
@@ -30262,6 +30266,7 @@ APP_TEXT.setdefault("vi", {}).update({
     "section_cut_side":   "Click phía MẶT CẮT nhìn vào (trên/dưới/trái/phải đường cắt)",
     "section_cut_done":   "Mặt cắt đã tạo — kéo thanh giữa để thay đổi tỉ lệ",
     "section_cut_cancel": "Đã hủy đường cắt",
+    "section_cut_too_short": "Đường cắt quá ngắn — hãy chọn điểm cuối khác điểm đầu",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "section_cut_hint":   "切断線の始点をクリック (X軸またはY軸のみ)",
@@ -30269,6 +30274,7 @@ APP_TEXT.setdefault("jp", {}).update({
     "section_cut_side":   "断面を見る方向をクリック (切断線の上/下/左/右)",
     "section_cut_done":   "断面図を作成しました — 中央のハンドルで幅調整",
     "section_cut_cancel": "切断線をキャンセルしました",
+    "section_cut_too_short": "切断線が短すぎます — 始点と異なる終点を選択してください",
 })
 
 # Section cut state machine: "idle" → "start" → "end" → "side" → "view"
@@ -30279,6 +30285,25 @@ _T29_SECTION_AXIS  = "_section_axis"          # "X" | "Y"
 _T29_SECTION_LINE_ITEM = "_section_line_item"
 _T29_SECTION_SPLITTER  = "_section_splitter"  # inner QSplitter (plan|section)
 _T29_SECTION_VIEW      = "_section_view"      # SectionPreviewView instance
+_T29_MIN_CUT_LENGTH_MM = 10.0
+
+
+class _NevisSectionGraphicsView(QGraphicsView):
+    """Section viewport with CAD-style wheel zoom and left-drag pan."""
+
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+
+    def wheelEvent(self, event):
+        factor = 1.15 if event.angleDelta().y() > 0 else (1.0 / 1.15)
+        current_scale = abs(self.transform().m11())
+        next_scale = current_scale * factor
+        if 0.02 <= next_scale <= 50.0:
+            self.scale(factor, factor)
+        event.accept()
 
 
 def _nevis_t29_section_clear_preview(view):
@@ -30327,10 +30352,10 @@ def _nevis_t29_show_split_view(mainwin, start, end, side):
     header.setStyleSheet("background:#1565C0; color:white; font-weight:bold; font-size:11px;")
     sec_layout.addWidget(header)
 
-    section_scene = QGraphicsScene()
-    section_view = QGraphicsView(section_scene)
+    # Parent the scene so it survives after the delayed fit callbacks finish.
+    section_scene = QGraphicsScene(section_container)
+    section_view = _NevisSectionGraphicsView(section_scene)
     section_view.setBackgroundBrush(QBrush(QColor(248, 250, 255)))
-    section_view.setDragMode(QGraphicsView.ScrollHandDrag)
     section_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     section_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     section_view.setObjectName("section_canvas")
@@ -30379,7 +30404,7 @@ def _nevis_t29_show_split_view(mainwin, start, end, side):
 
 def _nevis_t29_render_section(mainwin, scene, start, end, side):
     """Render structural elements as seen from the section cut plane."""
-    from PySide6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
+    from PySide6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPolygonF
     from PySide6.QtCore import Qt, QPointF, QRectF
 
     elements = list(getattr(mainwin.model, "structural_elements", []) or [])
@@ -30397,13 +30422,15 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
         horiz_max_cut = max(sy, ey)
     cut_span = max(horiz_max_cut - horiz_min_cut, 1.0)
 
-    VIEW_WIDTH = 500.0   # section scene horizontal width in scene units
+    # One scale for horizontal dimensions and elevations preserves real ratios.
+    GEOMETRY_SCALE = 0.1  # 1 scene unit = 10 mm; fitInView handles viewport zoom
+    VIEW_WIDTH = cut_span * GEOMETRY_SCALE
     MARGIN_LEFT = 30.0
-    EL_SCALE = 0.5       # elevation mm → scene units (px)
+    EL_SCALE = GEOMETRY_SCALE
     gl_y = 120.0         # GL at this scene Y; elements grow upward (smaller Y)
 
     def _real_x_to_scene(rx):
-        return MARGIN_LEFT + (rx - horiz_min_cut) / cut_span * VIEW_WIDTH
+        return MARGIN_LEFT + (rx - horiz_min_cut) * GEOMETRY_SCALE
 
     # Title
     title = scene.addText("断面図", QFont("Segoe UI", 9, QFont.Bold))
@@ -30411,11 +30438,11 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
     title.setPos(MARGIN_LEFT, 2)
     title.setZValue(10)
 
-    # GL reference line always present
+    # SL is the default structural datum. GL is an additional ground-floor datum.
     cut_line = scene.addLine(MARGIN_LEFT - 10, gl_y, MARGIN_LEFT + VIEW_WIDTH + 10, gl_y,
                              QPen(QColor(180, 0, 0), 1.0, Qt.DashLine))
     cut_line.setZValue(8)
-    gl_label = scene.addText("GL±0", QFont("Segoe UI", 7))
+    gl_label = scene.addText("SL±0", QFont("Segoe UI", 7))
     gl_label.setDefaultTextColor(QColor(180, 0, 0))
     gl_label.setPos(2, gl_y - 16)
     gl_label.setZValue(9)
@@ -30423,7 +30450,71 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
     if not elements:
         return
 
+    # Render every parent slab and its stepped regions as one material body.
+    slab_assemblies = build_unified_slab_sections(elements, axis, sy if axis == "X" else sx)
+    handled_slab_ids = set()
+    slab_pen = QPen(QColor(70, 80, 90), 2.0, Qt.SolidLine)
+    slab_brush = QBrush(QColor(175, 195, 212, 175))
+    overlap_pen = QPen(QColor(85, 105, 120), 1.0, Qt.DashLine)
+
+    for assembly in slab_assemblies:
+        unified_path = QPainterPath()
+        elevation_positions = {}
+        for piece in assembly.pieces:
+            handled_slab_ids.add(int(piece.source_id))
+            scene_x0 = _real_x_to_scene(piece.start_mm)
+            scene_x1 = _real_x_to_scene(piece.end_mm)
+            scene_yt = gl_y - piece.top_elevation * EL_SCALE
+            scene_yb = gl_y - piece.bottom_elevation * EL_SCALE
+            piece_rect = QRectF(
+                QPointF(scene_x0, scene_yt), QPointF(scene_x1, scene_yb)
+            ).normalized()
+            piece_path = QPainterPath()
+            piece_path.addRect(piece_rect)
+            unified_path = piece_path if unified_path.isEmpty() else unified_path.united(piece_path)
+            marker_mm = piece.marker_mm if piece.marker_mm is not None else piece.start_mm
+            marker_x = _real_x_to_scene(marker_mm)
+            elevation_positions.setdefault(piece.top_elevation, (marker_x, scene_yt))
+
+        if unified_path.isEmpty():
+            continue
+        slab_item = scene.addPath(unified_path, slab_pen, slab_brush)
+        slab_item.setZValue(5)
+        slab_item.setData(0, ("structural_element", assembly.parent_id))
+
+        # One material label for the complete slab assembly.
+        slab_label = _nevis_structural_type_labels(mainwin).get("slab", "Sàn")
+        label_item = scene.addText(slab_label, QFont("Segoe UI", 7))
+        label_item.setDefaultTextColor(QColor(40, 50, 60))
+        label_item.setPos(unified_path.boundingRect().left() + 4,
+                          unified_path.boundingRect().top() + 3)
+        label_item.setZValue(6)
+
+        # Japanese elevation marker: red downward triangle with its point on the edge.
+        for elevation, (label_x, label_y) in sorted(elevation_positions.items(), reverse=True):
+            triangle = QPolygonF([
+                QPointF(label_x - 5, label_y - 9),
+                QPointF(label_x + 5, label_y - 9),
+                QPointF(label_x, label_y),
+            ])
+            triangle_item = scene.addPolygon(
+                triangle, QPen(QColor(190, 35, 35), 0.8), QBrush(QColor(190, 35, 35))
+            )
+            triangle_item.setAcceptedMouseButtons(Qt.NoButton)
+            triangle_item.setZValue(7)
+            elevation_text = "±0" if abs(elevation) < 0.5 else f"{elevation:+.0f}"
+            elev_item = scene.addText(elevation_text, QFont("Segoe UI", 7))
+            elev_item.setDefaultTextColor(QColor(175, 30, 30))
+            elev_item.setPos(label_x + 7, label_y - 18)
+            elev_item.setAcceptedMouseButtons(Qt.NoButton)
+            elev_item.setZValue(7)
+
+        # Overlap remains in the unified geometry but has no internal divider.
+
     for element in elements:
+        if (getattr(element, "element_type", None) == "slab"
+                and int(getattr(element, "id", -1)) in handled_slab_ids):
+            continue
         pts = getattr(element, "points", [])
         if len(pts) < 3:
             continue
@@ -30498,6 +30589,11 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
         et.setPos(scene_x1 + 4, scene_yt)
         et.setZValue(6)
 
+    for item in scene.items():
+        try:
+            item.setAcceptedMouseButtons(Qt.NoButton)
+        except AttributeError:
+            pass
     scene.setSceneRect(scene.itemsBoundingRect().adjusted(-20, -20, 20, 40))
 
 
@@ -30632,6 +30728,17 @@ def _nevis_t29_mouse_press(self, event):
         # Lock to axis: whichever delta is larger
         dx = abs(pt[0] - start[0])
         dy = abs(pt[1] - start[1])
+        if max(dx, dy) < _T29_MIN_CUT_LENGTH_MM:
+            self.mainwin.lbl_status.setText(self.mainwin.tr("section_cut_too_short"))
+            _nevis_section_debug(
+                "section_cut_rejected",
+                reason="too_short",
+                start=start,
+                attempted_end=pt,
+                length_mm=max(dx, dy),
+            )
+            event.accept()
+            return
         if dx >= dy:
             # Horizontal line — Y locked
             end_pt = (pt[0], start[1])
@@ -30717,6 +30824,533 @@ def _nevis_t29_show(self):
 
 
 MainWindow.show = _nevis_t29_show
+
+
+# =============================================================================
+# STRUCTURAL PANEL COMPACT LAYOUT - readable controls in the 220px sidebar
+# =============================================================================
+_NEVIS_STRUCTURAL_PANEL_PREV_BUILD_UI = MainWindow._build_ui
+_NEVIS_STRUCTURAL_PANEL_PREV_REFRESH = MainWindow.refresh_language_texts
+_NEVIS_STRUCTURAL_PANEL_PREV_SHOW = MainWindow.show
+_NEVIS_STRUCTURAL_PANEL_PREV_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_structural_panel_place_section_button(self):
+    compact = getattr(self, "_structural_compact_panel", None)
+    button = getattr(self, "btn_section_cut", None)
+    if compact is None or button is None:
+        return
+    layout = compact.layout()
+    button.setParent(compact)
+    button.setMinimumHeight(31)
+    button.setMaximumHeight(31)
+    button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    if layout.indexOf(button) < 0:
+        # type grid, command row, stepped slab, then section view
+        layout.insertWidget(3, button)
+    button.setVisible(getattr(self, "workspace_mode", "mep") == "structural")
+
+
+def _nevis_apply_clear_checkbox_style(checkbox):
+    icon_path = (nevis_app_dir() / "Ico" / "checkmark.svg").as_posix()
+    checkbox.setStyleSheet(
+        "QCheckBox { spacing:6px; color:#1E2A3A; font-weight:500; }"
+        "QCheckBox::indicator { width:16px; height:16px; border:1px solid #8796AA; "
+        "border-radius:3px; background:#FFFFFF; }"
+        "QCheckBox::indicator:hover { border-color:#1976D2; background:#EAF2FC; }"
+        "QCheckBox::indicator:checked { background:#1976D2; border:1px solid #125AA3; "
+        f"image:url(\"{icon_path}\"); }}"
+    )
+
+
+def _nevis_preview_toolbar_responsive(self, compact: bool, narrow: bool = False):
+    """Keep the preview toolbar grouped and readable at reduced widths."""
+    layout = getattr(self, "preview_toolbar_layout", None)
+    if layout is None:
+        return
+
+    # These commands now live in the structural sidebar, never in this toolbar.
+    legacy_stepped = getattr(self, "btn_stepped_slab", None)
+    if legacy_stepped is not None:
+        legacy_stepped.hide()
+    section_button = getattr(self, "btn_section_cut", None)
+    primary = [
+        self.btn_detail_preview,
+        self.btn_center_undo,
+        self.btn_fit,
+    ]
+    background = [
+        self.btn_open_reference_background,
+        self.chk_reference_background_visible,
+        self.lbl_reference_background_opacity,
+        self.slider_reference_background_opacity,
+        self.btn_align_reference_background,
+        self.lbl_reference_background_angle,
+    ]
+    scale_button = getattr(self, "btn_scale_reference_background", None)
+    if scale_button is not None:
+        background.append(scale_button)
+
+    self._preview_primary_widgets = primary
+    self._preview_background_widgets = background
+    for column in range(12):
+        layout.setColumnStretch(column, 0)
+    for button in primary + [w for w in background if isinstance(w, QPushButton)]:
+        button.setMinimumWidth(0)
+        button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+    self.btn_detail_preview.setMaximumWidth(180)
+    self.btn_center_undo.setMaximumWidth(120)
+    self.btn_fit.setMaximumWidth(80)
+
+    if narrow:
+        layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 3)
+        for column, widget in enumerate(primary):
+            layout.addWidget(widget, 1, column, 1, 1, Qt.AlignLeft)
+        layout.addWidget(background[0], 2, 0)
+        layout.addWidget(background[1], 2, 1, 1, 2)
+        layout.addWidget(background[2], 3, 0)
+        layout.addWidget(background[3], 3, 1)
+        layout.addWidget(background[5], 3, 2)
+        layout.addWidget(background[4], 4, 0)
+        if len(background) > 6:
+            layout.addWidget(background[6], 4, 1)
+        layout.setColumnStretch(3, 1)
+    elif compact:
+        layout.addWidget(self.lbl_drawing_preview, 0, 0, 1, 8)
+        for column, widget in enumerate(primary):
+            layout.addWidget(widget, 1, column, 1, 1, Qt.AlignLeft)
+        layout.setColumnStretch(3, 1)
+        for column, widget in enumerate(background):
+            layout.addWidget(widget, 2, column)
+        layout.setColumnStretch(7, 1)
+    else:
+        layout.addWidget(self.lbl_drawing_preview, 0, 0)
+        layout.setColumnStretch(1, 1)
+        for column, widget in enumerate(primary, start=2):
+            layout.addWidget(widget, 0, column)
+        for offset, widget in enumerate(background):
+            layout.addWidget(widget, 0, 2 + len(primary) + offset)
+
+    self._preview_toolbar_compact = bool(compact)
+    self._preview_toolbar_narrow = bool(narrow)
+    layout.invalidate()
+    if section_button is not None:
+        QTimer.singleShot(0, lambda: _nevis_structural_panel_place_section_button(self))
+
+
+def _nevis_structural_panel_build_ui(self):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_BUILD_UI(self)
+    group = getattr(self, "g_structural_workspace", None)
+    type_widget = getattr(self, "_type_btn_grid_widget", None)
+    if group is None or type_widget is None:
+        return result
+
+    compact = QWidget(group)
+    compact_layout = QVBoxLayout(compact)
+    compact_layout.setContentsMargins(0, 0, 0, 0)
+    compact_layout.setSpacing(6)
+
+    # Two columns leave enough width for Vietnamese and Japanese labels.
+    type_widget.setParent(compact)
+    type_layout = type_widget.layout()
+    while type_layout.count():
+        type_layout.takeAt(0)
+    type_layout.setHorizontalSpacing(6)
+    type_layout.setVerticalSpacing(5)
+    for index, element_type in enumerate(_NEVIS_T19_STRUCTURAL_TYPES):
+        button = self._type_btns[element_type]
+        button.setMinimumWidth(0)
+        button.setFixedHeight(29)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setStyleSheet("font-size:11px; padding:1px 4px;")
+        type_layout.addWidget(button, index // 2, index % 2)
+    type_layout.setColumnStretch(0, 1)
+    type_layout.setColumnStretch(1, 1)
+    compact_layout.addWidget(type_widget)
+
+    command_row = QHBoxLayout()
+    command_row.setSpacing(6)
+    for button in (self.btn_workspace_draw, self.btn_workspace_delete):
+        button.setParent(compact)
+        button.setMinimumHeight(31)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        command_row.addWidget(button)
+    compact_layout.addLayout(command_row)
+
+    stepped_button = getattr(self, "_btn_stepped_slab", None)
+    if stepped_button is not None:
+        stepped_button.setParent(compact)
+        stepped_button.setMinimumHeight(31)
+        stepped_button.setMaximumHeight(31)
+        stepped_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        compact_layout.addWidget(stepped_button)
+
+    section_button = getattr(self, "btn_section_cut", None)
+    if section_button is not None:
+        section_button.setParent(compact)
+        section_button.setMinimumHeight(31)
+        section_button.setMaximumHeight(31)
+        section_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        compact_layout.addWidget(section_button)
+
+    # A 3mm construction snap step replaces the old 303mm module preset.
+    grid_box = QWidget(compact)
+    grid_layout = QGridLayout(grid_box)
+    grid_layout.setContentsMargins(0, 2, 0, 0)
+    grid_layout.setHorizontalSpacing(6)
+    grid_layout.setVerticalSpacing(3)
+    self.chk_structural_grid.setParent(grid_box)
+    self.chk_structural_grid.setText(self.tr("structural_grid_enabled"))
+    _nevis_apply_clear_checkbox_style(self.chk_structural_grid)
+    grid_layout.addWidget(self.chk_structural_grid, 0, 0, 1, 3)
+    self._lbl_structural_snap_step = QLabel(self.tr("structural_snap_step"), grid_box)
+    grid_layout.addWidget(self._lbl_structural_snap_step, 1, 0)
+    self.edit_structural_grid.setParent(grid_box)
+    self.edit_structural_grid.setText("3")
+    self.edit_structural_grid.setVisible(True)
+    self.edit_structural_grid.setFixedWidth(55)
+    self.edit_structural_grid.setAlignment(Qt.AlignCenter)
+    grid_layout.addWidget(self.edit_structural_grid, 1, 1)
+    self._lbl_structural_grid_unit = QLabel("mm", grid_box)
+    grid_layout.addWidget(self._lbl_structural_grid_unit, 1, 2)
+    grid_layout.setColumnStretch(0, 1)
+    compact_layout.addWidget(grid_box)
+
+    self.lbl_structural_grid.hide()
+    custom_index = self.cmb_structural_grid.findData("custom")
+    self.cmb_structural_grid.blockSignals(True)
+    self.cmb_structural_grid.setCurrentIndex(custom_index)
+    self.cmb_structural_grid.blockSignals(False)
+    self.cmb_structural_grid.hide()
+    self.structural_grid_mm = 3.0
+
+    _nevis_apply_clear_checkbox_style(self.chk_reference_background_visible)
+
+    group.layout().insertWidget(0, compact)
+    self._structural_compact_panel = compact
+
+    for button_name in ("btn_grid_axis_add", "btn_grid_axis_delete", "btn_grid_axis_rename"):
+        button = getattr(self, button_name, None)
+        if button is not None:
+            button.setMinimumHeight(29)
+    return result
+
+
+def _nevis_structural_panel_refresh(self, *args, **kwargs):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_REFRESH(self, *args, **kwargs)
+    label = getattr(self, "_lbl_structural_snap_step", None)
+    if label is not None:
+        label.setText(self.tr("structural_snap_step"))
+    return result
+
+
+def _nevis_structural_panel_show(self):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_SHOW(self)
+    _nevis_structural_panel_place_section_button(self)
+    return result
+
+
+def _nevis_structural_panel_workspace(self, mode):
+    result = _NEVIS_STRUCTURAL_PANEL_PREV_WORKSPACE(self, mode)
+    _nevis_structural_panel_place_section_button(self)
+    return result
+
+
+MainWindow._build_ui = _nevis_structural_panel_build_ui
+MainWindow.refresh_language_texts = _nevis_structural_panel_refresh
+MainWindow.show = _nevis_structural_panel_show
+MainWindow.set_workspace_mode = _nevis_structural_panel_workspace
+MainWindow._set_preview_toolbar_compact = _nevis_preview_toolbar_responsive
+
+
+# =============================================================================
+# TASK 29 DIAGNOSTICS - structured runtime log, no behavior changes
+# =============================================================================
+_NEVIS_SECTION_DEBUG_SESSION = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+
+def _nevis_section_debug(event, **details):
+    """Append one JSON record for reproducing section-view UI failures."""
+    try:
+        record = {
+            "time": datetime.now().isoformat(timespec="milliseconds"),
+            "session": _NEVIS_SECTION_DEBUG_SESSION,
+            "event": str(event),
+        }
+        record.update(details)
+        path = nevis_app_dir() / "section_debug.log"
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        # Diagnostics must never change application behavior.
+        pass
+
+
+def _nevis_section_element_snapshot(element):
+    points = list(getattr(element, "points", []) or [])
+    return {
+        "id": getattr(element, "id", None),
+        "type": getattr(element, "element_type", None),
+        "label": getattr(element, "label", None),
+        "is_stepped": bool(getattr(element, "is_stepped", False)),
+        "parent_slab_id": getattr(element, "parent_slab_id", None),
+        "overlap_width": getattr(element, "overlap_width", None),
+        "top_elevation": getattr(element, "top_elevation", None),
+        "bottom_elevation": getattr(element, "bottom_elevation", None),
+        "height": getattr(element, "height", None),
+        "points": points,
+    }
+
+
+def _nevis_section_scene_snapshot(scene):
+    try:
+        bounds = scene.itemsBoundingRect()
+        scene_rect = scene.sceneRect()
+        return {
+            "item_count": len(scene.items()),
+            "items_bounds": [bounds.x(), bounds.y(), bounds.width(), bounds.height()],
+            "scene_rect": [scene_rect.x(), scene_rect.y(), scene_rect.width(), scene_rect.height()],
+        }
+    except Exception as exc:
+        return {"snapshot_error": repr(exc)}
+
+
+_NEVIS_SECTION_LOG_PREV_WORKSPACE = MainWindow.set_workspace_mode
+
+
+def _nevis_section_log_workspace(self, mode):
+    before = self.splitter.sizes() if hasattr(self, "splitter") else []
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_WORKSPACE(self, mode)
+    except Exception as exc:
+        _nevis_section_debug("workspace_error", requested_mode=mode, error=repr(exc))
+        raise
+    right_shell = getattr(self, "right_shell", None)
+    _nevis_section_debug(
+        "workspace_changed",
+        requested_mode=mode,
+        actual_mode=getattr(self, "workspace_mode", None),
+        splitter_before=before,
+        splitter_after=self.splitter.sizes() if hasattr(self, "splitter") else [],
+        right_shell_visible=right_shell.isVisible() if right_shell is not None else None,
+    )
+    return result
+
+
+MainWindow.set_workspace_mode = _nevis_section_log_workspace
+
+
+_NEVIS_SECTION_LOG_PREV_CREATE = MainWindow._structural_create_from_drag
+
+
+def _nevis_section_log_create(self, start, end):
+    before = list(getattr(self.model, "structural_elements", []) or [])
+    _nevis_section_debug(
+        "structural_create_start",
+        draw_type=getattr(self, "structural_draw_type", None),
+        start=start,
+        end=end,
+        element_count=len(before),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_CREATE(self, start, end)
+    except Exception as exc:
+        _nevis_section_debug("structural_create_error", error=repr(exc))
+        raise
+    after = list(getattr(self.model, "structural_elements", []) or [])
+    before_ids = {getattr(item, "id", None) for item in before}
+    created = [item for item in after if getattr(item, "id", None) not in before_ids]
+    _nevis_section_debug(
+        "structural_create_done",
+        result=result,
+        element_count=len(after),
+        created=[_nevis_section_element_snapshot(item) for item in created],
+        status=self.lbl_status.text() if hasattr(self, "lbl_status") else None,
+    )
+    return result
+
+
+MainWindow._structural_create_from_drag = _nevis_section_log_create
+
+
+_NEVIS_SECTION_LOG_PREV_STEPPED_CREATE = _nevis_t27_create_stepped_slab
+
+
+def _nevis_section_log_stepped_create(mainwin, start_or_points, end=None):
+    before = list(getattr(mainwin.model, "structural_elements", []) or [])
+    _nevis_section_debug(
+        "stepped_slab_create_start",
+        input_points=start_or_points,
+        end=end,
+        selected_parent_id=getattr(getattr(mainwin, "_selected_structural_element", None), "id", None),
+        element_count=len(before),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_STEPPED_CREATE(mainwin, start_or_points, end)
+    except Exception as exc:
+        _nevis_section_debug("stepped_slab_create_error", error=repr(exc))
+        raise
+    after = list(getattr(mainwin.model, "structural_elements", []) or [])
+    _nevis_section_debug(
+        "stepped_slab_create_done",
+        result=result,
+        element_count=len(after),
+        elements=[_nevis_section_element_snapshot(item) for item in after],
+        status=mainwin.lbl_status.text() if hasattr(mainwin, "lbl_status") else None,
+    )
+    return result
+
+
+_nevis_t27_create_stepped_slab = _nevis_section_log_stepped_create
+
+
+_NEVIS_SECTION_LOG_PREV_BUTTON = _nevis_t29_section_btn
+
+
+def _nevis_section_log_button(mainwin):
+    mode_before = getattr(mainwin, _T29_SECTION_MODE, "idle")
+    _nevis_section_debug(
+        "section_button",
+        mode_before=mode_before,
+        splitter_sizes=mainwin.splitter.sizes(),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_BUTTON(mainwin)
+    except Exception as exc:
+        _nevis_section_debug("section_button_error", mode_before=mode_before, error=repr(exc))
+        raise
+    _nevis_section_debug(
+        "section_button_done",
+        mode_after=getattr(mainwin, _T29_SECTION_MODE, "idle"),
+        status=mainwin.lbl_status.text() if hasattr(mainwin, "lbl_status") else None,
+    )
+    return result
+
+
+_nevis_t29_section_btn = _nevis_section_log_button
+
+
+_NEVIS_SECTION_LOG_PREV_RENDER = _nevis_t29_render_section
+
+
+def _nevis_section_log_render(mainwin, scene, start, end, side):
+    elements = list(getattr(mainwin.model, "structural_elements", []) or [])
+    axis = getattr(mainwin, _T29_SECTION_AXIS, "X")
+    _nevis_section_debug(
+        "section_render_start",
+        start=start,
+        end=end,
+        side=side,
+        axis=axis,
+        elements=[_nevis_section_element_snapshot(item) for item in elements],
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_RENDER(mainwin, scene, start, end, side)
+    except Exception as exc:
+        _nevis_section_debug("section_render_error", error=repr(exc))
+        raise
+    _nevis_section_debug("section_render_done", **_nevis_section_scene_snapshot(scene))
+    return result
+
+
+_nevis_t29_render_section = _nevis_section_log_render
+
+
+_NEVIS_SECTION_LOG_PREV_SPLIT = _nevis_t29_show_split_view
+
+
+def _nevis_section_log_split(mainwin, start, end, side):
+    before = mainwin.splitter.sizes()
+    _nevis_section_debug(
+        "section_split_start",
+        start=start,
+        end=end,
+        side=side,
+        axis=getattr(mainwin, _T29_SECTION_AXIS, None),
+        splitter_before=before,
+        splitter_count=mainwin.splitter.count(),
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_SPLIT(mainwin, start, end, side)
+    except Exception as exc:
+        _nevis_section_debug("section_split_error", error=repr(exc))
+        raise
+    view = getattr(mainwin, _T29_SECTION_VIEW, None)
+    scene = view.scene() if view is not None else None
+    _nevis_section_debug(
+        "section_split_created",
+        splitter_after=mainwin.splitter.sizes(),
+        splitter_count=mainwin.splitter.count(),
+        view_size=[view.width(), view.height()] if view is not None else None,
+        **(_nevis_section_scene_snapshot(scene) if scene is not None else {}),
+    )
+
+    def _log_delayed_fit(delay_ms):
+        current_view = getattr(mainwin, _T29_SECTION_VIEW, None)
+        current_scene = current_view.scene() if current_view is not None else None
+        _nevis_section_debug(
+            "section_fit_observed",
+            delay_ms=delay_ms,
+            splitter_sizes=mainwin.splitter.sizes(),
+            view_size=[current_view.width(), current_view.height()] if current_view is not None else None,
+            transform=[
+                current_view.transform().m11(), current_view.transform().m22()
+            ] if current_view is not None else None,
+            **(_nevis_section_scene_snapshot(current_scene) if current_scene is not None else {}),
+        )
+
+    QTimer.singleShot(250, lambda: _log_delayed_fit(250))
+    QTimer.singleShot(700, lambda: _log_delayed_fit(700))
+    return result
+
+
+_nevis_t29_show_split_view = _nevis_section_log_split
+
+
+_NEVIS_SECTION_LOG_PREV_PRESS = PreviewView.mousePressEvent
+
+
+def _nevis_section_log_mouse_press(self, event):
+    mode_before = getattr(self.mainwin, _T29_SECTION_MODE, "idle")
+    if mode_before == "idle":
+        return _NEVIS_SECTION_LOG_PREV_PRESS(self, event)
+    try:
+        point = _nevis_t26_raw_scene_point(self, event)
+    except Exception:
+        point = None
+    _nevis_section_debug(
+        "section_mouse_press",
+        mode_before=mode_before,
+        button=int(event.button().value) if hasattr(event.button(), "value") else str(event.button()),
+        point=point,
+    )
+    try:
+        result = _NEVIS_SECTION_LOG_PREV_PRESS(self, event)
+    except Exception as exc:
+        _nevis_section_debug("section_mouse_press_error", mode_before=mode_before, error=repr(exc))
+        raise
+    _nevis_section_debug(
+        "section_mouse_press_done",
+        mode_before=mode_before,
+        mode_after=getattr(self.mainwin, _T29_SECTION_MODE, "idle"),
+        start=getattr(self.mainwin, _T29_SECTION_START, None),
+        end=getattr(self.mainwin, _T29_SECTION_END, None),
+        axis=getattr(self.mainwin, _T29_SECTION_AXIS, None),
+        side=getattr(self.mainwin, "_section_view_side", None),
+        status=self.mainwin.lbl_status.text() if hasattr(self.mainwin, "lbl_status") else None,
+    )
+    return result
+
+
+PreviewView.mousePressEvent = _nevis_section_log_mouse_press
+
+
+_nevis_section_debug(
+    "session_start",
+    task="29f_retest",
+    commit="6dce023",
+    log_version=1,
+)
 
 
 # =============================================================================
