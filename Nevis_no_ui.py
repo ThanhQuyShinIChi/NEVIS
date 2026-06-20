@@ -26247,15 +26247,38 @@ def _nevis_structural_has_visible_underlay(mainwin) -> bool:
     return bool(item is not None and item.isVisible())
 
 
+def _nevis_slab_edge_candidates(mainwin) -> list[tuple[float, float]]:
+    """Collect all corner and midpoint candidates from slab element edges."""
+    candidates = []
+    for elem in getattr(mainwin.model, "structural_elements", []) or []:
+        pts = getattr(elem, "points", [])
+        if len(pts) < 2:
+            continue
+        for i, p in enumerate(pts):
+            candidates.append((float(p[0]), float(p[1])))
+            # midpoint of each edge
+            p2 = pts[(i + 1) % len(pts)]
+            candidates.append(((float(p[0]) + float(p2[0])) / 2.0,
+                                (float(p[1]) + float(p2[1])) / 2.0))
+    return candidates
+
+
 def _nevis_structural_snap_scene_point(view, scene_point) -> tuple[float, float]:
     x, y = _nevis_canvas_to_real_point(view.mainwin, (scene_point.x(), scene_point.y()))
+    scale = abs(float(view.transform().m11())) or 1.0
+    draw_scale = float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    # Snap to slab edges first (tolerance 20 screen-px), regardless of grid mode.
+    edge_tolerance = (20.0 / scale) * draw_scale
+    edge_candidates = _nevis_slab_edge_candidates(view.mainwin)
+    edge_pt = nearest_snap_point(x, y, edge_candidates, edge_tolerance)
+    if edge_pt is not None:
+        return edge_pt
     if (
         getattr(view.mainwin, "workspace_mode", get_default_mode()) == "structural"
         and bool(getattr(view.mainwin, "structural_grid_enabled", True))
     ):
         return snap_to_grid(x, y, getattr(view.mainwin, "structural_grid_mm", 3.0))
-    scale = abs(float(view.transform().m11())) or 1.0
-    tolerance_scene = (10.0 / scale) * float(getattr(view.mainwin.model, "drawing_scale", 1.0) or 1.0)
+    tolerance_scene = (10.0 / scale) * draw_scale
     candidates = [
         _nevis_canvas_to_real_point(view.mainwin, (node.x, node.y))
         for node in view.mainwin.model.nodes.values()
@@ -26658,7 +26681,9 @@ def _nevis_structural_draw_items(view) -> None:
         canvas_points = [_nevis_real_to_canvas_point(view.mainwin, point) for point in element.points]
         polygon = QPolygonF([QPointF(x, y) for x, y in canvas_points])
         item = view.scene.addPolygon(polygon, pen, brush)
-        item.setZValue(12)
+        _etype = getattr(element, "element_type", "slab")
+        _z = 10 if _etype == "slab" else (11 if _etype in ("wall_lgs", "ceiling") else 12)
+        item.setZValue(_z)
         item.setData(0, ("structural_element", int(element.id)))
         # Draw overlap zone for stepped slabs
         if bool(getattr(element, "is_stepped", False)):
@@ -28323,6 +28348,11 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     lbl_bot_elev = QLabel(self.tr("t21_bottom_elevation"))
     lbl_ceil_bottom = QLabel(self.tr("t21_ceiling_bottom"))
 
+    # Floor finish thickness (visible only for slab)
+    init_finish = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0) if element is not None else 0.0
+    edit_finish = QLineEdit("{:g}".format(init_finish) if init_finish > 0 else "0", dialog)
+    lbl_finish = QLabel(self.tr("t21_finish_thickness"))
+
     layout.addRow(self.tr("structural_type_label"), type_combo)
     layout.addRow("{} (mm)".format(self.tr("structural_width")), width_edit)
     layout.addRow("{} (mm)".format(self.tr("structural_length")), length_edit)
@@ -28332,6 +28362,7 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     layout.addRow(lbl_top_elev, edit_top_elev)
     layout.addRow(lbl_bot_elev, edit_bot_elev)
     layout.addRow(lbl_ceil_bottom, edit_ceil_bottom)
+    layout.addRow(lbl_finish, edit_finish)
 
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
     buttons.accepted.connect(dialog.accept)
@@ -28356,6 +28387,8 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         edit_bot_elev.setVisible(show_bot)
         lbl_ceil_bottom.setVisible(show_ceil)
         edit_ceil_bottom.setVisible(show_ceil)
+        lbl_finish.setVisible(show_top)
+        edit_finish.setVisible(show_top)
         dialog.adjustSize()
 
     type_combo.currentIndexChanged.connect(_update_elevation_visibility)
@@ -28420,9 +28453,13 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         else:
             top_elevation = top_e
             bottom_elevation = top_e - eh
+        try:
+            finish_mm = max(0.0, float(edit_finish.text().strip()))
+        except (ValueError, TypeError):
+            finish_mm = 0.0
         if preview_item.scene() is not None:
             preview_item.scene().removeItem(preview_item)
-        return etype, ew, el, eh, er, top_elevation, bottom_elevation
+        return etype, ew, el, eh, er, top_elevation, bottom_elevation, finish_mm
     if preview_item.scene() is not None:
         preview_item.scene().removeItem(preview_item)
     return None
@@ -28456,7 +28493,10 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
     result = self._structural_edit_dialog(raw_width, raw_length, center)
     if result is None:
         return False
-    if len(result) == 7:
+    finish_mm = 0.0
+    if len(result) == 8:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
+    elif len(result) == 7:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
     else:
         element_type, width, length, height, arc_radius = result
@@ -28474,6 +28514,7 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
         arc_radius=arc_radius,
         top_elevation=top_elevation,
         bottom_elevation=bottom_elevation,
+        finish_thickness_mm=finish_mm,
     )
     self.save_undo_snapshot("create_structural_element")
     self.model.structural_elements.append(element)
@@ -28497,7 +28538,10 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
     if result is None:
         self.preview.draw_model()
         return False
-    if len(result) == 7:
+    finish_mm = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0)
+    if len(result) == 8:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
+    elif len(result) == 7:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
     else:
         element_type, width, length, height, arc_radius = result
@@ -28513,6 +28557,7 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
     element.arc_radius = arc_radius
     element.top_elevation = top_elevation
     element.bottom_elevation = bottom_elevation
+    element.finish_thickness_mm = finish_mm
     self.preview.draw_model()
     self.lbl_status.setText(self.tr("structural_updated").format(
         label=element.label, width=width, length=length, height=height))
@@ -28632,7 +28677,10 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
     result = self._structural_edit_dialog(raw_width, raw_length, center)
     if result is None:
         return False
-    if len(result) == 7:
+    finish_mm = 0.0
+    if len(result) == 8:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
+    elif len(result) == 7:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
     else:
         element_type, width, length, height, arc_radius = result
@@ -28650,6 +28698,7 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
         arc_radius=arc_radius,
         top_elevation=top_elevation,
         bottom_elevation=bottom_elevation,
+        finish_thickness_mm=finish_mm,
     )
     self.save_undo_snapshot("create_structural_element")
     self.model.structural_elements.append(element)
@@ -30472,6 +30521,38 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
         gl_text_item.setDefaultTextColor(QColor(80, 120, 40))
         gl_text_item.setPos(2, _gl_y - 16)
         gl_text_item.setZValue(9)
+
+    # FL (Finish Level) datum — drawn when model has datum_type="FL".
+    # FL can also be computed from the tallest slab top + its finish_thickness_mm.
+    _fl_datum = next(
+        (d for d in _level_datums.values() if getattr(d, "datum_type", "") == "FL"),
+        None,
+    )
+    _fl_elev_mm = None
+    if _fl_datum is not None:
+        _fl_elev_mm = float(getattr(_fl_datum, "elevation_mm", 0.0) or 0.0)
+    else:
+        # Auto-compute FL from slabs with finish_thickness_mm field.
+        for _e in elements:
+            if getattr(_e, "element_type", "") == "slab":
+                _ft = float(getattr(_e, "finish_thickness_mm", 0.0) or 0.0)
+                if _ft > 0:
+                    _candidate = float(getattr(_e, "top_elevation", 0.0)) + _ft
+                    if _fl_elev_mm is None or _candidate > _fl_elev_mm:
+                        _fl_elev_mm = _candidate
+    if _fl_elev_mm is not None:
+        _fl_y = sl_y - _fl_elev_mm * EL_SCALE
+        fl_line = scene.addLine(
+            MARGIN_LEFT - 10, _fl_y, MARGIN_LEFT + VIEW_WIDTH + 10, _fl_y,
+            QPen(QColor(30, 100, 180), 1.2, Qt.DashLine),
+        )
+        fl_line.setZValue(8)
+        _fl_name = getattr(_fl_datum, "name", "") if _fl_datum else "FL"
+        fl_label = _fl_name or "▽FL"
+        fl_text_item = scene.addText(fl_label, QFont("Segoe UI", 7))
+        fl_text_item.setDefaultTextColor(QColor(25, 80, 160))
+        fl_text_item.setPos(2, _fl_y - 16)
+        fl_text_item.setZValue(9)
 
     if not elements:
         return

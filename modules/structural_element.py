@@ -39,6 +39,11 @@ class StructuralElement:
     parent_slab_id: int = -1    # id of parent slab, -1 = none
     overlap_width: float = 0.0  # mm, overlap with parent slab edge
 
+    # Floor finish (lớp hoàn thiện sàn)
+    # finish_thickness_mm > 0 → FL = top_elevation + finish_thickness_mm
+    # Ví dụ: 置き床 168+20+12=200mm; gạch trực tiếp 30mm; gỗ trực tiếp 15mm
+    finish_thickness_mm: float = 0.0
+
 
 VALID_TYPES = {"slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling"}
 
@@ -64,6 +69,7 @@ def structural_element_to_dict(e: StructuralElement) -> dict:
         "is_stepped": e.is_stepped,
         "parent_slab_id": e.parent_slab_id,
         "overlap_width": e.overlap_width,
+        "finish_thickness_mm": e.finish_thickness_mm,
     }
 
 
@@ -113,4 +119,5 @@ def structural_element_from_dict(d: dict) -> StructuralElement:
         is_stepped=_b("is_stepped", False),
         parent_slab_id=_i("parent_slab_id", -1),
         overlap_width=_f("overlap_width", 0.0),
+        finish_thickness_mm=_f("finish_thickness_mm", 0.0),
     )

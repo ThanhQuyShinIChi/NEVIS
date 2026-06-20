@@ -1,6 +1,6 @@
 # NEVIS Current Handoff
 
-Cap nhat: 2026-06-20 (Asia/Bangkok) — sau phien Task 22c + GL datum + Section refresh
+Cap nhat: 2026-06-20 (Asia/Bangkok) — sau phien Z-order + edge snap + FL datum + finish_thickness
 
 ## Doc truoc khi lam
 
@@ -14,10 +14,9 @@ Cap nhat: 2026-06-20 (Asia/Bangkok) — sau phien Task 22c + GL datum + Section 
 
 - Repo dang lam: `D:\nevis2.03`.
 - Branch: `feature/building-space-model`.
-- Commit moi nhat: `a269faa` (Task 22 Clash Detection).
+- Commit moi nhat: `c252046` (Task 22c + GL datum + Section refresh).
 - Remote: `https://github.com/ThanhQuyShinIChi/NEVIS.git`.
-- Da push len remote (18 commits ahead cua origin truoc phien nay; sau push da dong bo).
-- Thay doi trong phien nay (chua commit): Task 22c UI + GL datum + Section refresh.
+- Thay doi da commit phien nay: xem commit moi nhat.
 
 ## Muc tieu san pham da thong nhat
 
@@ -26,41 +25,30 @@ Cap nhat: 2026-06-20 (Asia/Bangkok) — sau phien Task 22c + GL datum + Section 
 - San cha va san giat cap la mot cau kien lien tuc, khong phai hai khoi mau khac nhau.
 - Man hinh lam viec uu tien hinh hoc/mau ro; hatch chi tiet de danh cho profile xuat JWW.
 - GL la datum bo sung cho tang 1, khong thay the SL.
+- FL la datum hoan thien tren slab (置き床 ~200mm, gach ~30mm, go truc tiep ~15mm).
 - Clash Detection: ong MEP xuyen ket cau hien do, phat hien tu dong khi bam nut.
 
-## Da hoan thanh trong phien nay (chua commit)
+## Da hoan thanh trong phien nay (DA COMMIT)
 
-### Task 22c — Clash Detection UI
+### Z-order fix
+- Slabs: z=10, walls_lgs/ceiling: z=11, beams/columns/walls_rc: z=12.
+- Ket qua: dam/cot/tuong luon ve len tren slab, khong bi an di.
 
-- `_nevis_run_clash_check(self)` monkey-patched vao `MainWindow.run_clash_check`.
-- Adapter: `Edge` → `_PipeAdapter` voi `id=e.key`, `z_elevation = avg(start_z, end_z)`,
-  `points = [(n1.x, n1.y), (n2.x, n2.y)]`.
-- `self._clash_pipe_keys = set[str]` luu key cua ong bi clash.
-- Nut `⚠ Kiem tra clash` mau do trong structural panel (compact layout, sau nut Mat cat).
-- `paintEvent`: overlay do dam (`#dc1e1e`, 14px + `#ff5050`, 3px) tren ong co key trong `_clash_pipe_keys`, z=16/17 (tren highlight chon).
-- `_clash_pipe_keys` la `getattr(mainwin, "_clash_pipe_keys", set())` — an toan neu chua chay.
+### Snap-to-slab-edge
+- Helper `_nevis_slab_edge_candidates(mainwin)`: thu thap goc slab va diem giua canh.
+- Trong `_nevis_structural_snap_scene_point`: kiem tra slab edge TRUOC (tolerance 20px), roi moi den grid snap.
+- Ket qua: khi keo dam/cot den gan canh slab, tu dong bat vao mep.
 
-### GL Datum bo sung
+### FL datum trong mat cat
+- Trong `_nevis_t29_render_section`: kiem tra `level_datums["FL"]` hoac tu tinh tu `slab.finish_thickness_mm`.
+- Duong xanh da troi (`QColor(30, 100, 180)`), net dut, nhan "▽FL".
+- Neu finish_thickness_mm > 0: FL = top_elevation + finish_thickness_mm.
 
-- Section render kiem tra `level_datums` co entry `datum_type="GL"` khong.
-- Neu co: ve duong xanh la (`#64883c`) net dut-cham (`DashDotLine`) tai dung cao do `GL.elevation_mm` tinh tu SL±0.
-- Nhan hien ten datum (VD "GL" hoac ten nguoi dung tu dat).
-- Khong thay doi SL line — SL±0 van la datum chinh.
-
-### Shared Section Refresh
-
-- `PreviewView.draw_model` duoc monkey-patch: sau moi lan ve mat bang, neu section panel dang hien thi, schedule refresh mat cat qua `QTimer.singleShot(0)`.
-- Debounce: chi mot refresh moi event loop cycle (`_section_refresh_pending` flag).
-- Refresh giu nguyen zoom/pan (chi clear + re-render scene, khong `fitInView` lai).
-- Khong refresh neu section chua mo hoac container da bi destroy.
-
-## File da thay doi
-
-- `Nevis_no_ui.py`: Task 22c overlay, GL datum, section refresh hook, clash check method, clash button.
-- `modules/clash_detection.py`: da commit tai `a269faa`.
-- `tests/test_clash_detection.py`: da commit tai `a269faa`.
-- `CURRENT_HANDOFF.md`: file ban giao nay.
-- `SECTION_TEST_LOG.md`: cap nhat them muc tieu da hoan thanh.
+### finish_thickness_mm field
+- `modules/structural_element.py`: them `finish_thickness_mm: float = 0.0` vao `StructuralElement`.
+- Serialize/deserialize: cap nhat `structural_element_to_dict` va `structural_element_from_dict`.
+- Dialog: them field "Lop hoan thien (mm)" hien thi chi khi type = slab.
+- Tat ca 3 caller create/edit da cap nhat de truyen `finish_mm`.
 
 ## Xac minh da chay
 
@@ -75,21 +63,23 @@ python -m pytest tests/ -q --ignore=tests/test_elevation_preview_ui.py --ignore=
 
 ## Trang thai GUI
 
-- Chua retest GUI cho Task 22c, GL datum va section refresh.
-- Can nguoi dung:
-  1. Chay app: `python -B Nevis_no_ui.py`
-  2. Ve san + san giat cap + ong MEP co cao do Z
-  3. Bam `⚠ Kiem tra clash` trong panel Ket cau
-  4. Xac nhan ong co clash hien do, status bar hien so luong
-  5. Them GL datum trong panel Level Datums (type = GL, elevation = -300 chan. tang)
-  6. Ve mat cat — xac nhan duong GL hien mau xanh la
+- Chua retest GUI cho cac tinh nang moi nhat:
+  - Z-order: dam/cot phai hien tren slab.
+  - Snap-to-slab-edge: keo dam den gan mep slab.
+  - FL datum: ve mat cat sau khi dat finish_thickness_mm > 0 cho slab.
+  - Clash detection overlay (Task 22c).
+  - GL datum trong mat cat.
 
 ## Viec tiep theo
 
-1. Nguoi dung retest GUI (cac diem tren).
-2. Commit + push sau khi xac nhan.
-3. Kiem tra overlap display trong mat cat (con pending tu phien truoc).
+1. Nguoi dung retest GUI.
+2. Commit + push (chua push phien nay).
+3. Nghien cuu ve ve sàn gỗ vs sàn gạch trong mat cat:
+   - 置き床 (oki-yuka): chan do (168mm) + ban go (20mm) + san go (12mm) = ~200mm.
+   - San gach truc tiep: lop vua (20mm) + gach (10mm) = ~30mm.
+   - Ve trong mat cat: the hien cac lop bang qua trinh hatch khac nhau.
 4. JWW export profile (hatch, layer, net in) — dai han.
+5. Kiem tra overlap display trong mat cat.
 
 ## Lenh tiep tuc nhanh
 
@@ -100,4 +90,9 @@ git log -10 --oneline
 python -B Nevis_no_ui.py
 ```
 
-Khi debug GUI, khong xoa `section_debug.log`; dung session ID va timestamp de doi chieu thao tac.
+## Ghi chu quan trong
+
+- `section_debug.log`: Khi debug GUI, khong xoa file nay; dung session ID va timestamp de doi chieu.
+- GEOMETRY_SCALE = 0.1 (scene unit / mm) trong mat cat.
+- Monkey-patching pattern: NEVIS patch vao MainWindow va PreviewView o cuoi file.
+- 置き床 (oki-yuka): SL → +168mm chan do (支持脚) → +20mm ban (置床) → +12mm san go (フローリング) = FL tai SL+200mm.
