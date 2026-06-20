@@ -11,7 +11,7 @@ from typing import Optional
 @dataclass
 class StructuralElement:
     id: int
-    element_type: str  # "slab"|"beam"|"column"|"wall_rc"|"wall_lgs"|"ceiling"
+    element_type: str  # "slab"|"beam"|"column"|"wall_rc"|"wall_lgs"|"ceiling_lgs"
     label: str = ""
 
     # Geometry: list of (x, y) in canvas mm coordinates
@@ -61,8 +61,20 @@ class StructuralElement:
     wall_rc_thickness: float = 180.0
     lgs_is_staggered: bool = False
 
+    # LGS suspended ceiling (ceiling_lgs) specific
+    # ceiling_board_thickness: PB thickness per board (mm): 9, 12, or 15
+    # ceiling_board_layers: 1 or 2 boards (when 2, same thickness each)
+    # ceiling_double_frame: True = 野縁受け38mm + 野縁19mm; False = 野縁19mm only
+    # ceiling_finish_type_code: preset code (C-01 ~ C-04)
+    # ceiling_finish_surface: surface finish label ("AEP" etc.)
+    ceiling_board_thickness: float = 9.0
+    ceiling_board_layers: int = 1
+    ceiling_double_frame: bool = False
+    ceiling_finish_type_code: str = ""
+    ceiling_finish_surface: str = "AEP"
 
-VALID_TYPES = {"slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling"}
+
+VALID_TYPES = {"slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling_lgs"}
 
 
 def get_finish_thickness(e: StructuralElement) -> float:
@@ -93,6 +105,14 @@ def get_wall_total_width(e: StructuralElement) -> float:
         return float(e.wall_rc_thickness) + inner + outer
     return float(e.width)
 
+
+def get_ceiling_total_thickness(e: StructuralElement) -> float:
+    """Total ceiling assembly drop (mm): board(s) + LGS frame.
+    Single frame: 野縁19mm. Double frame: 野縁受38mm + 野縁19mm = 57mm."""
+    board = float(e.ceiling_board_thickness) * int(e.ceiling_board_layers)
+    frame = 57.0 if e.ceiling_double_frame else 19.0
+    return board + frame
+
 _DEFAULTS = StructuralElement(id=0, element_type="slab")
 
 
@@ -122,6 +142,11 @@ def structural_element_to_dict(e: StructuralElement) -> dict:
         "wall_finish_type_code": e.wall_finish_type_code,
         "wall_rc_thickness": e.wall_rc_thickness,
         "lgs_is_staggered": e.lgs_is_staggered,
+        "ceiling_board_thickness": e.ceiling_board_thickness,
+        "ceiling_board_layers": e.ceiling_board_layers,
+        "ceiling_double_frame": e.ceiling_double_frame,
+        "ceiling_finish_type_code": e.ceiling_finish_type_code,
+        "ceiling_finish_surface": e.ceiling_finish_surface,
     }
 
 
@@ -129,6 +154,8 @@ def structural_element_from_dict(d: dict) -> StructuralElement:
     """Deserialize from dict. Missing fields use safe defaults."""
     eid = int(d.get("id", 0))
     etype = str(d.get("element_type", "slab"))
+    if etype == "ceiling":  # backward-compat: old files used "ceiling"
+        etype = "ceiling_lgs"
     if etype not in VALID_TYPES:
         etype = "slab"
 
@@ -190,4 +217,9 @@ def structural_element_from_dict(d: dict) -> StructuralElement:
         wall_finish_type_code=str(d.get("wall_finish_type_code", "")),
         wall_rc_thickness=_f("wall_rc_thickness", 180.0),
         lgs_is_staggered=_b("lgs_is_staggered", False),
+        ceiling_board_thickness=_f("ceiling_board_thickness", 9.0),
+        ceiling_board_layers=_i("ceiling_board_layers", 1),
+        ceiling_double_frame=_b("ceiling_double_frame", False),
+        ceiling_finish_type_code=str(d.get("ceiling_finish_type_code", "")),
+        ceiling_finish_surface=str(d.get("ceiling_finish_surface", "AEP")),
     )

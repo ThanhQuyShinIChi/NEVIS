@@ -42,7 +42,8 @@ from modules.section_view import (
     elements_intersect_cut_line, format_elevation_label,
     polygon_cut_intervals,
     format_beam_label, format_ceiling_ch, format_slab_label,
-    section_marker_from_dict, section_marker_to_dict, sort_elements_by_elevation,
+    merge_section_intervals, section_marker_from_dict, section_marker_to_dict,
+    sort_elements_by_elevation,
 )
 from modules.structural_input import rect_from_center_wl, validate_dimension
 from modules.structural_transform import move_element, resize_element
@@ -8503,26 +8504,59 @@ class MainWindow(QMainWindow):
 
         This prevents the confusing case where the user reorganizes Library by system/material
         and old cached/indexed paths keep being used until combos are changed several times.
+
+        NOTE: rglob on the library folder can take minutes on Windows with Defender active.
+        We run the check in a background thread so the main thread / UI never blocks.
         """
-        # NEVIS perf: throttle – tránh rglob mỗi lần bấm Apply. Chỉ kiểm tra 1 lần/20 giây.
+        # Throttle: only check once every 120s
         try:
             import time as _tm
-            if _tm.monotonic() - getattr(self, '_lib_chk_t', 0.0) < 20.0:
+            if _tm.monotonic() - getattr(self, '_lib_chk_t', 0.0) < 120.0:
                 return
             self._lib_chk_t = _tm.monotonic()
         except Exception:
-            pass
+            return  # safety: if time fails, skip check entirely
+
+        # Snapshot idx_count on main thread (fast, no I/O)
         try:
-            fs_count = self._library_files_count()
-            idx_count = len([it for it in getattr(self, "library_index", []) if isinstance(it, dict) and it.get("path") and Path(it.get("path")).exists()])
-            if fs_count and fs_count != idx_count:
-                ans = QMessageBox.question(self, "NEVIS", self.tr("library_changed_scan"), QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-                if ans == QMessageBox.Yes:
-                    self.library_index = []
-                    self.auto_scan_default_library_folders(save=True)
-                    _LIB_PATH_CACHE.clear(); _LIB_GEOM_CACHE.clear(); _LIB_GEOM_CACHE_ORDER.clear()
-                    self._load_library_index()
-                    self.refresh_library_tree()
+            idx_count = len([it for it in getattr(self, "library_index", [])
+                             if isinstance(it, dict) and it.get("path") and Path(it.get("path")).exists()])
+        except Exception:
+            return
+
+        # Do NOT call _library_files_count() here — it does rglob which blocks.
+        # Skip check entirely when no index exists (expected at first run).
+        if idx_count == 0:
+            return
+
+        # Run the filesystem scan in a background daemon thread.
+        # If a mismatch is found, post back to the Qt main thread via QTimer.
+        import threading
+        mainwin_ref = self
+
+        def _bg_scan():
+            try:
+                fs_count = mainwin_ref._library_files_count()
+                if fs_count and fs_count != idx_count:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, mainwin_ref._on_library_count_mismatch)
+            except Exception:
+                pass
+
+        t = threading.Thread(target=_bg_scan, daemon=True)
+        t.start()
+
+    def _on_library_count_mismatch(self):
+        """Called on main thread when background scan detects a library file count change."""
+        try:
+            ans = QMessageBox.question(self, "NEVIS", self.tr("library_changed_scan"),
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if ans == QMessageBox.Yes:
+                self.library_index = []
+                self.auto_scan_default_library_folders(save=True)
+                _LIB_PATH_CACHE.clear(); _LIB_GEOM_CACHE.clear(); _LIB_GEOM_CACHE_ORDER.clear()
+                self._load_library_index()
+                self.refresh_library_tree()
         except Exception:
             pass
 
@@ -8536,7 +8570,7 @@ class MainWindow(QMainWindow):
             if getattr(self, '_loading_project', False) or getattr(self, '_updating_master_combos', False):
                 return
             if hasattr(self, '_common_apply_timer'):
-                self._common_apply_timer.start(180)
+                self._common_apply_timer.start(350)
         except Exception:
             pass
 
@@ -8631,10 +8665,17 @@ class MainWindow(QMainWindow):
             self.model.base_nodes = {b for b in bases if b in self.model.nodes}
             for b in sorted(self.model.base_nodes):
                 self.model.fittings[b] = self._auto_default_fitting_for_node(b)
+        import time as _perf_tm
+        _t0 = _perf_tm.perf_counter()
         rebuild_flow(self.model)
+        print(f"PERF apply_common: rebuild_flow={_perf_tm.perf_counter()-_t0:.3f}s", flush=True)
+        _t1 = _perf_tm.perf_counter()
         self.apply_branch_sizing(main_size, term)
+        print(f"PERF apply_common: apply_branch_sizing={_perf_tm.perf_counter()-_t1:.3f}s", flush=True)
         self.update_workflow_state(True)
+        _t2 = _perf_tm.perf_counter()
         self.refresh_all()
+        print(f"PERF apply_common: refresh_all_queued={_perf_tm.perf_counter()-_t2:.3f}s total={_perf_tm.perf_counter()-_t0:.3f}s", flush=True)
 
     def default_branch_size_for(self, current_size: str) -> str:
         """Return default branch size from the common setting panel.
@@ -26106,7 +26147,7 @@ APP_TEXT.setdefault("vi", {}).update({
     "structural_type_column": "Cột",
     "structural_type_wall_rc": "Tường RC",
     "structural_type_wall_lgs": "Vách LGS",
-    "structural_type_ceiling": "Trần",
+    "structural_type_ceiling_lgs": "Trần thạch cao LGS",
     "stepped_slab_command": "Tạo sàn giật cấp",
     "stepped_slab_title": "Sàn giật cấp",
     "stepped_slab_offset": "Lệch SL",
@@ -26171,7 +26212,7 @@ APP_TEXT.setdefault("jp", {}).update({
     "structural_type_column": "柱",
     "structural_type_wall_rc": "RC壁",
     "structural_type_wall_lgs": "軽量鉄骨壁",
-    "structural_type_ceiling": "天井",
+    "structural_type_ceiling_lgs": "軽天井 (LGS)",
     "stepped_slab_command": "段差スラブ作成",
     "stepped_slab_title": "段差スラブ",
     "stepped_slab_offset": "SL差",
@@ -26216,7 +26257,7 @@ APP_TEXT.setdefault("jp", {}).update({
 def _nevis_structural_type_labels(mainwin) -> dict[str, str]:
     return {
         element_type: mainwin.tr(f"structural_type_{element_type}")
-        for element_type in ("slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling")
+        for element_type in ("slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling_lgs")
     }
 
 
@@ -26694,6 +26735,7 @@ def _nevis_w3_draw_walls(view, wall_elements, bounds_ref) -> object:
     def _union_paths(elems):
         """Return QPainterPath that is the union of all element polygons.
         Also return list of (individual elem polygon, elem) for selection hit-testing."""
+        from PySide6.QtGui import QPainterPath
         base = QPainterPath()
         for e in elems:
             poly = _canvas_polygon(e)
@@ -26706,14 +26748,12 @@ def _nevis_w3_draw_walls(view, wall_elements, bounds_ref) -> object:
     for (grp_key, _tcode), elems in groups.items():
         grp_etype = grp_key  # "rc_solid" | "wall_lgs" | etc.
         if grp_etype == "wall_lgs":
-            pen = QPen(QColor(40, 40, 40), 1.5, Qt.SolidLine)
-            brush = QBrush(QColor(200, 205, 215, 200))
-            finish_color = QColor(170, 175, 190, 220)
+            pen = QPen(QColor(60, 90, 130), 1.0, Qt.SolidLine)
+            brush = QBrush(QColor(210, 225, 245, 130))
             z_val = 11
         else:  # rc_solid (wall_rc + column + beam merged group)
-            pen = QPen(QColor(50, 50, 55), 2.0, Qt.SolidLine)
-            brush = QBrush(QColor(158, 158, 163, 185), Qt.FDiagPattern)
-            finish_color = QColor(190, 195, 205, 180)
+            pen = QPen(QColor(60, 60, 65), 1.0, Qt.SolidLine)
+            brush = QBrush(QColor(150, 150, 155, 160), Qt.FDiagPattern)
             z_val = 12
 
         # Union the merged outline — single border for entire rc_solid group
@@ -26734,104 +26774,24 @@ def _nevis_w3_draw_walls(view, wall_elements, bounds_ref) -> object:
             hit_item.setZValue(z_val + 0.1)
             hit_item.setData(0, ("structural_element", int(e.id)))
 
-            # Finish layer bands for LGS walls (inner + outer strips)
-            if grp_etype == "wall_lgs":
-                pts = list(poly)
-                if len(pts) >= 4:
-                    # Determine wall direction from bounding box
-                    xs = [p.x() for p in pts]
-                    ys = [p.y() for p in pts]
-                    dx = max(xs) - min(xs)
-                    dy = max(ys) - min(ys)
-                    inner = list(getattr(e, "wall_finish_inner", []) or [])
-                    outer = list(getattr(e, "wall_finish_outer", []) or [])
-                    total_inner = sum(float(l.get("thickness", 0.0)) for l in inner)
-                    total_outer = sum(float(l.get("thickness", 0.0)) for l in outer)
-                    try:
-                        stud_w = float(getattr(e, "stud_width", 65.0) or 65.0)
-                        stagger = bool(getattr(e, "lgs_is_staggered", False))
-                        frame_w = stud_w + (12.0 if stagger else 2.0)
-                    except (TypeError, ValueError):
-                        frame_w = 47.0
-                    total_w = frame_w + total_inner + total_outer
-                    if total_w < 1.0:
-                        continue
-                    # Canvas scale: scene-units per mm
-                    if dx > dy:  # horizontal wall: thickness along Y
-                        real_h = dy / (abs(float(view.transform().m22())) or 1.0) if False else dy
-                        # Fraction of outer strip in canvas coords
-                        if total_w > 0:
-                            outer_frac = total_outer / total_w
-                            inner_frac = total_inner / total_w
-                        else:
-                            outer_frac = inner_frac = 0.0
-                        y0, y1 = min(ys), max(ys)
-                        x0, x1 = min(xs), max(xs)
-                        outer_h = (y1 - y0) * outer_frac
-                        inner_h = (y1 - y0) * inner_frac
-                        # Outer band (top strip)
-                        if outer_frac > 0.01:
-                            band = QPolygonF([
-                                QPointF(x0, y0), QPointF(x1, y0),
-                                QPointF(x1, y0 + outer_h), QPointF(x0, y0 + outer_h)
-                            ])
-                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
-                            bi.setZValue(z_val + 0.05)
-                            bi.setAcceptedMouseButtons(Qt.NoButton)
-                        # Inner band (bottom strip)
-                        if inner_frac > 0.01:
-                            band = QPolygonF([
-                                QPointF(x0, y1 - inner_h), QPointF(x1, y1 - inner_h),
-                                QPointF(x1, y1), QPointF(x0, y1)
-                            ])
-                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
-                            bi.setZValue(z_val + 0.05)
-                            bi.setAcceptedMouseButtons(Qt.NoButton)
-                    else:  # vertical wall: thickness along X
-                        if total_w > 0:
-                            outer_frac = total_outer / total_w
-                            inner_frac = total_inner / total_w
-                        else:
-                            outer_frac = inner_frac = 0.0
-                        x0, x1 = min(xs), max(xs)
-                        y0, y1 = min(ys), max(ys)
-                        outer_w = (x1 - x0) * outer_frac
-                        inner_w = (x1 - x0) * inner_frac
-                        if outer_frac > 0.01:
-                            band = QPolygonF([
-                                QPointF(x0, y0), QPointF(x0 + outer_w, y0),
-                                QPointF(x0 + outer_w, y1), QPointF(x0, y1)
-                            ])
-                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
-                            bi.setZValue(z_val + 0.05)
-                            bi.setAcceptedMouseButtons(Qt.NoButton)
-                        if inner_frac > 0.01:
-                            band = QPolygonF([
-                                QPointF(x1 - inner_w, y0), QPointF(x1, y0),
-                                QPointF(x1, y1), QPointF(x1 - inner_w, y1)
-                            ])
-                            bi = view.scene.addPolygon(band, QPen(Qt.NoPen), QBrush(finish_color))
-                            bi.setZValue(z_val + 0.05)
-                            bi.setAcceptedMouseButtons(Qt.NoButton)
-
             item_bounds = hit_item.sceneBoundingRect()
             bounds = item_bounds if bounds is None else bounds.united(item_bounds)
 
-            # Label (type code) at center
-            tcode_lbl = str(getattr(e, "wall_finish_type_code", "") or "")
-            if not tcode_lbl:
-                _lbl_map = {"wall_rc": "RC壁", "column": "柱", "beam": "梁", "wall_lgs": "LGS"}
-                tcode_lbl = _lbl_map.get(etype, etype)
-            lbl = view.scene.addText(tcode_lbl, QFont("Segoe UI", 7))
-            lbl.setDefaultTextColor(QColor(55, 60, 80))
-            lbl.setZValue(13)
-            lbl.setAcceptedMouseButtons(Qt.NoButton)
-            br = lbl.boundingRect()
-            c = hit_item.sceneBoundingRect().center()
-            lbl.setPos(c.x() - br.width() / 2.0, c.y() - br.height() / 2.0)
+            _is_selected = int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(e.id)
 
-            # Selection handles
-            if int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(e.id):
+            # Label only on selected element
+            if _is_selected:
+                tcode_lbl = str(getattr(e, "wall_finish_type_code", "") or "")
+                if not tcode_lbl:
+                    _lbl_map = {"wall_rc": "RC壁", "column": "柱", "beam": "梁", "wall_lgs": "LGS"}
+                    tcode_lbl = _lbl_map.get(etype, etype)
+                lbl = view.scene.addText(tcode_lbl, QFont("Segoe UI", 7))
+                lbl.setDefaultTextColor(QColor(30, 80, 160))
+                lbl.setZValue(13)
+                lbl.setAcceptedMouseButtons(Qt.NoButton)
+                br = lbl.boundingRect()
+                c = hit_item.sceneBoundingRect().center()
+                lbl.setPos(c.x() - br.width() / 2.0, c.y() - br.height() / 2.0)
                 _nevis_structural_draw_handles(view, e)
 
     return bounds
@@ -26854,17 +26814,22 @@ def _nevis_structural_draw_items(view) -> None:
     for element in non_wall_elements:
         if len(getattr(element, "points", [])) < 3:
             continue
+        _etype_plan = getattr(element, "element_type", "slab")
         if bool(getattr(element, "is_stepped", False)):
-            pen = QPen(QColor(55, 95, 145), 2.0, Qt.DashLine)
-            brush = QBrush(QColor(75, 125, 180, 115), Qt.BDiagPattern)
+            # Stepped child = lowered area visible from above → solid yellow fill
+            pen = QPen(QColor(180, 130, 0), 1.0, Qt.DashLine)
+            brush = QBrush(QColor(255, 215, 60, 160))
+        elif _etype_plan == "ceiling_lgs":
+            pen = QPen(QColor(60, 160, 110), 1.0, Qt.DashDotLine)
+            brush = QBrush(QColor(120, 190, 160, 40), Qt.DiagCrossPattern)
         else:
-            pen = QPen(QColor(105, 112, 120), 2.0, Qt.DashLine)
-            brush = QBrush(QColor(145, 150, 158, 28))
+            pen = QPen(QColor(100, 108, 118), 1.0, Qt.DashLine)
+            brush = QBrush(QColor(140, 148, 158, 22))
         canvas_points = [_nevis_real_to_canvas_point(view.mainwin, point) for point in element.points]
         polygon = QPolygonF([QPointF(x, y) for x, y in canvas_points])
         item = view.scene.addPolygon(polygon, pen, brush)
         _etype = getattr(element, "element_type", "slab")
-        _z = 10 if _etype == "slab" else (11 if _etype in ("wall_lgs", "ceiling") else 12)
+        _z = 10 if _etype == "slab" else (11 if _etype in ("wall_lgs", "ceiling_lgs") else 12)
         item.setZValue(_z)
         item.setData(0, ("structural_element", int(element.id)))
         # Draw overlap zone for stepped slabs
@@ -26876,28 +26841,31 @@ def _nevis_structural_draw_items(view) -> None:
                 if ov_pts:
                     ov_canvas = [_nevis_real_to_canvas_point(view.mainwin, p) for p in ov_pts]
                     ov_poly = QPolygonF([QPointF(x, y) for x, y in ov_canvas])
-                    ov_pen = QPen(QColor(220, 140, 0), 1.5, Qt.DotLine)
-                    ov_brush = QBrush(QColor(255, 200, 0, 40))
+                    # Overlap zone = structural rebar overlap, visible from below → diagonal hatch
+                    # z=9: below slab(10) and walls(11+) so it never covers real elements
+                    ov_pen = QPen(QColor(180, 80, 0), 0.8, Qt.SolidLine)
+                    ov_brush = QBrush(QColor(200, 100, 0, 70), Qt.BDiagPattern)
                     ov_item = view.scene.addPolygon(ov_poly, ov_pen, ov_brush)
-                    ov_item.setZValue(13)
+                    ov_item.setZValue(9)
                     ov_item.setAcceptedMouseButtons(Qt.NoButton)
                     ov_item.setData(0, "structural_overlap_zone")
         item_bounds = item.sceneBoundingRect()
         bounds = item_bounds if bounds is None else bounds.united(item_bounds)
-        if bool(getattr(element, "is_stepped", False)):
-            label = view.mainwin.tr("stepped_slab_label")
-        else:
-            label = _nevis_structural_type_labels(view.mainwin).get(
-                element.element_type,
-                str(getattr(element, "label", "") or element.element_type),
-            )
-        text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
-        text.setDefaultTextColor(QColor(85, 90, 98))
-        text.setZValue(13)
-        text.setAcceptedMouseButtons(Qt.NoButton)
-        text_rect = text.boundingRect()
-        text.setPos(item_bounds.center().x() - text_rect.width() / 2.0, item_bounds.center().y() - text_rect.height() / 2.0)
-        if int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(element.id):
+        _is_sel = int(getattr(view.mainwin, "selected_structural_id", -1) or -1) == int(element.id)
+        if _is_sel:
+            if bool(getattr(element, "is_stepped", False)):
+                label = view.mainwin.tr("stepped_slab_label")
+            else:
+                label = _nevis_structural_type_labels(view.mainwin).get(
+                    element.element_type,
+                    str(getattr(element, "label", "") or element.element_type),
+                )
+            text = view.scene.addText(label, QFont("Segoe UI", 8, QFont.Bold))
+            text.setDefaultTextColor(QColor(30, 80, 160))
+            text.setZValue(13)
+            text.setAcceptedMouseButtons(Qt.NoButton)
+            text_rect = text.boundingRect()
+            text.setPos(item_bounds.center().x() - text_rect.width() / 2.0, item_bounds.center().y() - text_rect.height() / 2.0)
             _nevis_structural_draw_handles(view, element)
     if bounds is not None:
         view.scene.setSceneRect(view.scene.sceneRect().united(bounds.adjusted(-20, -20, 20, 20)))
@@ -26954,9 +26922,15 @@ def _nevis_structural_draw_handles(view, element) -> None:
         item.setData(0, ("structural_handle", (int(element.id), handle)))
 
 
-def _nevis_structural_find_element(mainwin, element_id: int):
+def _nevis_structural_find_element(mainwin, element_id):
+    if element_id is None:
+        return None
+    try:
+        eid = int(element_id)
+    except (TypeError, ValueError):
+        return None
     return next(
-        (item for item in getattr(mainwin.model, "structural_elements", []) if int(getattr(item, "id", -1)) == int(element_id)),
+        (item for item in getattr(mainwin.model, "structural_elements", []) if int(getattr(item, "id", -1)) == eid),
         None,
     )
 
@@ -27159,38 +27133,77 @@ def _nevis_structural_mouse_press(self, event):
             view_pos = event.position().toPoint()
         except AttributeError:
             view_pos = event.pos()
-        hit = self.itemAt(view_pos)
-        hit_data = hit.data(0) if hit is not None else None
-        if isinstance(hit_data, tuple) and hit_data[0] == "structural_handle":
-            element_id, handle = hit_data[1]
-            _SNAP_HANDLE_LABELS = {
-                "nw": self.mainwin.tr("snap_corner_nw"), "ne": self.mainwin.tr("snap_corner_ne"),
-                "se": self.mainwin.tr("snap_corner_se"), "sw": self.mainwin.tr("snap_corner_sw"),
-                "n": self.mainwin.tr("snap_edge_n"), "e": self.mainwin.tr("snap_edge_e"),
-                "s": self.mainwin.tr("snap_edge_s"), "w": self.mainwin.tr("snap_edge_w"),
-            }
+
+        # Check for handle hit first (resize handles take priority)
+        for _it in self.items(view_pos):
+            try:
+                _d = _it.data(0)
+            except Exception:
+                _d = None
+            if isinstance(_d, tuple) and _d[0] == "structural_handle":
+                element_id, handle = _d[1]
+                _SNAP_HANDLE_LABELS = {
+                    "nw": self.mainwin.tr("snap_corner_nw"), "ne": self.mainwin.tr("snap_corner_ne"),
+                    "se": self.mainwin.tr("snap_corner_se"), "sw": self.mainwin.tr("snap_corner_sw"),
+                    "n": self.mainwin.tr("snap_edge_n"), "e": self.mainwin.tr("snap_edge_e"),
+                    "s": self.mainwin.tr("snap_edge_s"), "w": self.mainwin.tr("snap_edge_w"),
+                }
+                menu = QMenu(self)
+                action = menu.addAction(f"{self.mainwin.tr('snap_action')} — {_SNAP_HANDLE_LABELS.get(handle, handle)}")
+                try:
+                    chosen = menu.exec(event.globalPosition().toPoint())
+                except AttributeError:
+                    chosen = menu.exec(event.globalPos())
+                if chosen is action:
+                    self.mainwin._structural_snap_pending = {"element_id": int(element_id), "handle": handle}
+                    self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
+                event.accept()
+                return
+
+        # Collect ALL structural elements at this position (supports overlapping objects)
+        _type_labels = _nevis_structural_type_labels(self.mainwin)
+        _hit_elems = []
+        _seen_eids = set()
+        for _it in self.items(view_pos):
+            try:
+                _d = _it.data(0)
+            except Exception:
+                _d = None
+            if isinstance(_d, tuple) and _d[0] == "structural_element":
+                _eid = int(_d[1])
+                if _eid not in _seen_eids:
+                    _seen_eids.add(_eid)
+                    _e = _nevis_structural_find_element(self.mainwin, _eid)
+                    if _e is not None:
+                        _hit_elems.append((_eid, _e))
+
+        if _hit_elems:
             menu = QMenu(self)
-            action = menu.addAction(f"{self.mainwin.tr('snap_action')} — {_SNAP_HANDLE_LABELS.get(handle, handle)}")
+            # List all elements at this position as selectable items
+            _sel_actions = {}
+            for _i, (_eid, _e) in enumerate(_hit_elems, 1):
+                _lbl = _type_labels.get(getattr(_e, "element_type", ""), "?")
+                _w = float(getattr(_e, "width", 0) or 0)
+                _l = float(getattr(_e, "length", 0) or 0)
+                _act = menu.addAction(f"{_i}.  {_lbl}   {_w:.0f}×{_l:.0f} mm")
+                _sel_actions[id(_act)] = _eid
+            menu.addSeparator()
+            _move_act = menu.addAction(self.mainwin.tr("snap_action_move"))
             try:
                 chosen = menu.exec(event.globalPosition().toPoint())
             except AttributeError:
                 chosen = menu.exec(event.globalPos())
-            if chosen is action:
-                self.mainwin._structural_snap_pending = {"element_id": int(element_id), "handle": handle}
-                self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
-            event.accept()
-            return
-        if isinstance(hit_data, tuple) and hit_data[0] == "structural_element":
-            element_id = int(hit_data[1])
-            menu = QMenu(self)
-            action = menu.addAction(self.mainwin.tr("snap_action_move"))
-            try:
-                chosen = menu.exec(event.globalPosition().toPoint())
-            except AttributeError:
-                chosen = menu.exec(event.globalPos())
-            if chosen is action:
-                self.mainwin._structural_snap_pending = {"element_id": element_id, "handle": "move"}
-                self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
+            if chosen is not None:
+                if id(chosen) in _sel_actions:
+                    # Select this element
+                    self.mainwin.selected_structural_id = _sel_actions[id(chosen)]
+                    _nevis_update_stepped_slab_button(self.mainwin)
+                    self.draw_model()
+                elif chosen is _move_act:
+                    _move_id = (getattr(self.mainwin, "selected_structural_id", None)
+                                or _hit_elems[0][0])
+                    self.mainwin._structural_snap_pending = {"element_id": _move_id, "handle": "move"}
+                    self.mainwin.lbl_status.setText(self.mainwin.tr("snap_pending_hint"))
             event.accept()
             return
     if event.button() == Qt.LeftButton:
@@ -27245,6 +27258,15 @@ def _nevis_structural_mouse_press(self, event):
     return _NEVIS_STRUCTURAL_PREV_MOUSE_PRESS(self, event)
 
 
+def _nevis_structural_flush_redraw(view):
+    """Deferred redraw fired by QTimer during structural drag (30fps cap)."""
+    view._struct_redraw_pending = False
+    try:
+        view.draw_model()
+    except RuntimeError:
+        pass
+
+
 def _nevis_structural_mouse_move(self, event):
     stepped_start = getattr(self, "_stepped_slab_drag_start", None)
     if getattr(self.mainwin, "stepped_slab_draw_mode", False) and stepped_start is not None:
@@ -27294,7 +27316,10 @@ def _nevis_structural_mouse_move(self, event):
                 return
         _nevis_structural_replace_element(self.mainwin, replacement)
         transform["moved"] = True
-        self.draw_model()
+        if not getattr(self, "_struct_redraw_pending", False):
+            self._struct_redraw_pending = True
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(33, lambda: _nevis_structural_flush_redraw(self))
         event.accept()
         return
     return _NEVIS_STRUCTURAL_PREV_MOUSE_MOVE(self, event)
@@ -27321,6 +27346,7 @@ def _nevis_structural_mouse_release(self, event):
     transform = getattr(self, "_structural_transform", None)
     if transform is not None and event.button() == Qt.LeftButton:
         self._structural_transform = None
+        self._struct_redraw_pending = False  # cancel any pending throttled redraw
         if transform["moved"]:
             element = _nevis_structural_find_element(self.mainwin, self.mainwin.selected_structural_id)
             if element is not None:
@@ -27914,8 +27940,14 @@ def _nevis_t15_start_section_cut(self, checked: bool = False) -> None:
 def _nevis_t15_remove_cut_marker(self) -> None:
     marker = getattr(self, "_section_cut_marker", None)
     self._section_cut_marker = None
-    if marker is not None and marker.scene() is not None:
-        marker.scene().removeItem(marker)
+    if marker is None:
+        return
+    try:
+        sc = marker.scene()
+        if sc is not None:
+            sc.removeItem(marker)
+    except RuntimeError:
+        pass
 
 
 def _nevis_t15_handle_cut_click(mainwin, scene_point) -> bool:
@@ -27992,7 +28024,7 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
         for e in cut_elements:
             all_elev.append(float(getattr(e, "top_elevation", 0.0) or 0.0))
             all_elev.append(float(getattr(e, "bottom_elevation", 0.0) or 0.0))
-        ceiling_elements = [e for e in cut_elements if getattr(e, "element_type", "") == "ceiling"]
+        ceiling_elements = [e for e in cut_elements if getattr(e, "element_type", "") == "ceiling_lgs"]
         if ceiling_elements:
             ceil_bottom = min(float(getattr(e, "bottom_elevation", 0.0) or 0.0) for e in ceiling_elements)
             ch = compute_ch(fl, ceil_bottom)
@@ -28087,7 +28119,7 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
             "column": QColor(180, 130, 60, 160),
             "wall_rc": QColor(155, 155, 160, 200),
             "wall_lgs": QColor(195, 185, 135, 160),
-            "ceiling": QColor(120, 190, 160, 160),
+            "ceiling_lgs": QColor(120, 190, 160, 160),
         }
         # W5: material-type colors for finish layers in section
         _W5_LAYER_COLORS = {
@@ -28209,22 +28241,65 @@ def _nevis_t15_show_section_dialog(mainwin, p1, p2) -> None:
                                 lbl_lay = scene.addText(lay.get("name", "")[:6], QFont("Segoe UI", 5))
                                 lbl_lay.setDefaultTextColor(QColor(50, 35, 10))
                                 lbl_lay.setPos(rect_x + 1, cur_bottom_y + 1)
+                elif etype == "ceiling_lgs":
+                    # W7: LGS suspended ceiling layers (top→bottom in section)
+                    c_bt_val = float(getattr(elem, "ceiling_board_thickness", 9.0) or 9.0)
+                    c_bl_val = int(getattr(elem, "ceiling_board_layers", 1) or 1)
+                    c_df_val = bool(getattr(elem, "ceiling_double_frame", False))
+                    frame_h = (57.0 if c_df_val else 19.0) * px_per_mm
+                    board_h = c_bt_val * px_per_mm
+                    total_h = frame_h + board_h * c_bl_val
+                    scale_y = rect_h / max(total_h, 1.0)
+                    cur_y = rect_y
+                    # Draw frame section(s)
+                    _frame_color = QColor(170, 175, 185, 200)
+                    if c_df_val:
+                        # 野縁受け 38mm
+                        fh1 = 38.0 * px_per_mm * scale_y
+                        scene.addRect(rect_x, cur_y, rect_w, fh1,
+                                      QPen(_frame_color.darker(120), 0.5), QBrush(_frame_color))
+                        lbl_nr = scene.addText("野縁受", QFont("Segoe UI", 4))
+                        lbl_nr.setDefaultTextColor(QColor(40, 40, 60))
+                        lbl_nr.setPos(rect_x + 1, cur_y + 1)
+                        cur_y += fh1
+                    # 野縁 19mm
+                    fh2 = 19.0 * px_per_mm * scale_y
+                    _frame_color2 = QColor(155, 160, 170, 200)
+                    scene.addRect(rect_x, cur_y, rect_w, fh2,
+                                  QPen(_frame_color2.darker(120), 0.5), QBrush(_frame_color2))
+                    lbl_nn = scene.addText("野縁", QFont("Segoe UI", 4))
+                    lbl_nn.setDefaultTextColor(QColor(40, 40, 60))
+                    lbl_nn.setPos(rect_x + 1, cur_y + 1)
+                    cur_y += fh2
+                    # PB board(s)
+                    _pb_color = QColor(240, 238, 225, 220)
+                    for _bi in range(c_bl_val):
+                        bh = board_h * scale_y
+                        scene.addRect(rect_x, cur_y, rect_w, bh,
+                                      QPen(_pb_color.darker(130), 0.5), QBrush(_pb_color))
+                        lbl_pb = scene.addText("PB{}".format(int(c_bt_val)), QFont("Segoe UI", 4))
+                        lbl_pb.setDefaultTextColor(QColor(60, 50, 30))
+                        lbl_pb.setPos(rect_x + 1, cur_y + 1)
+                        cur_y += bh
+                    # Outer border
+                    scene.addRect(rect_x, rect_y, rect_w, rect_h,
+                                  QPen(QColor(80, 90, 100), 1.2), QBrush(Qt.NoBrush))
                 else:
                     scene.addRect(rect_x, rect_y, rect_w, rect_h,
                                   QPen(color.darker(130), 1.5), QBrush(color))
 
-            type_labels = _nevis_structural_type_labels(mainwin)
-            name = type_labels.get(etype, getattr(elem, "label", "?"))
-            # W4: wall FL-cut annotation
-            if etype == "wall_lgs":
-                wall_type = str(getattr(elem, "wall_finish_type_code", "") or "")
-                if wall_type in ("W-01",):
-                    name = name + " [FL全カット]"
-                elif wall_type in ("W-02", "W-03"):
-                    name = name + " [フロ カット]"
-            lbl_e = scene.addText(name, QFont("Segoe UI", 6))
-            lbl_e.setDefaultTextColor(QColor(30, 30, 30))
-            lbl_e.setPos(rect_x + 2, rect_y + 2)
+                type_labels = _nevis_structural_type_labels(mainwin)
+                name = type_labels.get(etype, getattr(elem, "label", "?"))
+                # W4: wall FL-cut annotation
+                if etype == "wall_lgs":
+                    wall_type = str(getattr(elem, "wall_finish_type_code", "") or "")
+                    if wall_type in ("W-01",):
+                        name = name + " [FL全カット]"
+                    elif wall_type in ("W-02", "W-03"):
+                        name = name + " [フロ カット]"
+                lbl_e = scene.addText(name, QFont("Segoe UI", 6))
+                lbl_e.setDefaultTextColor(QColor(30, 30, 30))
+                lbl_e.setPos(rect_x + 2, rect_y + 2)
 
         if not cut_elements:
             msg = scene.addText(mainwin.tr("section_no_elements"), QFont("Segoe UI", 9))
@@ -28353,7 +28428,7 @@ _nevis_install_runtime_perf_timers()
 # =============================================================================
 # TASK 19 — UX vẽ kết cấu: icon buttons, Escape/RightClick cancel, grid fix
 # =============================================================================
-_NEVIS_T19_STRUCTURAL_TYPES = ["slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling"]
+_NEVIS_T19_STRUCTURAL_TYPES = ["slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling_lgs"]
 
 APP_TEXT.setdefault("vi", {}).update({
     "t19_type_btn_hint": "Chọn loại phần tử rồi bấm Vẽ",
@@ -28823,6 +28898,62 @@ def _nevis_wall_preset_by_code(code: str) -> dict:
     return {}
 
 
+# =============================================================================
+# W7 — LGS suspended ceiling presets (軽天井プリセット)
+# =============================================================================
+# Frame nomenclature (Japan):
+#   野縁 (furring channel): 19mm — closest to board, always present
+#   野縁受け (carrier channel): 38mm — only when double-frame
+# Total drop = frame(s) + board(s)
+# =============================================================================
+_NEVIS_CEILING_PRESETS = [
+    {
+        "code": "C-01",
+        "desc": "野縁19 + PB t=9×1層 (28mm)",
+        "usage": "一般軽天井 薄板1層",
+        "double_frame": False,
+        "board_thickness": 9.0,
+        "board_layers": 1,
+        "surface": "AEP",
+    },
+    {
+        "code": "C-02",
+        "desc": "野縁19 + PB t=12×1層 (31mm)",
+        "usage": "一般軽天井 標準板1層",
+        "double_frame": False,
+        "board_thickness": 12.0,
+        "board_layers": 1,
+        "surface": "AEP",
+    },
+    {
+        "code": "C-03",
+        "desc": "野縁受38+野縁19 + PB t=9×2層 (75mm)",
+        "usage": "遮音・耐火軽天井 ダブルフレーム2重張り",
+        "double_frame": True,
+        "board_thickness": 9.0,
+        "board_layers": 2,
+        "surface": "AEP",
+    },
+    {
+        "code": "C-04",
+        "desc": "野縁受38+野縁19 + PB t=12×1層 (69mm)",
+        "usage": "ダブルフレーム標準板1層",
+        "double_frame": True,
+        "board_thickness": 12.0,
+        "board_layers": 1,
+        "surface": "AEP",
+    },
+]
+
+
+def _nevis_ceiling_preset_by_code(code: str) -> dict:
+    """Return ceiling preset dict by code, or {} if not found."""
+    for p in _NEVIS_CEILING_PRESETS:
+        if p.get("code") == code:
+            return p
+    return {}
+
+
 def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=None):
     """Extended dialog with per-type elevation inputs."""
     dialog = QDialog(self)
@@ -28854,7 +28985,7 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
 
     # Per-type elevation fields
     init_top = float(getattr(element, "top_elevation", 0.0) or 0.0) if element is not None else 0.0
-    init_bot = float(getattr(element, "bottom_elevation", 0.0) or 0.0) if element is not None else -500.0
+    init_bot = float(getattr(element, "bottom_elevation", 0.0) or 0.0) if element is not None else 0.0
     init_ceil = float(getattr(element, "top_elevation", 2400.0) or 2400.0) if element is not None else 2400.0
 
     edit_top_elev = QLineEdit("{:g}".format(init_top), dialog)
@@ -29242,6 +29373,115 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     layout.addRow(lbl_wall, _wall_panel)
     # ── END WALL FINISH PANEL ─────────────────────────────────────────────────
 
+    # ── CEILING FINISH PANEL (W7) ── shown only for ceiling_lgs ──────────────
+    _ceil_panel = QWidget(dialog)
+    _ceil_vbox = QVBoxLayout(_ceil_panel)
+    _ceil_vbox.setContentsMargins(0, 0, 0, 0)
+    _ceil_vbox.setSpacing(6)
+
+    # Preset dropdown
+    _ceil_preset_combo = QComboBox(_ceil_panel)
+    _ceil_preset_combo.addItem("--- カスタム / Tùy chỉnh ---", "")
+    for _cp in _NEVIS_CEILING_PRESETS:
+        _ceil_preset_combo.addItem(
+            "{} — {}".format(_cp["code"], _cp.get("desc", "")),
+            _cp["code"]
+        )
+    _ceil_preset_row = QHBoxLayout()
+    _ceil_preset_row.addWidget(QLabel("プリセット", _ceil_panel))
+    _ceil_preset_row.addWidget(_ceil_preset_combo, 1)
+    _ceil_vbox.addLayout(_ceil_preset_row)
+
+    # Board thickness + layers
+    init_ceil_bt = float(getattr(element, "ceiling_board_thickness", 9.0) or 9.0) if element is not None else 9.0
+    init_ceil_bl = int(getattr(element, "ceiling_board_layers", 1) or 1) if element is not None else 1
+    init_ceil_df = bool(getattr(element, "ceiling_double_frame", False)) if element is not None else False
+    init_ceil_surf = str(getattr(element, "ceiling_finish_surface", "AEP") or "AEP") if element is not None else "AEP"
+
+    _ceil_board_row = QHBoxLayout()
+    _ceil_board_row.setSpacing(6)
+    _ceil_bt_combo = QComboBox(_ceil_panel)
+    for _bt in [9.0, 12.0, 15.0]:
+        _ceil_bt_combo.addItem("PB t={}mm".format(int(_bt)), _bt)
+    _idx_bt = _ceil_bt_combo.findData(init_ceil_bt)
+    if _idx_bt >= 0:
+        _ceil_bt_combo.setCurrentIndex(_idx_bt)
+    _ceil_bl_combo = QComboBox(_ceil_panel)
+    _ceil_bl_combo.addItem("1層", 1)
+    _ceil_bl_combo.addItem("2層", 2)
+    _idx_bl = _ceil_bl_combo.findData(init_ceil_bl)
+    if _idx_bl >= 0:
+        _ceil_bl_combo.setCurrentIndex(_idx_bl)
+    _ceil_df_cb = QCheckBox("ダブルフレーム (野縁受38+野縁19)", _ceil_panel)
+    _ceil_df_cb.setChecked(init_ceil_df)
+    _ceil_board_row.addWidget(QLabel("ボード", _ceil_panel))
+    _ceil_board_row.addWidget(_ceil_bt_combo)
+    _ceil_board_row.addWidget(_ceil_bl_combo)
+    _ceil_vbox.addLayout(_ceil_board_row)
+    _ceil_vbox.addWidget(_ceil_df_cb)
+
+    # Surface finish
+    _ceil_surf_row = QHBoxLayout()
+    _ceil_surf_edit = QLineEdit(init_ceil_surf, _ceil_panel)
+    _ceil_surf_edit.setFixedWidth(80)
+    _ceil_surf_row.addWidget(QLabel("表面仕上げ", _ceil_panel))
+    _ceil_surf_row.addWidget(_ceil_surf_edit)
+    _ceil_surf_row.addStretch()
+    _ceil_vbox.addLayout(_ceil_surf_row)
+
+    # Total thickness info
+    _ceil_info_lbl = QLabel("", _ceil_panel)
+    _ceil_info_lbl.setStyleSheet("color:#226; font-size:10px;")
+    _ceil_vbox.addWidget(_ceil_info_lbl)
+
+    def _ceil_update_info():
+        bt = float(_ceil_bt_combo.currentData() or 9.0)
+        bl = int(_ceil_bl_combo.currentData() or 1)
+        df = _ceil_df_cb.isChecked()
+        frame = 57.0 if df else 19.0
+        total = bt * bl + frame
+        frame_desc = "野縁受38+野縁19" if df else "野縁19"
+        _ceil_info_lbl.setText("総厚: {:.0f} mm  ({} + PB {:.0f}×{}層)".format(total, frame_desc, bt, bl))
+
+    def _ceil_apply_preset(code):
+        p = _nevis_ceiling_preset_by_code(code)
+        if not p:
+            return
+        idx_bt = _ceil_bt_combo.findData(float(p.get("board_thickness", 9.0)))
+        if idx_bt >= 0:
+            _ceil_bt_combo.setCurrentIndex(idx_bt)
+        idx_bl = _ceil_bl_combo.findData(int(p.get("board_layers", 1)))
+        if idx_bl >= 0:
+            _ceil_bl_combo.setCurrentIndex(idx_bl)
+        _ceil_df_cb.setChecked(bool(p.get("double_frame", False)))
+        _ceil_surf_edit.setText(str(p.get("surface", "AEP")))
+        _ceil_update_info()
+
+    def _on_ceil_preset_changed(_idx):
+        code = _ceil_preset_combo.currentData()
+        if code:
+            _ceil_apply_preset(code)
+
+    _ceil_preset_combo.currentIndexChanged.connect(_on_ceil_preset_changed)
+    _ceil_bt_combo.currentIndexChanged.connect(lambda _: _ceil_update_info())
+    _ceil_bl_combo.currentIndexChanged.connect(lambda _: _ceil_update_info())
+    _ceil_df_cb.toggled.connect(lambda _: _ceil_update_info())
+
+    # Initialize from existing element
+    if element is not None:
+        _ec2 = str(getattr(element, "ceiling_finish_type_code", "") or "")
+        if _ec2:
+            _pidx2 = _ceil_preset_combo.findData(_ec2)
+            if _pidx2 >= 0:
+                _ceil_preset_combo.blockSignals(True)
+                _ceil_preset_combo.setCurrentIndex(_pidx2)
+                _ceil_preset_combo.blockSignals(False)
+    _ceil_update_info()
+
+    lbl_ceil_finish = QLabel("天井仕上げ", dialog)
+    layout.addRow(lbl_ceil_finish, _ceil_panel)
+    # ── END CEILING FINISH PANEL ──────────────────────────────────────────────
+
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
@@ -29257,8 +29497,8 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     def _update_elevation_visibility():
         etype = type_combo.currentData()
         show_top = etype in ("slab",)
-        show_bot = etype in ("beam",)
-        show_ceil = etype in ("ceiling",)
+        show_bot = etype in ("beam", "column", "wall_lgs", "wall_rc")
+        show_ceil = etype in ("ceiling_lgs",)
         show_wall = etype in ("wall_rc", "wall_lgs", "column", "beam")
         lbl_top_elev.setVisible(show_top)
         edit_top_elev.setVisible(show_top)
@@ -29275,6 +29515,11 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         _wall_lgs_group.setVisible(show_wall and etype == "wall_lgs")
         if show_wall:
             _wall_update_info()
+        show_ceil_panel = etype == "ceiling_lgs"
+        lbl_ceil_finish.setVisible(show_ceil_panel)
+        _ceil_panel.setVisible(show_ceil_panel)
+        if show_ceil_panel:
+            _ceil_update_info()
         dialog.adjustSize()
 
     type_combo.currentIndexChanged.connect(_update_elevation_visibility)
@@ -29333,12 +29578,12 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         elif etype == "beam":
             bottom_elevation = bot_e
             top_elevation = bot_e + eh
-        elif etype == "ceiling":
+        elif etype == "ceiling_lgs":
             top_elevation = ceil_b
             bottom_elevation = ceil_b - eh
-        else:
-            top_elevation = top_e
-            bottom_elevation = top_e - eh
+        else:  # column, wall_lgs, wall_rc — stand upward from bottom face
+            bottom_elevation = bot_e
+            top_elevation = bot_e + eh
         # Collect finish: primary source = FL mm field; layers from detail table
         finish_layers = _get_current_layers()
         try:
@@ -29360,6 +29605,17 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
                 preview_item.scene().removeItem(preview_item)
             return (etype, ew, el, eh, er, top_elevation, bottom_elevation,
                     0.0, [], w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger)
+        # Collect ceiling data (for ceiling_lgs) — returns 17-tuple
+        if etype == "ceiling_lgs":
+            c_bt = float(_ceil_bt_combo.currentData() or 9.0)
+            c_bl = int(_ceil_bl_combo.currentData() or 1)
+            c_df = _ceil_df_cb.isChecked()
+            c_surf = _ceil_surf_edit.text().strip() or "AEP"
+            c_code = _ceil_preset_combo.currentData() or ""
+            if preview_item.scene() is not None:
+                preview_item.scene().removeItem(preview_item)
+            return (etype, ew, el, eh, er, top_elevation, bottom_elevation,
+                    0.0, [], "", [], [], 0.0, 65.0, False, c_bt, c_bl, c_df, c_surf, c_code)
         if preview_item.scene() is not None:
             preview_item.scene().removeItem(preview_item)
         return etype, ew, el, eh, er, top_elevation, bottom_elevation, finish_mm, finish_layers
@@ -29381,7 +29637,7 @@ def _nevis_t21_canvas_label(element, mainwin) -> str:
         return format_slab_label(top, h)
     elif etype == "beam":
         return format_beam_label(bot, w, h)
-    elif etype == "ceiling":
+    elif etype == "ceiling_lgs":
         return format_ceiling_ch(top, fl)
     return ""
 
@@ -29404,7 +29660,16 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
     w_rc_thick = 180.0
     w_stud = 65.0
     w_stagger = False
-    if len(result) == 15:
+    c_bt = 9.0
+    c_bl = 1
+    c_df = False
+    c_surf = "AEP"
+    c_code = ""
+    if len(result) == 20:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger,
+         c_bt, c_bl, c_df, c_surf, c_code) = result
+    elif len(result) == 15:
         (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
          finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
     elif len(result) == 9:
@@ -29437,6 +29702,11 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
         wall_rc_thickness=w_rc_thick,
         stud_width=w_stud,
         lgs_is_staggered=w_stagger,
+        ceiling_board_thickness=c_bt,
+        ceiling_board_layers=c_bl,
+        ceiling_double_frame=c_df,
+        ceiling_finish_surface=c_surf,
+        ceiling_finish_type_code=c_code,
     )
     self.save_undo_snapshot("create_structural_element")
     self.model.structural_elements.append(element)
@@ -29468,7 +29738,16 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
     w_rc_thick = float(getattr(element, "wall_rc_thickness", 180.0) or 180.0)
     w_stud = float(getattr(element, "stud_width", 65.0) or 65.0)
     w_stagger = bool(getattr(element, "lgs_is_staggered", False))
-    if len(result) == 15:
+    c_bt = float(getattr(element, "ceiling_board_thickness", 9.0) or 9.0)
+    c_bl = int(getattr(element, "ceiling_board_layers", 1) or 1)
+    c_df = bool(getattr(element, "ceiling_double_frame", False))
+    c_surf = str(getattr(element, "ceiling_finish_surface", "AEP") or "AEP")
+    c_code = str(getattr(element, "ceiling_finish_type_code", "") or "")
+    if len(result) == 20:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger,
+         c_bt, c_bl, c_df, c_surf, c_code) = result
+    elif len(result) == 15:
         (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
          finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
     elif len(result) == 9:
@@ -29499,6 +29778,11 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
     element.wall_rc_thickness = w_rc_thick
     element.stud_width = w_stud
     element.lgs_is_staggered = w_stagger
+    element.ceiling_board_thickness = c_bt
+    element.ceiling_board_layers = c_bl
+    element.ceiling_double_frame = c_df
+    element.ceiling_finish_surface = c_surf
+    element.ceiling_finish_type_code = c_code
     self.preview.draw_model()
     self.lbl_status.setText(self.tr("structural_updated").format(
         label=element.label, width=width, length=length, height=height))
@@ -29564,7 +29848,7 @@ _T23A_DEFAULT_DIM = {
     "column":   (500.0, 500.0),
     "wall_rc":  (200.0, 2800.0),
     "wall_lgs": (100.0, 2700.0),
-    "ceiling":  (3640.0, 30.0),
+    "ceiling_lgs":  (3640.0, 30.0),
 }
 
 
@@ -29626,7 +29910,16 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
     w_rc_thick = 180.0
     w_stud = 65.0
     w_stagger = False
-    if len(result) == 15:
+    c_bt = 9.0
+    c_bl = 1
+    c_df = False
+    c_surf = "AEP"
+    c_code = ""
+    if len(result) == 20:
+        (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
+         finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger,
+         c_bt, c_bl, c_df, c_surf, c_code) = result
+    elif len(result) == 15:
         (element_type, width, length, height, arc_radius, top_elevation, bottom_elevation,
          finish_mm, finish_layers, w_type_code, w_inner, w_outer, w_rc_thick, w_stud, w_stagger) = result
     elif len(result) == 9:
@@ -29659,6 +29952,11 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
         wall_rc_thickness=w_rc_thick,
         stud_width=w_stud,
         lgs_is_staggered=w_stagger,
+        ceiling_board_thickness=c_bt,
+        ceiling_board_layers=c_bl,
+        ceiling_double_frame=c_df,
+        ceiling_finish_surface=c_surf,
+        ceiling_finish_type_code=c_code,
     )
     self.save_undo_snapshot("create_structural_element")
     self.model.structural_elements.append(element)
@@ -29944,7 +30242,7 @@ _T24A_ELEV_FIELDS_BY_TYPE = {
     "column":   ("top",),
     "wall_rc":  ("top",),
     "wall_lgs": ("top",),
-    "ceiling":  ("ceil",),
+    "ceiling_lgs":  ("ceil",),
 }
 
 _T24A_PREV_BUILD_UI = MainWindow._build_ui
@@ -31114,20 +31412,29 @@ def _nevis_t28_draw_items(view) -> None:
     if not elements:
         return
 
+    # Walls/columns/beams → junction-merge renderer (seams disappear at intersections)
+    _WALL_TYPES = ("wall_lgs", "wall_rc", "column", "beam")
+    wall_elements = [e for e in elements if getattr(e, "element_type", "") in _WALL_TYPES]
+    slab_elements = [e for e in elements if getattr(e, "element_type", "") not in _WALL_TYPES]
+    try:
+        bounds = _nevis_w3_draw_walls(view, wall_elements, None)
+    except Exception as _e:
+        print(f"WARN _nevis_w3_draw_walls failed: {_e}", flush=True)
+        bounds = None
+
     # Build lookup: parent_id → list of stepped child polygons (canvas coords)
     stepped_children: dict = {}
-    for el in elements:
+    for el in slab_elements:
         if bool(getattr(el, "is_stepped", False)) and len(getattr(el, "points", [])) >= 3:
             pid = int(getattr(el, "parent_slab_id", -1))
             canvas_pts = [_nevis_real_to_canvas_point(view.mainwin, p) for p in el.points]
             poly = QPolygonF([QPointF(x, y) for x, y in canvas_pts])
             stepped_children.setdefault(pid, []).append(poly)
 
-    bounds = None
     sel_id = int(getattr(view.mainwin, "selected_structural_id", -1) or -1)
 
-    # --- Pass 1: parent slabs (non-stepped) with punch-out ---
-    for element in elements:
+    # --- Pass 1: parent slabs/ceilings (non-stepped) with punch-out ---
+    for element in slab_elements:
         pts = getattr(element, "points", [])
         if len(pts) < 3:
             continue
@@ -31178,7 +31485,7 @@ def _nevis_t28_draw_items(view) -> None:
             _nevis_structural_draw_handles(view, element)
 
     # --- Pass 2: stepped slab children (always on top) ---
-    for element in elements:
+    for element in slab_elements:
         pts = getattr(element, "points", [])
         if len(pts) < 3:
             continue
@@ -31310,6 +31617,8 @@ class _NevisSectionGraphicsView(QGraphicsView):
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+        self.mainwin = None
+        self._sec_info_lbl = None
 
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else (1.0 / 1.15)
@@ -31318,6 +31627,63 @@ class _NevisSectionGraphicsView(QGraphicsView):
         if 0.02 <= next_scale <= 50.0:
             self.scale(factor, factor)
         event.accept()
+
+    def mousePressEvent(self, event):
+        from PySide6.QtCore import Qt
+        if event.button() == Qt.LeftButton:
+            sp = self.mapToScene(event.pos())
+            item = self.scene().itemAt(sp, self.transform())
+            mw = self.mainwin
+            if item is not None and mw is not None:
+                try:
+                    d = item.data(0)
+                except Exception:
+                    d = None
+                if isinstance(d, tuple) and len(d) == 2 and d[0] == "se":
+                    eid = d[1]
+                    elem = next(
+                        (e for e in getattr(mw.model, "structural_elements", [])
+                         if int(getattr(e, "id", -1)) == eid),
+                        None,
+                    )
+                    if elem is not None:
+                        etype = getattr(elem, "element_type", "")
+                        top_e = float(getattr(elem, "top_elevation", 0.0) or 0.0)
+                        bot_e = float(getattr(elem, "bottom_elevation", 0.0) or 0.0)
+                        h = float(getattr(elem, "height", 0.0) or 0.0)
+                        w = float(getattr(elem, "width", 0.0) or 0.0)
+                        l = float(getattr(elem, "length", 0.0) or 0.0)
+                        msg = (
+                            f"[{etype}]  W={w:.0f}  L={l:.0f}  H={h:.0f} mm"
+                            f"  |  ▲{top_e:+.0f}  ▼{bot_e:+.0f}  — ダブルクリックで編集"
+                        )
+                        lbl = self._sec_info_lbl
+                        if lbl is not None:
+                            try:
+                                lbl.setText(msg)
+                            except RuntimeError:
+                                pass
+                        event.accept()
+                        return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        from PySide6.QtCore import Qt
+        if event.button() == Qt.LeftButton:
+            sp = self.mapToScene(event.pos())
+            item = self.scene().itemAt(sp, self.transform())
+            mw = self.mainwin
+            if item is not None and mw is not None:
+                try:
+                    d = item.data(0)
+                except Exception:
+                    d = None
+                if isinstance(d, tuple) and len(d) == 2 and d[0] == "se":
+                    eid = d[1]
+                    _nevis_t21_edit_existing(mw, eid)
+                    event.accept()
+                    return
+        super().mouseDoubleClickEvent(event)
 
 
 def _nevis_t29_section_clear_preview(view):
@@ -31373,7 +31739,17 @@ def _nevis_t29_show_split_view(mainwin, start, end, side):
     section_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     section_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     section_view.setObjectName("section_canvas")
+    section_view.mainwin = mainwin
     sec_layout.addWidget(section_view, 1)
+
+    # Info bar: shows element info on single-click
+    _sec_info_bar = QLabel("  クリックで要素を選択、ダブルクリックで編集")
+    _sec_info_bar.setFixedHeight(20)
+    _sec_info_bar.setStyleSheet(
+        "background:#E8EDF5; color:#333; font-size:10px; padding-left:6px;"
+    )
+    sec_layout.addWidget(_sec_info_bar)
+    section_view._sec_info_lbl = _sec_info_bar
 
     # Populate section scene
     _nevis_t29_render_section(mainwin, section_scene, start, end, side)
@@ -31443,7 +31819,17 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
     EL_SCALE = GEOMETRY_SCALE
     gl_y = 120.0         # GL at this scene Y; elements grow upward (smaller Y)
 
+    # Flip horizontal axis so the section matches the viewing direction:
+    #   axis=X, side=above (looking south): left=east → higher real coord on left
+    #   axis=Y, side=right (looking west):  left=south → higher real coord on left
+    _flip_horiz = (
+        (axis == "X" and side == "above")
+        or (axis == "Y" and side == "right")
+    )
+
     def _real_x_to_scene(rx):
+        if _flip_horiz:
+            return MARGIN_LEFT + (horiz_max_cut - rx) * GEOMETRY_SCALE
         return MARGIN_LEFT + (rx - horiz_min_cut) * GEOMETRY_SCALE
 
     # Title
@@ -31520,9 +31906,9 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
     # Render every parent slab and its stepped regions as one material body.
     slab_assemblies = build_unified_slab_sections(elements, axis, sy if axis == "X" else sx)
     handled_slab_ids = set()
-    slab_pen = QPen(QColor(70, 80, 90), 2.0, Qt.SolidLine)
-    slab_brush = QBrush(QColor(175, 195, 212, 175))
-    overlap_pen = QPen(QColor(85, 105, 120), 1.0, Qt.DashLine)
+    slab_pen = QPen(QColor(70, 80, 90), 1.0, Qt.SolidLine)
+    slab_brush = QBrush(QColor(185, 195, 210, 170), Qt.FDiagPattern)
+    overlap_pen = QPen(QColor(85, 105, 120), 0.8, Qt.DashLine)
 
     for assembly in slab_assemblies:
         unified_path = QPainterPath()
@@ -31547,7 +31933,7 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
             continue
         slab_item = scene.addPath(unified_path, slab_pen, slab_brush)
         slab_item.setZValue(5)
-        slab_item.setData(0, ("structural_element", assembly.parent_id))
+        slab_item.setData(0, ("se", assembly.parent_id))
 
         # One material label for the complete slab assembly.
         slab_label = _nevis_structural_type_labels(mainwin).get("slab", "Sàn")
@@ -31576,7 +31962,20 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
             elev_item.setAcceptedMouseButtons(Qt.NoButton)
             elev_item.setZValue(7)
 
-        # Overlap remains in the unified geometry but has no internal divider.
+        # Overlap bands: structural rebar lap-splice zones (orange diagonal hatch)
+        for band in assembly.overlap_bands:
+            bx0 = _real_x_to_scene(band.start_mm)
+            bx1 = _real_x_to_scene(band.end_mm)
+            byt = gl_y - band.top_elevation * EL_SCALE
+            byb = gl_y - band.bottom_elevation * EL_SCALE
+            band_rect = QRectF(QPointF(bx0, byt), QPointF(bx1, byb)).normalized()
+            if band_rect.width() < 0.5:
+                continue
+            band_pen = QPen(QColor(180, 80, 0), 0.8, Qt.SolidLine)
+            band_brush = QBrush(QColor(220, 120, 0, 100), Qt.BDiagPattern)
+            band_item = scene.addRect(band_rect, band_pen, band_brush)
+            band_item.setZValue(5.5)
+            band_item.setAcceptedMouseButtons(Qt.NoButton)
 
         # ── Finish layers (lớp hoàn thiện) above this slab assembly ──────────
         # Find the slab element for this assembly to get its finish_layers.
@@ -31598,6 +31997,13 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
                         return QColor(*rgba)
                 return QColor(*_NEVIS_FINISH_LAYER_DEFAULT_COLOR)
 
+            # FL surface is always flat at the HIGHEST piece top (parent slab level).
+            # For stepped slab: only RC steps down; raised-floor support legs compensate,
+            # so the finish surface stays flat across all pieces.
+            _fl_ref_elevation = max(p.top_elevation for p in assembly.pieces)
+            _finish_intervals = merge_section_intervals(
+                [(piece.start_mm, piece.end_mm) for piece in assembly.pieces]
+            )
             _layer_z_offset = 0.0
             for _lay in _f_layers:
                 _lay_thick = float(_lay.get("thickness", 0.0))
@@ -31606,21 +32012,22 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
                 _lay_color = _finish_layer_color(str(_lay.get("name", "")))
                 _lay_pen = QPen(QColor(80, 80, 80, 100), 0.5, Qt.SolidLine)
                 _lay_brush = QBrush(_lay_color)
-                for _piece in assembly.pieces:
-                    _px0 = _real_x_to_scene(_piece.start_mm)
-                    _px1 = _real_x_to_scene(_piece.end_mm)
-                    _lay_top_mm = _piece.top_elevation + _layer_z_offset + _lay_thick
-                    _lay_bot_mm = _piece.top_elevation + _layer_z_offset
-                    _lay_yt = gl_y - _lay_top_mm * EL_SCALE
-                    _lay_yb = gl_y - _lay_bot_mm * EL_SCALE
+                # Draw this finish layer as one continuous band across all pieces
+                # (same top elevation for every piece — FL does NOT follow the step)
+                _lay_top_mm = _fl_ref_elevation + _layer_z_offset + _lay_thick
+                _lay_bot_mm = _fl_ref_elevation + _layer_z_offset
+                _lay_yt = gl_y - _lay_top_mm * EL_SCALE
+                _lay_yb = gl_y - _lay_bot_mm * EL_SCALE
+                for _finish_start, _finish_end in _finish_intervals:
+                    _px0 = _real_x_to_scene(_finish_start)
+                    _px1 = _real_x_to_scene(_finish_end)
                     _lay_rect = QRectF(QPointF(_px0, _lay_yt), QPointF(_px1, _lay_yb)).normalized()
                     _lay_item = scene.addRect(_lay_rect, _lay_pen, _lay_brush)
                     _lay_item.setZValue(5)
-                # Layer thickness label (right edge of first piece)
-                if assembly.pieces:
-                    _lp = assembly.pieces[0]
-                    _lx = _real_x_to_scene(_lp.end_mm)
-                    _ly_mid = gl_y - (_lp.top_elevation + _layer_z_offset + _lay_thick / 2.0) * EL_SCALE
+                # Layer thickness label (right edge of first continuous band)
+                if _finish_intervals:
+                    _lx = _real_x_to_scene(_finish_intervals[0][1])
+                    _ly_mid = (_lay_yt + _lay_yb) / 2.0
                     _lay_name = str(_lay.get("name", ""))
                     _lay_label_text = f"{_lay_name} {_lay_thick:.0f}"
                     _lay_lbl = scene.addText(_lay_label_text, QFont("Segoe UI", 6))
@@ -31629,6 +32036,35 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
                     _lay_lbl.setZValue(6)
                 _layer_z_offset += _lay_thick
         # ── End finish layers ────────────────────────────────────────────────
+
+    # Build slab floor map: list of (start_mm, end_mm, top_elevation) from slab assemblies.
+    # Used to make wall/column bottoms follow the slab surface (stepped or flat).
+    _slab_floor_map = []
+    for _asm in slab_assemblies:
+        for _pc in _asm.pieces:
+            _slab_floor_map.append((_pc.start_mm, _pc.end_mm, float(_pc.top_elevation)))
+
+    def _wall_bottom_segments(h_start, h_end, stored_bot):
+        """Split [h_start, h_end] at slab-piece boundaries and return
+        list of (seg_start, seg_end, effective_bottom_elevation).
+        The effective bottom follows the slab surface: it drops down into
+        recessed (stepped) slab areas and stays at stored_bot elsewhere."""
+        bpts = sorted({h_start, h_end} |
+                      {s for s, e, _ in _slab_floor_map if h_start < s < h_end} |
+                      {e for s, e, _ in _slab_floor_map if h_start < e < h_end})
+        segs = []
+        for i in range(len(bpts) - 1):
+            seg_s, seg_e = bpts[i], bpts[i + 1]
+            mid = (seg_s + seg_e) / 2.0
+            # Find the lowest slab top at this mid-point (stepped slabs are negative)
+            slab_top = 0.0  # SL±0 if no slab below
+            for (s, e, top) in _slab_floor_map:
+                if s <= mid <= e:
+                    slab_top = min(slab_top, top)
+            # Effective bottom: follow slab surface down (min = most negative)
+            eff_bot = min(stored_bot, slab_top)
+            segs.append((seg_s, seg_e, eff_bot))
+        return segs if segs else [(h_start, h_end, stored_bot)]
 
     for element in elements:
         if (getattr(element, "element_type", None) == "slab"
@@ -31643,7 +32079,9 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
         y0, y1 = min(ys), max(ys)
         h = float(getattr(element, "height", 150) or 150)
         top_e = float(getattr(element, "top_elevation", 0) or 0)
-        bot_e = top_e - h
+        # Use stored bottom_elevation; fall back to top - height for legacy elements
+        _stored_bot = getattr(element, "bottom_elevation", None)
+        bot_e = float(_stored_bot) if _stored_bot is not None else (top_e - h)
 
         # Check if element is intersected by cut line
         if axis == "X":
@@ -31671,45 +32109,131 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
             horiz_end   = y1
             in_view = True
 
-        # Draw element in section: X = normalized horiz span, Y = elevation
-        scene_x0 = _real_x_to_scene(horiz_start)
-        scene_x1 = _real_x_to_scene(horiz_end)
-        # Elevation: upward = smaller scene Y; at GL=0 → scene_y = gl_y
+        # Draw element in section: X = normalized horiz span, Y = elevation.
+        # Split into segments so the bottom follows the slab surface (stepped slab aware).
         scene_yt = gl_y - top_e * EL_SCALE
-        scene_yb = gl_y - bot_e * EL_SCALE  # bot_e < top_e so scene_yb > scene_yt
 
+        eid = int(getattr(element, "id", -1))
+        _etype = getattr(element, "element_type", "")
+
+        _SECT_STYLE = {
+            "slab":       (QColor(70, 80, 95),    QBrush(QColor(185, 195, 210, 170), Qt.FDiagPattern)),
+            "wall_rc":    (QColor(55, 55, 60),    QBrush(QColor(160, 160, 165, 180), Qt.FDiagPattern)),
+            "column":     (QColor(50, 50, 55),    QBrush(QColor(130, 132, 138, 210))),
+            "beam":       (QColor(90, 55, 30),    QBrush(QColor(195, 160, 110, 170))),
+            "wall_lgs":   (QColor(50, 90, 150),   QBrush(QColor(200, 220, 245, 140))),
+            "ceiling_lgs":(QColor(40, 140, 80),   QBrush(QColor(180, 230, 200, 120))),
+        }
         if bool(getattr(element, "is_stepped", False)):
-            pen   = QPen(QColor(55, 95, 145), 2.0, Qt.SolidLine)
+            pen   = QPen(QColor(55, 95, 145), 1.0, Qt.SolidLine)
             brush = QBrush(QColor(75, 125, 180, 100), Qt.BDiagPattern)
         else:
-            pen   = QPen(QColor(80, 80, 80), 2.0, Qt.SolidLine)
-            brush = QBrush(QColor(200, 210, 220, 160))
+            _s_col, _s_brush = _SECT_STYLE.get(_etype, (QColor(75, 80, 90), QBrush(QColor(195, 200, 210, 155))))
+            pen   = QPen(_s_col, 1.0, Qt.SolidLine)
+            brush = _s_brush
+        # Only wall/column/beam follow slab; slabs and ceilings use stored bot directly
+        _do_slab_follow = _etype in ("wall_rc", "wall_lgs", "column", "beam")
+        bottom_segs = (_wall_bottom_segments(horiz_start, horiz_end, bot_e)
+                       if _do_slab_follow else [(horiz_start, horiz_end, bot_e)])
 
-        rect_item = scene.addRect(
-            QRectF(QPointF(scene_x0, scene_yt), QPointF(scene_x1, scene_yb)),
-            pen, brush
-        )
-        rect_item.setZValue(5)
+        rect_item = None
+        for seg_s, seg_e, seg_bot in bottom_segs:
+            sx0 = _real_x_to_scene(seg_s)
+            sx1 = _real_x_to_scene(seg_e)
+            syb = gl_y - seg_bot * EL_SCALE
+            ri = scene.addRect(
+                QRectF(QPointF(sx0, scene_yt), QPointF(sx1, syb)).normalized(),
+                pen, brush,
+            )
+            ri.setZValue(5)
+            ri.setData(0, ("se", eid))
+            if rect_item is None:
+                rect_item = ri  # first segment used for label positioning
 
-        # Label
-        lbl = _nevis_structural_type_labels(mainwin).get(
-            element.element_type, str(getattr(element, "label", "") or ""))
-        if bool(getattr(element, "is_stepped", False)):
-            lbl = mainwin.tr("stepped_slab_label")
-        t = scene.addText(lbl, QFont("Segoe UI", 7))
-        t.setDefaultTextColor(QColor(40, 40, 40))
-        t.setPos(scene_x0 + 2, scene_yt + 2)
-        t.setZValue(6)
+        if rect_item is None:
+            continue
 
-        # Elevation label on right
+        scene_x0 = _real_x_to_scene(horiz_start)
+        scene_x1 = _real_x_to_scene(horiz_end)
+
+        # Elevation label on right (type label removed to reduce clutter)
         elev_txt = f"▲{top_e:+.0f}"
         et = scene.addText(elev_txt, QFont("Segoe UI", 7))
         et.setDefaultTextColor(QColor(180, 80, 0))
         et.setPos(scene_x1 + 4, scene_yt)
         et.setZValue(6)
 
+    # ── Pipe section view: circles where pipes cross the cut line ──────────────
+    _pipe_sys_colors = {
+        "VP": QColor(30, 80, 200, 200),
+        "DV": QColor(130, 80, 20, 200),
+        "VU": QColor(60, 160, 60, 200),
+        "TMP": QColor(200, 80, 30, 200),
+    }
+    _p_model = mainwin.model
+    _p_scale = float(getattr(_p_model, "drawing_scale", 1.0) or 1.0)
+    _p_origin = getattr(_p_model, "scale_origin", (0.0, 0.0)) or (0.0, 0.0)
+
+    def _c2r(cx, cy):
+        return ((cx - _p_origin[0]) * _p_scale, (cy - _p_origin[1]) * _p_scale)
+
+    _cut_fixed = sy if axis == "X" else sx
+    for _edge in getattr(_p_model, "edges", []):
+        _na = _p_model.nodes.get(_edge.a)
+        _nb = _p_model.nodes.get(_edge.b)
+        if _na is None or _nb is None:
+            continue
+        _rax, _ray = _c2r(_na.x, _na.y)
+        _rbx, _rby = _c2r(_nb.x, _nb.y)
+        _fa, _aa = (_ray, _rax) if axis == "X" else (_rax, _ray)
+        _fb, _ab = (_rby, _rbx) if axis == "X" else (_rbx, _rby)
+        if abs(_fb - _fa) < 1e-6:
+            continue
+        _lo, _hi = min(_fa, _fb), max(_fa, _fb)
+        if not (_lo <= _cut_fixed <= _hi):
+            continue
+        _t = (_cut_fixed - _fa) / (_fb - _fa)
+        _cross_along = _aa + _t * (_ab - _aa)
+        if not (horiz_min_cut <= _cross_along <= horiz_max_cut):
+            continue
+        _za = _edge.start_z if _edge.start_z is not None else _na.z
+        _zb = _edge.end_z if _edge.end_z is not None else _nb.z
+        if _za is None:
+            _lda = _p_model.level_datums.get(_na.level_id)
+            _za = float(getattr(_lda, "elevation_mm", 0.0)) if _lda else 0.0
+        if _zb is None:
+            _ldb = _p_model.level_datums.get(_nb.level_id)
+            _zb = float(getattr(_ldb, "elevation_mm", 0.0)) if _ldb else 0.0
+        _z_cross = float(_za) + _t * (float(_zb) - float(_za))
+        _size_str = str(_edge.size or "65")
+        try:
+            _dn = float(_size_str.split("x")[0])
+        except (ValueError, IndexError):
+            _dn = 65.0
+        _r = max(1.5, (_dn / 2.0) * EL_SCALE)
+        _pcx = _real_x_to_scene(_cross_along)
+        _pcy = gl_y - _z_cross * EL_SCALE
+        _sys = str(getattr(_edge, "system_type", "") or "").upper()
+        _pcol = _pipe_sys_colors.get(_sys, QColor(120, 120, 120, 200))
+        _pe_pen = QPen(_pcol, 1.0, Qt.SolidLine)
+        _pe_brush = QBrush(QColor(_pcol.red(), _pcol.green(), _pcol.blue(), 50))
+        _circ = scene.addEllipse(_pcx - _r, _pcy - _r, _r * 2, _r * 2, _pe_pen, _pe_brush)
+        _circ.setZValue(7)
+        _szt = scene.addText(_size_str, QFont("Segoe UI", 5))
+        _szt.setDefaultTextColor(_pcol.darker(130))
+        _szt.setPos(_pcx + _r + 1, _pcy - 6)
+        _szt.setZValue(8)
+    # ── End pipe section ──────────────────────────────────────────────────────
+
     for item in scene.items():
         try:
+            d = None
+            try:
+                d = item.data(0)
+            except Exception:
+                pass
+            if isinstance(d, tuple) and d[0] == "se":
+                continue  # structural elements keep mouse events for click-to-edit
             item.setAcceptedMouseButtons(Qt.NoButton)
         except AttributeError:
             pass
@@ -32547,6 +33071,109 @@ _nevis_section_debug(
 # =============================================================================
 # SHARED MODEL REFRESH — section view auto-updates when plan model changes
 # =============================================================================
+
+# Runtime library cache: resolve once with the proven resolver, never scan during draw.
+_NEVIS_FAST_PREV_MATCH = MainWindow.matching_library_path
+_NEVIS_FAST_PREV_RESOLVE = MainWindow.resolve_fitting_library_path_for_jww
+_NEVIS_FAST_PREV_SIZING = MainWindow.apply_branch_sizing
+_NEVIS_FAST_PREV_TRIM = MainWindow.ruby_trim_for_fitting_side
+_NEVIS_FAST_PREV_CONNECTORS = _json_connector_objects
+_NEVIS_FAST_PREV_APPLY = MainWindow.apply_common
+_NEVIS_FAST_CONNECTOR_CACHE = {}
+
+
+def _nevis_fast_matching_path(self, nid, ftype, size):
+    if getattr(self, "_nevis_drawing_model", False) and nid in self.model.fittings:
+        fit = self.model.fittings[nid]
+        path = str(getattr(fit, "library_path", "") or "")
+        if path:
+            return path
+    return _NEVIS_FAST_PREV_MATCH(self, nid, ftype, size)
+
+
+def _nevis_fast_resolve_path(self, nid, fit):
+    for attr in ("quick_library_path", "library_path", "selected_library_path", "exact_library_path"):
+        path = str(getattr(fit, attr, "") or "")
+        if path:
+            return path
+    if getattr(self, "_nevis_drawing_model", False):
+        return ""
+    path = str(_NEVIS_FAST_PREV_RESOLVE(self, nid, fit) or "")
+    if path:
+        fit.library_path = path
+    return path
+
+
+def _nevis_fast_json_connectors(path):
+    key = str(path or "")
+    if key not in _NEVIS_FAST_CONNECTOR_CACHE:
+        _NEVIS_FAST_CONNECTOR_CACHE[key] = _NEVIS_FAST_PREV_CONNECTORS(path)
+    return _NEVIS_FAST_CONNECTOR_CACHE[key]
+
+
+def _nevis_fast_trim(self, nid, other, size, mat):
+    cache = getattr(self, "_nevis_fast_trim_cache", None)
+    if not isinstance(cache, dict):
+        cache = self._nevis_fast_trim_cache = {}
+    fit = self.model.fittings.get(int(nid))
+    node = self.model.nodes.get(int(nid))
+    neighbors = tuple(
+        (nb, round(self.model.nodes[nb].x, 4), round(self.model.nodes[nb].y, 4))
+        for nb in self.model.neighbors(int(nid)) if nb in self.model.nodes
+    )
+    key = (int(nid), int(other), str(size), str(mat), str(getattr(fit, "ftype", "")),
+           str(getattr(fit, "size", "")), str(getattr(fit, "library_path", "")),
+           round(getattr(node, "x", 0.0), 4), round(getattr(node, "y", 0.0), 4), neighbors)
+    if key not in cache:
+        cache[key] = _NEVIS_FAST_PREV_TRIM(self, nid, other, size, mat)
+    return cache[key]
+
+
+def _nevis_fast_apply_sizing(self, main_size, terminal_type):
+    result = _NEVIS_FAST_PREV_SIZING(self, main_size, terminal_type)
+    self._nevis_fast_trim_cache = {}
+    for nid, fit in getattr(self.model, "fittings", {}).items():
+        if getattr(fit, "manual", False) and getattr(fit, "quick_library_path", ""):
+            continue
+        # Automatic fitting type/size is now final. Clear stale paths, then let
+        # the proven legacy resolver choose the exact material/folder variant
+        # once. draw_model only consumes this bound path and never searches.
+        for attr in ("quick_library_path", "library_path", "selected_library_path", "exact_library_path"):
+            setattr(fit, attr, "")
+        path = str(_NEVIS_FAST_PREV_RESOLVE(self, nid, fit) or "")
+        for attr in ("library_path", "selected_library_path", "exact_library_path"):
+            setattr(fit, attr, path)
+    return result
+
+
+def _nevis_fast_apply_common(self, *args, **kwargs):
+    result = _NEVIS_FAST_PREV_APPLY(self, *args, **kwargs)
+    try:
+        self._refresh_timer.stop()
+    except Exception:
+        pass
+    return result
+
+
+MainWindow.matching_library_path = _nevis_fast_matching_path
+MainWindow.resolve_fitting_library_path_for_jww = _nevis_fast_resolve_path
+MainWindow.apply_branch_sizing = _nevis_fast_apply_sizing
+MainWindow.ruby_trim_for_fitting_side = _nevis_fast_trim
+MainWindow.apply_common = _nevis_fast_apply_common
+_json_connector_objects = _nevis_fast_json_connectors
+
+_NEVIS_FAST_PREV_DRAW = PreviewView.draw_model
+
+
+def _nevis_fast_draw_model(self, *args, **kwargs):
+    self.mainwin._nevis_drawing_model = True
+    try:
+        return _NEVIS_FAST_PREV_DRAW(self, *args, **kwargs)
+    finally:
+        self.mainwin._nevis_drawing_model = False
+
+
+PreviewView.draw_model = _nevis_fast_draw_model
 
 _NEVIS_PREV_DRAW_MODEL = PreviewView.draw_model
 

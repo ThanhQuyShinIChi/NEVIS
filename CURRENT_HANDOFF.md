@@ -1,109 +1,137 @@
 # NEVIS Current Handoff
 
-Cap nhat: 2026-06-20 (Asia/Bangkok) — sau phien Z-order + edge snap + FL datum + finish_thickness
+Cap nhat: 2026-06-20 (session 7) - Visual polish, right-click picker, section overlap bands
 
-## Doc truoc khi lam
+## Bat buoc doc truoc khi lam
 
-1. Doc file nay.
-2. Doc `SECTION_TEST_LOG.md` neu can lich su chi tiet va so lieu tung lan GUI test.
-3. Chay `git status --short --branch` va `git log -10 --oneline`.
-4. Khong ghi de thay doi dang co trong `CODEX_TASKS.md`.
-5. Hoi nguoi dung truoc moi dot sua/commit/push.
+1. Doc toan bo file nay.
+2. Chay `git status --short --branch` va `git log -10 --oneline`.
+3. Bao toan tat ca thay doi chua commit.
+4. Khong commit/push neu user chua yeu cau ro rang.
+5. Doc `PIPE_CODE_LOCKED.md` truoc khi cham vao pipe rendering.
+6. Doc `CODEX_TASKS.md` truoc khi cap nhat file do.
 
 ## Repo va Git
 
-- Repo dang lam: `D:\nevis2.03`.
-- Branch: `feature/building-space-model`.
-- Commit moi nhat: `c252046` (Task 22c + GL datum + Section refresh).
-- Remote: `https://github.com/ThanhQuyShinIChi/NEVIS.git`.
-- Thay doi da commit phien nay: xem commit moi nhat.
+- Repo: `D:\Nevis2.03`
+- Branch: `feature/building-space-model`
+- Tat ca thay doi session nay da COMMIT vao 1 commit moi (xem git log).
+- Khong push neu user chua yeu cau.
 
-## Muc tieu san pham da thong nhat
+---
 
-- Mat bang va mat cat cung ton tai, dung chung model va sau nay cap nhat hai chieu.
-- Mat cat phai dung kich thuoc/ty le that, phuc vu clash detection va xuat JWW.
-- San cha va san giat cap la mot cau kien lien tuc, khong phai hai khoi mau khac nhau.
-- Man hinh lam viec uu tien hinh hoc/mau ro; hatch chi tiet de danh cho profile xuat JWW.
-- GL la datum bo sung cho tang 1, khong thay the SL.
-- FL la datum hoan thien tren slab (置き床 ~200mm, gach ~30mm, go truc tiep ~15mm).
-- Clash Detection: ong MEP xuyen ket cau hien do, phat hien tu dong khi bam nut.
+## Tong ket thay doi session 7
 
-## Da hoan thanh trong phien nay (DA COMMIT)
+### 1. Performance freeze (da xu ly session truoc, can user xac nhan GUI)
 
-### Z-order fix
-- Slabs: z=10, walls_lgs/ceiling: z=11, beams/columns/walls_rc: z=12.
-- Ket qua: dam/cot/tuong luon ve len tren slab, khong bi an di.
+- `_ensure_library_index_current()` chay rglob trong daemon thread, throttle 120s.
+- Common apply debounce 180ms -> 350ms.
+- TEMP timing log `PERF apply_common` con trong code (~line 8671-8678) — XOA sau khi user xac nhan performance on.
 
-### Snap-to-slab-edge
-- Helper `_nevis_slab_edge_candidates(mainwin)`: thu thap goc slab va diem giua canh.
-- Trong `_nevis_structural_snap_scene_point`: kiem tra slab edge TRUOC (tolerance 20px), roi moi den grid snap.
-- Ket qua: khi keo dam/cot den gan canh slab, tu dong bat vao mep.
+### 2. Wall junction merge (hoan thanh)
 
-### FL datum trong mat cat
-- Trong `_nevis_t29_render_section`: kiem tra `level_datums["FL"]` hoac tu tinh tu `slab.finish_thickness_mm`.
-- Duong xanh da troi (`QColor(30, 100, 180)`), net dut, nhan "▽FL".
-- Neu finish_thickness_mm > 0: FL = top_elevation + finish_thickness_mm.
+- `_nevis_w3_draw_walls`: RC/column/beam hop nhat thanh 1 outline duy nhat, LGS merge cung preset.
+- `_nevis_t28_draw_items`: tuong/cot qua `_nevis_w3_draw_walls`, slab dung punch-out logic rieng.
+- `QPainterPath` import fix trong `_union_paths`.
 
-### finish_thickness_mm field
-- `modules/structural_element.py`: them `finish_thickness_mm: float = 0.0` vao `StructuralElement`.
-- Serialize/deserialize: cap nhat `structural_element_to_dict` va `structural_element_from_dict`.
-- Dialog: them field "Lop hoan thien (mm)" hien thi chi khi type = slab.
-- Tat ca 3 caller create/edit da cap nhat de truyen `finish_mm`.
+### 3. Default bottom elevation = SL±0 (hoan thanh)
 
-## Xac minh da chay
+- Dialog tao tuong/cot/vach: `init_bot` mac dinh `0.0` thay vi `-500.0`.
 
-- Full suite: `274 passed, 38 warnings` — khong co regression.
-- Lenh chay:
+### 4. Wall bottom follows stepped slab in section view (hoan thanh)
 
-```powershell
-$env:QT_QPA_PLATFORM='offscreen'
-$env:PYTHONIOENCODING='utf-8'
-python -m pytest tests/ -q --ignore=tests/test_elevation_preview_ui.py --ignore=tests/test_node_z_edge_slope.py
+- `_slab_floor_map`: list `(start_mm, end_mm, top_elevation)` tu `slab_assemblies`.
+- `_wall_bottom_segments(h_start, h_end, stored_bot)`: chia tuong thanh cac doan, moi doan co `eff_bot = min(stored_bot, slab_top_tai_vi_tri_do)`.
+- Chi ap dung cho `wall_rc`, `wall_lgs`, `column`, `beam` (khong ap dung slab/ceiling).
+
+### 5. Visual polish - mat bang (hoan thanh)
+
+**Net manh hon (1.0px thay vi 2.0px):**
+- RC group, LGS, slab, stepped, ceiling: tat ca pen 1.0px.
+
+**Mau rieng tung loai:**
+- RC/cot/dam: xam toi + FDiag hatch.
+- Vach LGS: xanh duong nhat, fill nhe.
+- San parent: xam nhe, net dut.
+- San giat cap (stepped child): **vang solid** (vung ha xuong nhin tu tren).
+- Vung chong lan (overlap zone): **cam hatch cheo** (gia co thep, nhin tu duoi); z=9 (duoi slab/vach).
+- Tran LGS: xanh la nhat, dash-dot.
+
+**Label chi hien khi selected:**
+- Mat bang: khong co chu tren phan tu, chi hien khi click chon (label mau xanh + 8 handle).
+
+### 6. Visual polish - mat cat (hoan thanh)
+
+**Net manh hon:**
+- `slab_pen`: 2.0px -> 1.0px.
+- Element pen: 2.0px -> 1.0px.
+
+**Mau rieng tung loai:**
+```python
+_SECT_STYLE = {
+    "slab":       xam xanh FDiag hatch
+    "wall_rc":    xam toi FDiag hatch
+    "column":     xam toi solid
+    "beam":       nau nhat solid
+    "wall_lgs":   xanh nhat solid
+    "ceiling_lgs":xanh la nhat solid
+}
 ```
 
-## Trang thai GUI
+**Overlap bands trong mat cat (NEW):**
+- `assembly.overlap_bands` gio duoc render: cam hatch cheo, z=5.5.
+- The hien vung neo gia co thep tai ranh gioi stepped slab.
 
-- Chua retest GUI cho cac tinh nang moi nhat:
-  - Z-order: dam/cot phai hien tren slab.
-  - Snap-to-slab-edge: keo dam den gan mep slab.
-  - FL datum: ve mat cat sau khi dat finish_thickness_mm > 0 cho slab.
-  - Clash detection overlay (Task 22c).
-  - GL datum trong mat cat.
+**Label element khong hien trong mat cat** (giam roi mat), chi con elevation text.
 
-## Wall System — Trang thai (2026-06-20)
+**Huong nhin dung:**
+- `_flip_horiz`: axis=X+side=above (nhin Nam) hoac axis=Y+side=right (nhin Tay) thi flip.
 
-| Phase | Noi dung | Trang thai |
-|-------|---------|------------|
-| W1 | Data Model + Presets (W-01~W-13) | XONG |
-| W2 | Dialog chinh tuong (preset, RC thick, LGS stud, stagger) | XONG |
-| W3a | Plan View LGS — junction auto-merge QPainterPath.united() | XONG |
-| W3b | Plan View RC — hatch fill (FDiagPattern) | XONG |
-| W4 | Section: FL finish bands tren slab + wall FL-cut annotation | XONG |
-| W5 | Section: Wall layer structure theo material_type voi mau rieng | XONG |
-| W6 | Dam/Cot finish (H-01, H-12) | CHO SPEC |
-| W7 | Tran thach cao LGS | CHO SPEC |
+### 7. Right-click object picker (hoan thanh)
 
-## Viec tiep theo
+- Click phai tren mat bang: hien list tat ca doi tuong tai vi tri do.
+  ```
+  1.  スラブ   5000×3000 mm
+  2.  軽量鉄骨壁   150×2500 mm
+  ─────────────────────
+  スナップ移動
+  ```
+- Chon ten -> select dung doi tuong do.
+- Handle hit van uu tien nhu cu.
 
-1. Nguoi dung test GUI: tao tuong LGS va RC, chon preset W-01/W-02/W-12, xem plan view va mat cat.
-2. Commit + push khi nguoi dung confirm OK.
-3. W6/W7: can nguoi dung cung cap chi tiet ban ve H-01, H-12, LGS tran.
-4. JWW export profile (hatch, layer, net in) — dai han.
-5. Kiem tra overlap display trong mat cat.
+### 8. Bug fixes
 
-## Lenh tiep tuc nhanh
+| Loi | Fix |
+|-----|-----|
+| `UnboundLocalError: _etype` trong section render | Move `_etype = getattr(...)` truoc `_SECT_STYLE` |
+| `UnboundLocalError: etype` trong elevation dialog | Thut vao dung trong `if kind == "element":` |
+| `TypeError: int(None)` trong `_nevis_structural_find_element` | Guard None truoc `int()` |
+| `RuntimeError: C++ object deleted` trong `_nevis_t15_remove_cut_marker` | `try/except RuntimeError` |
 
-```powershell
-cd D:\nevis2.03
-git status --short --branch
-git log -10 --oneline
-python -B Nevis_no_ui.py
-```
+---
 
-## Ghi chu quan trong
+## Viec can lam tiep
 
-- **PIPE CODE LOCKED:** Doc `PIPE_CODE_LOCKED.md` truoc khi cham vao pipe rendering, fitting lookup, hoac PIPE_COLORS. Cac section nay da chot 2026-06.
-- `section_debug.log`: Khi debug GUI, khong xoa file nay; dung session ID va timestamp de doi chieu.
-- GEOMETRY_SCALE = 0.1 (scene unit / mm) trong mat cat.
-- Monkey-patching pattern: NEVIS patch vao MainWindow va PreviewView o cuoi file.
-- 置き床 (oki-yuka): SL → +168mm chan do (支持脚) → +20mm ban (置床) → +12mm san go (フローリング) = FL tai SL+200mm.
+1. **Xac nhan GUI** sau khi chay `python D:\Nevis2.03\Nevis_no_ui.py`:
+   - Doi main size 50/65/75/100 kiem tra khong con freeze.
+   - Ve san + san giat cap -> mat bang: vang = vung ha, cam hatch = overlap.
+   - Chon duong cat -> mat cat: co cam hatch overlap bands tai ranh gioi stepped.
+   - Click phai nhieu phan tu chong nhau -> hien list chon.
+   - Hieu chinh: mat cat flip dung theo huong nhin (click tren / duoi duong cat).
+
+2. **Xoa TEMP timing log** `PERF apply_common` (~line 8671-8678) sau khi xac nhan performance on.
+
+3. **Bug: stepped slab bien mat sau khi sua parent** — chua reproduce, can project + cac buoc cu the.
+
+4. Commit/push khi user yeu cau.
+
+---
+
+## Quy tac bao ve
+
+- Khong sua locked pipe line standard, z-order, cosmetic pen hoac fitting rendering neu chua doc `PIPE_CODE_LOCKED.md`.
+- Khong thay resolver proven bang heuristic/index scoring khong co test thu vien day du.
+- Khong de filesystem `rglob()` chay trong `draw_model()`.
+- Khong xoa `section_debug.log` khi debug GUI.
+- Khong revert thay doi chua commit cua session truoc.
+- Khong commit/push ma khong hoi user.

@@ -5,7 +5,7 @@ from modules.section_view import (
     ElevationMarker, compute_fl, compute_ch,
     format_elevation_label, build_standard_markers,
     section_marker_to_dict, section_marker_from_dict,
-    build_unified_slab_sections, polygon_cut_intervals,
+    build_unified_slab_sections, merge_section_intervals, polygon_cut_intervals,
 )
 
 
@@ -144,6 +144,21 @@ def test_unified_section_extends_child_by_overlap_width():
     assert [(b.start_mm, b.end_mm) for b in assembly.overlap_bands] == [
         (240.0, 300.0), (700.0, 760.0),
     ]
+
+
+def test_finish_union_removes_parent_child_overlap():
+    parent = _slab(1, [(0, 0), (1000, 0), (1000, 500), (0, 500)], 0, -200)
+    child = _slab(
+        2, [(300, 100), (700, 100), (700, 400), (300, 400)],
+        -75, -275, stepped=True, parent_id=1, overlap=60,
+    )
+    assembly = build_unified_slab_sections([parent, child], "X", 250)[0]
+
+    finish_intervals = merge_section_intervals(
+        [(piece.start_mm, piece.end_mm) for piece in assembly.pieces]
+    )
+
+    assert finish_intervals == [(0.0, 1000.0)]
 
 
 def test_unified_section_matches_logged_vertical_cut_geometry():

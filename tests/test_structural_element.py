@@ -57,10 +57,19 @@ def test_roundtrip_wall_lgs():
     assert r.board_layers == 2
 
 def test_roundtrip_ceiling():
-    e = StructuralElement(id=6, element_type="ceiling", top_elevation=-2400.0)
+    # Old files used "ceiling"; deserializer remaps to "ceiling_lgs"
+    e = StructuralElement(id=6, element_type="ceiling_lgs", top_elevation=-2400.0)
     r = _roundtrip(e)
-    assert r.element_type == "ceiling"
+    assert r.element_type == "ceiling_lgs"
     assert r.top_elevation == -2400.0
+
+
+def test_ceiling_backward_compat():
+    """Old "ceiling" type should deserialize to "ceiling_lgs"."""
+    from modules.structural_element import structural_element_from_dict
+    d = {"id": 99, "element_type": "ceiling", "top_elevation": -2400.0}
+    r = structural_element_from_dict(d)
+    assert r.element_type == "ceiling_lgs"
 
 def test_roundtrip_with_arc():
     e = StructuralElement(id=7, element_type="slab", arc_radius=1500.0)
@@ -126,4 +135,4 @@ def test_empty_dict_no_crash():
 def test_valid_types_contains_all():
     assert "slab" in VALID_TYPES
     assert "wall_lgs" in VALID_TYPES
-    assert "ceiling" in VALID_TYPES
+    assert "ceiling_lgs" in VALID_TYPES

@@ -176,6 +176,26 @@ def _subtract_intervals(base: tuple, cuts: list) -> list:
     return [(start, end) for start, end in remaining if end - start > 1e-6]
 
 
+def merge_section_intervals(intervals: list, tolerance: float = 1e-6) -> list:
+    """Return the union of overlapping/touching section intervals.
+
+    Structural slab pieces intentionally overlap at stepped connections. Floor
+    finishes do not: they form one continuous surface over that structure.
+    """
+    normalized = sorted(
+        (min(float(start), float(end)), max(float(start), float(end)))
+        for start, end in intervals
+        if abs(float(end) - float(start)) > tolerance
+    )
+    merged = []
+    for start, end in normalized:
+        if not merged or start > merged[-1][1] + tolerance:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    return [(start, end) for start, end in merged]
+
+
 def build_unified_slab_sections(elements: list, axis: str,
                                 cut_coord: float) -> list:
     """Build unified parent/stepped-slab section assemblies.
