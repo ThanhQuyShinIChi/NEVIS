@@ -28295,16 +28295,53 @@ APP_TEXT.setdefault("vi", {}).update({
     "t21_top_elevation": "Mặt trên (SL±mm)",
     "t21_bottom_elevation": "Đáy (SL±mm)",
     "t21_ceiling_bottom": "Đáy trần (SL+mm)",
-    "t21_finish_thickness": "Lớp hoàn thiện (mm)",
+    "t21_finish_thickness": "Lớp hoàn thiện",
+    "t21_fl_layer_name": "Tên lớp",
+    "t21_fl_layer_thick": "Dày (mm)",
+    "t21_fl_add": "+ Thêm lớp",
+    "t21_fl_remove": "- Xóa",
+    "t21_fl_total": "Tổng:",
 })
 APP_TEXT.setdefault("jp", {}).update({
     "t21_top_elevation": "天端 (SL±mm)",
     "t21_bottom_elevation": "底面 (SL±mm)",
     "t21_ceiling_bottom": "天井底 (SL+mm)",
-    "t21_finish_thickness": "仕上げ厚 (mm)",
+    "t21_finish_thickness": "仕上げ層",
+    "t21_fl_layer_name": "層名",
+    "t21_fl_layer_thick": "厚さ (mm)",
+    "t21_fl_add": "+ 追加",
+    "t21_fl_remove": "- 削除",
+    "t21_fl_total": "合計:",
 })
 
 _NEVIS_T21_FINISH_THICKNESS = 40.0
+
+# Preset finish layer stacks
+_NEVIS_FINISH_PRESETS = [
+    ("置き床 (200mm)", [
+        {"name": "支持脚", "thickness": 168.0},
+        {"name": "置床パネル", "thickness": 20.0},
+        {"name": "フローリング", "thickness": 12.0},
+    ]),
+    ("Sàn gạch (30mm)", [
+        {"name": "Vữa lót", "thickness": 20.0},
+        {"name": "Gạch ceramic", "thickness": 10.0},
+    ]),
+    ("Sàn gỗ TT (15mm)", [
+        {"name": "Ván sàn gỗ", "thickness": 15.0},
+    ]),
+]
+
+# Layer rendering colors in section view (name keyword → QColor RGBA)
+_NEVIS_FINISH_LAYER_COLORS = [
+    (["支持脚", "chan do", "legs", "raised"],        (210, 210, 210, 130)),  # light gray = air/legs space
+    (["置床", "panel", "ban go", "panel"],           (190, 160, 110, 170)),  # light brown = panel
+    (["フローリング", "go", "wood", "van san"],      (215, 175, 115, 200)),  # warm wood
+    (["vua", "mortar", "vữa"],                       (160, 155, 145, 160)),  # gray = mortar
+    (["gach", "gạch", "tile", "ceramic"],            (200, 130, 90, 180)),   # terracotta = tile
+    (["concrete", "be tong", "bê tông"],             (175, 195, 212, 160)),  # same as slab = concrete
+]
+_NEVIS_FINISH_LAYER_DEFAULT_COLOR = (170, 210, 170, 150)  # green-tint default
 
 
 def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=None):
@@ -28348,10 +28385,100 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     lbl_bot_elev = QLabel(self.tr("t21_bottom_elevation"))
     lbl_ceil_bottom = QLabel(self.tr("t21_ceiling_bottom"))
 
-    # Floor finish thickness (visible only for slab)
-    init_finish = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0) if element is not None else 0.0
-    edit_finish = QLineEdit("{:g}".format(init_finish) if init_finish > 0 else "0", dialog)
+    # Floor finish layers panel (visible only for slab)
+    init_layers = list(getattr(element, "finish_layers", []) or []) if element is not None else []
     lbl_finish = QLabel(self.tr("t21_finish_thickness"))
+
+    _fl_panel = QWidget(dialog)
+    _fl_vbox = QVBoxLayout(_fl_panel)
+    _fl_vbox.setContentsMargins(0, 0, 0, 0)
+    _fl_vbox.setSpacing(3)
+
+    # Preset buttons row
+    _fl_preset_row = QHBoxLayout()
+    _fl_preset_row.setSpacing(4)
+    for _pname, _players in _NEVIS_FINISH_PRESETS:
+        _btn = QPushButton(_pname, _fl_panel)
+        _btn.setFixedHeight(22)
+        _btn.setStyleSheet("font-size:10px; padding:1px 4px;")
+        _fl_preset_row.addWidget(_btn)
+        def _make_preset_cb(layers):
+            def _cb():
+                _fl_table.setRowCount(0)
+                for lay in layers:
+                    row = _fl_table.rowCount()
+                    _fl_table.insertRow(row)
+                    _fl_table.setItem(row, 0, QTableWidgetItem(str(lay["name"])))
+                    _fl_table.setItem(row, 1, QTableWidgetItem("{:g}".format(lay["thickness"])))
+                _update_fl_total()
+            return _cb
+        _btn.clicked.connect(_make_preset_cb(_players))
+    _fl_vbox.addLayout(_fl_preset_row)
+
+    # Table: name | thickness
+    _fl_table = QTableWidget(_fl_panel)
+    _fl_table.setColumnCount(2)
+    _fl_table.setHorizontalHeaderLabels([self.tr("t21_fl_layer_name"), self.tr("t21_fl_layer_thick")])
+    _fl_table.horizontalHeader().setStretchLastSection(False)
+    _fl_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+    _fl_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+    _fl_table.setColumnWidth(1, 70)
+    _fl_table.verticalHeader().setDefaultSectionSize(22)
+    _fl_table.verticalHeader().setVisible(False)
+    _fl_table.setMinimumHeight(80)
+    _fl_table.setMaximumHeight(160)
+    # Pre-fill from element
+    for lay in init_layers:
+        row = _fl_table.rowCount()
+        _fl_table.insertRow(row)
+        _fl_table.setItem(row, 0, QTableWidgetItem(str(lay.get("name", ""))))
+        _fl_table.setItem(row, 1, QTableWidgetItem("{:g}".format(float(lay.get("thickness", 0.0)))))
+    _fl_vbox.addWidget(_fl_table)
+
+    # Add/Remove + total row
+    _fl_ctrl_row = QHBoxLayout()
+    _fl_ctrl_row.setSpacing(4)
+    _btn_add_layer = QPushButton(self.tr("t21_fl_add"), _fl_panel)
+    _btn_add_layer.setFixedHeight(22)
+    _btn_rem_layer = QPushButton(self.tr("t21_fl_remove"), _fl_panel)
+    _btn_rem_layer.setFixedHeight(22)
+    _lbl_total = QLabel("", _fl_panel)
+    _lbl_total.setStyleSheet("color:#225; font-size:10px;")
+    _fl_ctrl_row.addWidget(_btn_add_layer)
+    _fl_ctrl_row.addWidget(_btn_rem_layer)
+    _fl_ctrl_row.addStretch()
+    _fl_ctrl_row.addWidget(_lbl_total)
+    _fl_vbox.addLayout(_fl_ctrl_row)
+
+    def _update_fl_total():
+        total = 0.0
+        for r in range(_fl_table.rowCount()):
+            item = _fl_table.item(r, 1)
+            try:
+                total += float(item.text()) if item else 0.0
+            except (ValueError, TypeError):
+                pass
+        _lbl_total.setText("{} {:.0f} mm".format(self.tr("t21_fl_total"), total))
+
+    _fl_table.cellChanged.connect(lambda *_: _update_fl_total())
+
+    def _add_fl_layer():
+        row = _fl_table.rowCount()
+        _fl_table.insertRow(row)
+        _fl_table.setItem(row, 0, QTableWidgetItem(""))
+        _fl_table.setItem(row, 1, QTableWidgetItem("0"))
+        _fl_table.editItem(_fl_table.item(row, 0))
+        _update_fl_total()
+
+    def _rem_fl_layer():
+        row = _fl_table.currentRow()
+        if row >= 0:
+            _fl_table.removeRow(row)
+        _update_fl_total()
+
+    _btn_add_layer.clicked.connect(_add_fl_layer)
+    _btn_rem_layer.clicked.connect(_rem_fl_layer)
+    _update_fl_total()
 
     layout.addRow(self.tr("structural_type_label"), type_combo)
     layout.addRow("{} (mm)".format(self.tr("structural_width")), width_edit)
@@ -28362,7 +28489,7 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
     layout.addRow(lbl_top_elev, edit_top_elev)
     layout.addRow(lbl_bot_elev, edit_bot_elev)
     layout.addRow(lbl_ceil_bottom, edit_ceil_bottom)
-    layout.addRow(lbl_finish, edit_finish)
+    layout.addRow(lbl_finish, _fl_panel)
 
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
     buttons.accepted.connect(dialog.accept)
@@ -28388,7 +28515,7 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         lbl_ceil_bottom.setVisible(show_ceil)
         edit_ceil_bottom.setVisible(show_ceil)
         lbl_finish.setVisible(show_top)
-        edit_finish.setVisible(show_top)
+        _fl_panel.setVisible(show_top)
         dialog.adjustSize()
 
     type_combo.currentIndexChanged.connect(_update_elevation_visibility)
@@ -28453,13 +28580,22 @@ def _nevis_t21_edit_dialog(self, width: float, length: float, center, element=No
         else:
             top_elevation = top_e
             bottom_elevation = top_e - eh
-        try:
-            finish_mm = max(0.0, float(edit_finish.text().strip()))
-        except (ValueError, TypeError):
-            finish_mm = 0.0
+        # Collect finish layers from table
+        finish_layers = []
+        for _r in range(_fl_table.rowCount()):
+            _n_item = _fl_table.item(_r, 0)
+            _t_item = _fl_table.item(_r, 1)
+            _n = _n_item.text().strip() if _n_item else ""
+            try:
+                _t = max(0.0, float(_t_item.text())) if _t_item else 0.0
+            except (ValueError, TypeError):
+                _t = 0.0
+            if _n or _t > 0:
+                finish_layers.append({"name": _n, "thickness": _t})
+        finish_mm = sum(lay["thickness"] for lay in finish_layers)
         if preview_item.scene() is not None:
             preview_item.scene().removeItem(preview_item)
-        return etype, ew, el, eh, er, top_elevation, bottom_elevation, finish_mm
+        return etype, ew, el, eh, er, top_elevation, bottom_elevation, finish_mm, finish_layers
     if preview_item.scene() is not None:
         preview_item.scene().removeItem(preview_item)
     return None
@@ -28494,7 +28630,10 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
     if result is None:
         return False
     finish_mm = 0.0
-    if len(result) == 8:
+    finish_layers = []
+    if len(result) == 9:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
+    elif len(result) == 8:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
     elif len(result) == 7:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
@@ -28514,6 +28653,7 @@ def _nevis_t21_create_from_drag(self, start, end) -> bool:
         arc_radius=arc_radius,
         top_elevation=top_elevation,
         bottom_elevation=bottom_elevation,
+        finish_layers=finish_layers,
         finish_thickness_mm=finish_mm,
     )
     self.save_undo_snapshot("create_structural_element")
@@ -28539,7 +28679,10 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
         self.preview.draw_model()
         return False
     finish_mm = float(getattr(element, "finish_thickness_mm", 0.0) or 0.0)
-    if len(result) == 8:
+    finish_layers = list(getattr(element, "finish_layers", []) or [])
+    if len(result) == 9:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
+    elif len(result) == 8:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
     elif len(result) == 7:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
@@ -28557,6 +28700,7 @@ def _nevis_t21_edit_existing(self, element_id: int) -> bool:
     element.arc_radius = arc_radius
     element.top_elevation = top_elevation
     element.bottom_elevation = bottom_elevation
+    element.finish_layers = finish_layers
     element.finish_thickness_mm = finish_mm
     self.preview.draw_model()
     self.lbl_status.setText(self.tr("structural_updated").format(
@@ -28678,7 +28822,10 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
     if result is None:
         return False
     finish_mm = 0.0
-    if len(result) == 8:
+    finish_layers = []
+    if len(result) == 9:
+        element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm, finish_layers = result
+    elif len(result) == 8:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation, finish_mm = result
     elif len(result) == 7:
         element_type, width, length, height, arc_radius, top_elevation, bottom_elevation = result
@@ -28698,6 +28845,7 @@ def _nevis_t23a_create_from_drag(self, start, end) -> bool:
         arc_radius=arc_radius,
         top_elevation=top_elevation,
         bottom_elevation=bottom_elevation,
+        finish_layers=finish_layers,
         finish_thickness_mm=finish_mm,
     )
     self.save_undo_snapshot("create_structural_element")
@@ -30617,6 +30765,58 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
             elev_item.setZValue(7)
 
         # Overlap remains in the unified geometry but has no internal divider.
+
+        # ── Finish layers (lớp hoàn thiện) above this slab assembly ──────────
+        # Find the slab element for this assembly to get its finish_layers.
+        _parent_elem = next(
+            (e for e in elements if int(getattr(e, "id", -1)) == assembly.parent_id),
+            None,
+        )
+        _f_layers = list(getattr(_parent_elem, "finish_layers", []) or []) if _parent_elem else []
+        if not _f_layers:
+            _ft = float(getattr(_parent_elem, "finish_thickness_mm", 0.0) or 0.0) if _parent_elem else 0.0
+            if _ft > 0:
+                _f_layers = [{"name": "仕上げ", "thickness": _ft}]
+
+        if _f_layers:
+            def _finish_layer_color(name: str):
+                name_lower = name.lower()
+                for keywords, rgba in _NEVIS_FINISH_LAYER_COLORS:
+                    if any(kw.lower() in name_lower for kw in keywords):
+                        return QColor(*rgba)
+                return QColor(*_NEVIS_FINISH_LAYER_DEFAULT_COLOR)
+
+            _layer_z_offset = 0.0
+            for _lay in _f_layers:
+                _lay_thick = float(_lay.get("thickness", 0.0))
+                if _lay_thick <= 0:
+                    continue
+                _lay_color = _finish_layer_color(str(_lay.get("name", "")))
+                _lay_pen = QPen(QColor(80, 80, 80, 100), 0.5, Qt.SolidLine)
+                _lay_brush = QBrush(_lay_color)
+                for _piece in assembly.pieces:
+                    _px0 = _real_x_to_scene(_piece.start_mm)
+                    _px1 = _real_x_to_scene(_piece.end_mm)
+                    _lay_top_mm = _piece.top_elevation + _layer_z_offset + _lay_thick
+                    _lay_bot_mm = _piece.top_elevation + _layer_z_offset
+                    _lay_yt = gl_y - _lay_top_mm * EL_SCALE
+                    _lay_yb = gl_y - _lay_bot_mm * EL_SCALE
+                    _lay_rect = QRectF(QPointF(_px0, _lay_yt), QPointF(_px1, _lay_yb)).normalized()
+                    _lay_item = scene.addRect(_lay_rect, _lay_pen, _lay_brush)
+                    _lay_item.setZValue(5)
+                # Layer thickness label (right edge of first piece)
+                if assembly.pieces:
+                    _lp = assembly.pieces[0]
+                    _lx = _real_x_to_scene(_lp.end_mm)
+                    _ly_mid = gl_y - (_lp.top_elevation + _layer_z_offset + _lay_thick / 2.0) * EL_SCALE
+                    _lay_name = str(_lay.get("name", ""))
+                    _lay_label_text = f"{_lay_name} {_lay_thick:.0f}"
+                    _lay_lbl = scene.addText(_lay_label_text, QFont("Segoe UI", 6))
+                    _lay_lbl.setDefaultTextColor(QColor(40, 40, 100, 200))
+                    _lay_lbl.setPos(_lx + 2, _ly_mid - 7)
+                    _lay_lbl.setZValue(6)
+                _layer_z_offset += _lay_thick
+        # ── End finish layers ────────────────────────────────────────────────
 
     for element in elements:
         if (getattr(element, "element_type", None) == "slab"

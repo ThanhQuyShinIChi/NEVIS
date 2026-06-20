@@ -40,12 +40,21 @@ class StructuralElement:
     overlap_width: float = 0.0  # mm, overlap with parent slab edge
 
     # Floor finish (lớp hoàn thiện sàn)
-    # finish_thickness_mm > 0 → FL = top_elevation + finish_thickness_mm
-    # Ví dụ: 置き床 168+20+12=200mm; gạch trực tiếp 30mm; gỗ trực tiếp 15mm
+    # finish_layers: list of {"name": str, "thickness": float}  — ordered bottom→top
+    # finish_thickness_mm: fallback total when finish_layers is empty
+    # Use get_finish_thickness(elem) to always get the correct total.
+    finish_layers: list = field(default_factory=list)
     finish_thickness_mm: float = 0.0
 
 
 VALID_TYPES = {"slab", "beam", "column", "wall_rc", "wall_lgs", "ceiling"}
+
+
+def get_finish_thickness(e: StructuralElement) -> float:
+    """Total floor-finish thickness: sum of layers if any, else finish_thickness_mm."""
+    if e.finish_layers:
+        return sum(float(lay.get("thickness", 0.0)) for lay in e.finish_layers)
+    return float(e.finish_thickness_mm)
 
 _DEFAULTS = StructuralElement(id=0, element_type="slab")
 
@@ -69,6 +78,7 @@ def structural_element_to_dict(e: StructuralElement) -> dict:
         "is_stepped": e.is_stepped,
         "parent_slab_id": e.parent_slab_id,
         "overlap_width": e.overlap_width,
+        "finish_layers": list(e.finish_layers),
         "finish_thickness_mm": e.finish_thickness_mm,
     }
 
@@ -119,5 +129,10 @@ def structural_element_from_dict(d: dict) -> StructuralElement:
         is_stepped=_b("is_stepped", False),
         parent_slab_id=_i("parent_slab_id", -1),
         overlap_width=_f("overlap_width", 0.0),
+        finish_layers=[
+            {"name": str(lay.get("name", "")), "thickness": float(lay.get("thickness", 0.0))}
+            for lay in d.get("finish_layers", [])
+            if isinstance(lay, dict)
+        ],
         finish_thickness_mm=_f("finish_thickness_mm", 0.0),
     )
