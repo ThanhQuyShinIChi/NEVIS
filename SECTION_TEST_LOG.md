@@ -396,6 +396,20 @@ Nhung canh bao nay chua duoc ket luan la nguyen nhan loi mat cat.
 - Full suite: `245 passed, 38 warnings`; `git diff --check` dat.
 - Chua commit/push; cho GUI retest.
 
+### 2026-06-20 - Task 22c Clash Detection UI + GL Datum + Section Refresh
+
+- Them `run_clash_check(self)` vao `MainWindow`: adapter Edge→_PipeAdapter, goi `find_clashes()`,
+  luu `_clash_pipe_keys`, cap nhat canvas.
+- `paintEvent` ong MEP: overlay do (`#dc1e1e` 14px + `#ff5050` 3px, z=16/17) cho ong co key
+  trong `_clash_pipe_keys`.
+- Nut `⚠ Kiem tra clash` do dam trong compact structural panel, sau nut Mat cat.
+- GL datum: section render kiem tra `level_datums` co `datum_type="GL"` → ve duong xanh la
+  (`DashDotLine`) tai dung `elevation_mm` tu SL±0.
+- Section refresh hook: `PreviewView.draw_model` duoc patch; moi lan ve mat bang → schedule
+  `QTimer.singleShot(0)` de refresh scene mat cat neu panel dang mo (debounce mot cycle).
+- Full suite: `274 passed, 38 warnings` — khong regression.
+- Chua commit/push; cho GUI retest.
+
 ### 2026-06-20 - Responsive preview toolbar va checkbox indicator
 
 - Anh loi: `codex-clipboard-b730361e-0155-4f95-a1da-7b3631afe901.png`.

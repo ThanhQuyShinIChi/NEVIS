@@ -2275,6 +2275,11 @@ class PreviewView(QGraphicsView):
                 self._add_pipe_line(x1, y1, x2, y2, QColor(255, 185, 55, 180), 13, ("edge", e.key), cosmetic=True, z=14)
                 self._add_pipe_line(x1, y1, x2, y2, QColor(255, 245, 120), 3, ("edge", e.key), cosmetic=True, z=15)
 
+            # Clash highlight: red overlay when pipe key is in clash results.
+            if e.key in getattr(self.mainwin, "_clash_pipe_keys", set()):
+                self._add_pipe_line(x1, y1, x2, y2, QColor(220, 30, 30, 160), 14, ("edge", e.key), cosmetic=True, z=16)
+                self._add_pipe_line(x1, y1, x2, y2, QColor(255, 80, 80), 3, ("edge", e.key), cosmetic=True, z=17)
+
         # 支持バンド / pipe support bands.  Draw after pipes and before fittings.
         if getattr(self.mainwin, "support_enabled", False) and getattr(self.mainwin, "support_visible", False):
             self._draw_support_bands()
@@ -30438,14 +30443,35 @@ def _nevis_t29_render_section(mainwin, scene, start, end, side):
     title.setPos(MARGIN_LEFT, 2)
     title.setZValue(10)
 
-    # SL is the default structural datum. GL is an additional ground-floor datum.
-    cut_line = scene.addLine(MARGIN_LEFT - 10, gl_y, MARGIN_LEFT + VIEW_WIDTH + 10, gl_y,
+    # SL±0 is the primary structural datum for every floor.
+    sl_y = gl_y  # alias — code below uses sl_y to be explicit
+    cut_line = scene.addLine(MARGIN_LEFT - 10, sl_y, MARGIN_LEFT + VIEW_WIDTH + 10, sl_y,
                              QPen(QColor(180, 0, 0), 1.0, Qt.DashLine))
     cut_line.setZValue(8)
-    gl_label = scene.addText("SL±0", QFont("Segoe UI", 7))
-    gl_label.setDefaultTextColor(QColor(180, 0, 0))
-    gl_label.setPos(2, gl_y - 16)
-    gl_label.setZValue(9)
+    sl_label = scene.addText("SL±0", QFont("Segoe UI", 7))
+    sl_label.setDefaultTextColor(QColor(180, 0, 0))
+    sl_label.setPos(2, sl_y - 16)
+    sl_label.setZValue(9)
+
+    # GL (ground level) — drawn only when the model has a datum with datum_type="GL".
+    _level_datums = getattr(mainwin.model, "level_datums", {}) or {}
+    _gl_datum = next(
+        (d for d in _level_datums.values() if getattr(d, "datum_type", "") == "GL"),
+        None,
+    )
+    if _gl_datum is not None:
+        _gl_elev_mm = float(getattr(_gl_datum, "elevation_mm", 0.0) or 0.0)
+        _gl_y = sl_y - _gl_elev_mm * EL_SCALE
+        gl_line = scene.addLine(
+            MARGIN_LEFT - 10, _gl_y, MARGIN_LEFT + VIEW_WIDTH + 10, _gl_y,
+            QPen(QColor(100, 140, 60), 1.0, Qt.DashDotLine),
+        )
+        gl_line.setZValue(8)
+        _gl_name = getattr(_gl_datum, "name", "") or "GL"
+        gl_text_item = scene.addText(_gl_name, QFont("Segoe UI", 7))
+        gl_text_item.setDefaultTextColor(QColor(80, 120, 40))
+        gl_text_item.setPos(2, _gl_y - 16)
+        gl_text_item.setZValue(9)
 
     if not elements:
         return
@@ -30938,6 +30964,62 @@ def _nevis_preview_toolbar_responsive(self, compact: bool, narrow: bool = False)
         QTimer.singleShot(0, lambda: _nevis_structural_panel_place_section_button(self))
 
 
+def _nevis_run_clash_check(self):
+    """Chay 2.5D clash detection, luu ket qua vao self._clash_pipe_keys va cap nhat canvas."""
+    from modules.clash_detection import find_clashes
+
+    model = getattr(self, "model", None)
+    if model is None:
+        return
+
+    elements = list(getattr(model, "structural_elements", []) or [])
+    edges = list(getattr(model, "edges", []) or [])
+    nodes = getattr(model, "nodes", {})
+
+    class _PipeAdapter:
+        def __init__(self, edge, n1, n2):
+            self.id = edge.key
+            sz = edge.start_z
+            ez = edge.end_z
+            self.z_elevation = (
+                ((sz or 0.0) + (ez or sz or 0.0)) / 2.0
+                if sz is not None
+                else (ez or 0.0)
+            )
+            self.points = [(n1.x, n1.y), (n2.x, n2.y)]
+
+    adapted = []
+    for e in edges:
+        n1 = nodes.get(e.a)
+        n2 = nodes.get(e.b)
+        if n1 is None or n2 is None:
+            continue
+        adapted.append(_PipeAdapter(e, n1, n2))
+
+    results = find_clashes(adapted, elements)
+    self._clash_pipe_keys = {r.pipe_id for r in results}
+    self._clash_results = results
+
+    canvas = getattr(self, "canvas", None)
+    if canvas is not None:
+        canvas.update()
+
+    count = len(results)
+    if count:
+        self.statusBar().showMessage(
+            self.tr("clash_found").format(count) if "{" in self.tr("clash_found") else
+            f"⚠ {count} xung đột phát hiện — ống đỏ trên bản vẽ"
+        )
+    else:
+        self.statusBar().showMessage(
+            self.tr("clash_none") if hasattr(self, "_tr_map") else
+            "✓ Không có xung đột"
+        )
+
+
+MainWindow.run_clash_check = _nevis_run_clash_check
+
+
 def _nevis_structural_panel_build_ui(self):
     result = _NEVIS_STRUCTURAL_PANEL_PREV_BUILD_UI(self)
     group = getattr(self, "g_structural_workspace", None)
@@ -30992,6 +31074,22 @@ def _nevis_structural_panel_build_ui(self):
         section_button.setMaximumHeight(31)
         section_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         compact_layout.addWidget(section_button)
+
+    # Clash detection button.
+    if not hasattr(self, "_btn_clash_check"):
+        self._btn_clash_check = QPushButton()
+        self._btn_clash_check.setMinimumHeight(31)
+        self._btn_clash_check.setMaximumHeight(31)
+        self._btn_clash_check.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._btn_clash_check.setStyleSheet(
+            "QPushButton { background:#c62828; color:white; font-weight:bold; border-radius:4px; }"
+            "QPushButton:hover { background:#e53935; }"
+            "QPushButton:pressed { background:#b71c1c; }"
+        )
+        self._btn_clash_check.clicked.connect(lambda: self.run_clash_check())
+    self._btn_clash_check.setText(self.tr("clash_check_btn") if hasattr(self, "_tr_map") else "⚠ Kiểm tra clash")
+    self._btn_clash_check.setParent(compact)
+    compact_layout.addWidget(self._btn_clash_check)
 
     # A 3mm construction snap step replaces the old 303mm module preset.
     grid_box = QWidget(compact)
@@ -31351,6 +31449,66 @@ _nevis_section_debug(
     commit="6dce023",
     log_version=1,
 )
+
+
+# =============================================================================
+# SHARED MODEL REFRESH — section view auto-updates when plan model changes
+# =============================================================================
+
+_NEVIS_PREV_DRAW_MODEL = PreviewView.draw_model
+
+
+def _nevis_draw_model_with_section_refresh(self):
+    result = _NEVIS_PREV_DRAW_MODEL(self)
+    mw = getattr(self, "mainwin", None)
+    if mw is None:
+        return result
+    container = getattr(mw, _T29_SECTION_SPLITTER, None)
+    if container is None:
+        return result
+    try:
+        if not container.isVisible():
+            return result
+    except RuntimeError:
+        return result
+    # Debounce: schedule one refresh per event loop cycle, skip if already pending.
+    if getattr(mw, "_section_refresh_pending", False):
+        return result
+    mw._section_refresh_pending = True
+
+    def _do_refresh():
+        mw._section_refresh_pending = False
+        try:
+            container2 = getattr(mw, _T29_SECTION_SPLITTER, None)
+            if container2 is None or not container2.isVisible():
+                return
+        except RuntimeError:
+            return
+        start = getattr(mw, _T29_SECTION_START, None)
+        end = getattr(mw, _T29_SECTION_END, None)
+        side = getattr(mw, "_section_view_side", None)
+        if start is None or end is None or side is None:
+            return
+        sec_view = getattr(mw, _T29_SECTION_VIEW, None)
+        if sec_view is None:
+            return
+        try:
+            sec_scene = sec_view.scene()
+            if sec_scene is None:
+                return
+            sec_scene.clear()
+            _nevis_t29_render_section(mw, sec_scene, start, end, side)
+            r = sec_scene.itemsBoundingRect()
+            if not r.isEmpty():
+                sec_scene.setSceneRect(r.adjusted(-30, -30, 30, 30))
+        except RuntimeError:
+            pass
+
+    QTimer.singleShot(0, _do_refresh)
+    return result
+
+
+PreviewView.draw_model = _nevis_draw_model_with_section_refresh
 
 
 # =============================================================================

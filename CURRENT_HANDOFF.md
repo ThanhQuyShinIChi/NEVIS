@@ -1,6 +1,6 @@
 # NEVIS Current Handoff
 
-Cap nhat: 2026-06-20 (Asia/Bangkok)
+Cap nhat: 2026-06-20 (Asia/Bangkok) — sau phien Task 22c + GL datum + Section refresh
 
 ## Doc truoc khi lam
 
@@ -14,12 +14,10 @@ Cap nhat: 2026-06-20 (Asia/Bangkok)
 
 - Repo dang lam: `D:\nevis2.03`.
 - Branch: `feature/building-space-model`.
-- HEAD truoc cac thay doi chua commit: `6dce023` (Task 29f).
-- Local dang ahead `origin/feature/building-space-model` 17 commit, behind 0.
+- Commit moi nhat: `a269faa` (Task 22 Clash Detection).
 - Remote: `https://github.com/ThanhQuyShinIChi/NEVIS.git`.
-- Git da cai: `2.54.0.windows.1`.
-- Chua commit/push cac thay doi trong phien nay.
-- Nguoi dung yeu cau dong bo len Git sau khi cong viec da hoan thien va duoc xac nhan.
+- Da push len remote (18 commits ahead cua origin truoc phien nay; sau push da dong bo).
+- Thay doi trong phien nay (chua commit): Task 22c UI + GL datum + Section refresh.
 
 ## Muc tieu san pham da thong nhat
 
@@ -27,79 +25,47 @@ Cap nhat: 2026-06-20 (Asia/Bangkok)
 - Mat cat phai dung kich thuoc/ty le that, phuc vu clash detection va xuat JWW.
 - San cha va san giat cap la mot cau kien lien tuc, khong phai hai khoi mau khac nhau.
 - Man hinh lam viec uu tien hinh hoc/mau ro; hatch chi tiet de danh cho profile xuat JWW.
-- Task 22 Clash Detection lam sau khi workflow mat cat on dinh.
+- GL la datum bo sung cho tang 1, khong thay the SL.
+- Clash Detection: ong MEP xuyen ket cau hien do, phat hien tu dong khi bam nut.
 
-## Da hoan thanh trong phien nay
+## Da hoan thanh trong phien nay (chua commit)
 
-### Chan doan va do on dinh
+### Task 22c — Clash Detection UI
 
-- Them JSON Lines diagnostic log: `section_debug.log`.
-- Log workspace, tao san, san giat cap, click duong cat, render, scene, splitter, fit va exception.
-- Sua `QCursor` import.
-- Gan `QGraphicsScene` vao `section_container`; mat cat khong con hien roi bien mat.
+- `_nevis_run_clash_check(self)` monkey-patched vao `MainWindow.run_clash_check`.
+- Adapter: `Edge` → `_PipeAdapter` voi `id=e.key`, `z_elevation = avg(start_z, end_z)`,
+  `points = [(n1.x, n1.y), (n2.x, n2.y)]`.
+- `self._clash_pipe_keys = set[str]` luu key cua ong bi clash.
+- Nut `⚠ Kiem tra clash` mau do trong structural panel (compact layout, sau nut Mat cat).
+- `paintEvent`: overlay do dam (`#dc1e1e`, 14px + `#ff5050`, 3px) tren ong co key trong `_clash_pipe_keys`, z=16/17 (tren highlight chon).
+- `_clash_pipe_keys` la `getattr(mainwin, "_clash_pipe_keys", set())` — an toan neu chua chay.
 
-### Hinh hoc mat cat san
+### GL Datum bo sung
 
-- `modules/section_view.py` co pure geometry:
-  - `polygon_cut_intervals()`.
-  - `build_unified_slab_sections()`.
-  - `SectionSlabPiece`, `SectionOverlapBand`, `SectionSlabAssembly`.
-- San cha bi cat bo trong core cua san giat cap.
-- San thap keo vao san cha theo `overlap_width`.
-- Renderer union cac piece thanh mot `QPainterPath` cung mau/net.
-- Khong hatch, khong ve net dut overlap noi bo.
-- Chi mot nhan loai San; cao do tung mat van co marker.
+- Section render kiem tra `level_datums` co entry `datum_type="GL"` khong.
+- Neu co: ve duong xanh la (`#64883c`) net dut-cham (`DashDotLine`) tai dung cao do `GL.elevation_mm` tinh tu SL±0.
+- Nhan hien ten datum (VD "GL" hoac ten nguoi dung tu dat).
+- Khong thay doi SL line — SL±0 van la datum chinh.
 
-### Ty le va datum
+### Shared Section Refresh
 
-- Mot `GEOMETRY_SCALE = 0.1 scene/mm` dung cho ca truc ngang va cao do.
-- `fitInView` chi zoom dong nhat, khong lam meo ty le.
-- Da do: san 6055mm -> 605.5 scene; overlap 500mm -> 50 scene; day 150mm -> 15 scene.
-- Datum mac dinh la `SL±0`, khong phai `GL±0`.
-- GL sau nay la datum bo sung cho tang 1, khong thay the SL.
-- Reject duong cat ngan hon 10mm de tranh scene hang trieu don vi.
-
-### Marker va section viewport
-
-- Marker cao do la tam giac do chuc xuong, dinh cham dung mep duoc do.
-- Marker san thap dung `core_start`, khong dung dau overlap extension.
-- Text cao do dat ben phai marker (`±0`, `-100`, ...).
-- Section viewport co wheel zoom tai chuot, limit 0.02..50.
-- Left-drag pan bang `ScrollHandDrag`.
-- Scene items khong chan thao tac pan.
-
-### Sidebar Ket cau
-
-- Panel rong 220px.
-- 6 loai cau kien: 2 cot x 3 hang.
-- Ve/Xoa: 2 cot.
-- San giat cap va Mat cat: moi nut mot hang.
-- Nhom truc: Them/Xoa 2 cot; doi prefix mot hang.
-- Buoc bat/luoi mac dinh doi tu 303mm thanh 3mm.
-- O nhap 3mm luon hien; combo preset cu an nhung giu de tuong thich.
-
-### Responsive toolbar va checkbox
-
-- Toolbar Xem ban ve chia 3 hang (compact) hoac 5 hang (narrow).
-- Xem chi tiet / Hoan tac / Fit khong con phong rong bat thuong.
-- Nut San giat cap legacy da an khoi toolbar.
-- Nut Mat cat luon o sidebar sau resize.
-- Them `Ico/checkmark.svg`.
-- Checkbox checked co nen xanh va tick trang cho ca Hien nen/Hien luoi.
+- `PreviewView.draw_model` duoc monkey-patch: sau moi lan ve mat bang, neu section panel dang hien thi, schedule refresh mat cat qua `QTimer.singleShot(0)`.
+- Debounce: chi mot refresh moi event loop cycle (`_section_refresh_pending` flag).
+- Refresh giu nguyen zoom/pan (chi clear + re-render scene, khong `fitInView` lai).
+- Khong refresh neu section chua mo hoac container da bi destroy.
 
 ## File da thay doi
 
-- `Nevis_no_ui.py`: renderer, diagnostics, section viewport, marker, sidebar va responsive toolbar.
-- `modules/section_view.py`: pure unified slab-section geometry.
-- `tests/test_section_view.py`: test scanline, parent replacement, overlap va toa do GUI that.
-- `Ico/checkmark.svg`: tick trang cho Qt checkbox.
-- `SECTION_TEST_LOG.md`: lich su chi tiet.
+- `Nevis_no_ui.py`: Task 22c overlay, GL datum, section refresh hook, clash check method, clash button.
+- `modules/clash_detection.py`: da commit tai `a269faa`.
+- `tests/test_clash_detection.py`: da commit tai `a269faa`.
 - `CURRENT_HANDOFF.md`: file ban giao nay.
+- `SECTION_TEST_LOG.md`: cap nhat them muc tieu da hoan thanh.
 
 ## Xac minh da chay
 
-- Test lien quan: `51 passed`.
-- Full suite:
+- Full suite: `274 passed, 38 warnings` — khong co regression.
+- Lenh chay:
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
@@ -107,28 +73,23 @@ $env:PYTHONIOENCODING='utf-8'
 python -m pytest tests/ -q --ignore=tests/test_elevation_preview_ui.py --ignore=tests/test_node_z_edge_slope.py
 ```
 
-- Ket qua cuoi: `245 passed, 38 warnings`.
-- `git diff --check` dat; chi co canh bao LF/CRLF cua Git.
-- Warnings con lai la PySide signal disconnect va API `QMouseEvent.pos()` deprecated, chua gay fail.
+## Trang thai GUI
 
-## Trang thai GUI cuoi
-
-- Nguoi dung da xac nhan sidebar/responsive/checkmark: `ok roi`.
-- Phien GUI cuoi PID `19112`; tai thoi diem ban giao tien trinh da duoc nguoi dung dong.
-- Anh smoke trong `%TEMP%`:
-  - `nevis_unified_section_smoke.png`.
-  - `nevis_section_marker_smoke.png`.
-  - `nevis_structural_panel_compact_v3.png`.
-  - `nevis_responsive_toolbar_1000_v2.png`.
+- Chua retest GUI cho Task 22c, GL datum va section refresh.
+- Can nguoi dung:
+  1. Chay app: `python -B Nevis_no_ui.py`
+  2. Ve san + san giat cap + ong MEP co cao do Z
+  3. Bam `⚠ Kiem tra clash` trong panel Ket cau
+  4. Xac nhan ong co clash hien do, status bar hien so luong
+  5. Them GL datum trong panel Level Datums (type = GL, elevation = -300 chan. tang)
+  6. Ve mat cat — xac nhan duong GL hien mau xanh la
 
 ## Viec tiep theo
 
-1. Chot/commit/push lo thay doi mat cat + UI khi nguoi dung yeu cau.
-2. Thiet ke shared selection/model refresh giua mat bang va mat cat.
-3. Them cong cu edit phu hop trong mat cat, khong sao chep cach ve mat bang.
-4. Them GL rieng cho tang 1 khi model co floor/level metadata.
-5. Sau khi mat cat on dinh: Task 22 Clash Detection 2.5D.
-6. Sau do: profile xuat JWW cho hatch/layer/net in.
+1. Nguoi dung retest GUI (cac diem tren).
+2. Commit + push sau khi xac nhan.
+3. Kiem tra overlap display trong mat cat (con pending tu phien truoc).
+4. JWW export profile (hatch, layer, net in) — dai han.
 
 ## Lenh tiep tuc nhanh
 
